@@ -18,10 +18,11 @@ from scipy.integrate import simps
 
 def _make_A(phi, r):
     phi_spline = wrapped_spline(phi, order=3, nknots=6).T
-
     r_spline = np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)', {'x':r, 'knots':np.linspace(0.25, 4.25, 8)}))
+
     # Put the ONES at the end
     r_spline = np.hstack([r_spline[:, 1:], r_spline[:, :1]])
+
     A = np.hstack([(np.atleast_2d(phi_spline[:, idx]).T * r_spline[:, 3:]) for idx in range(len(phi_spline.T))])
     A = np.hstack([r_spline[:, :3], A])
     return sparse.csr_matrix(A)
@@ -111,6 +112,7 @@ class Collection(object):
 
 
         slocs = np.asarray([tpfs[0].wcs.wcs_world2pix(np.vstack([sources.ra[idx], sources.dec[idx]]).T, 0.5)[0] for idx in range(len(sources))])
+
         sources['y'] = slocs[:, 1] + tpfs[0].row
         sources['x'] = slocs[:, 0] + tpfs[0].column
 
@@ -132,6 +134,8 @@ class Collection(object):
         self.close_mask =  (r < radius_limit)
 #        close_to_pixels = (np.hypot(self.dx, self.dy) < 1).sum(axis=1)
 
+
+        # Identifing targets that are ON silicon
         surrounded = np.zeros(len(sources), bool)
         for t in np.arange(self.ntpfs):
             xok = (np.asarray(sources['x']) > self.locs[0, self.unw[0] == t][:, None]) & (np.asarray(sources['x']) < (self.locs[0, self.unw[0] == t][:, None] + 1))
@@ -162,6 +166,17 @@ class Collection(object):
         for tdx in range(len(self.flux)):
             self.xcents[tdx] = np.average(dx1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data))
             self.ycents[tdx] = np.average(dy1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data))
+
+        d = SkyCoord(self.sources.ra, self.sources.dec, unit='deg')
+        close = match_coordinates_3d(d, d, nthneighbor=2)[1].to('arcsecond').value < 8
+        sources = SkyCoord(self.sources.ra, self.sources.dec, unit=('deg'))
+        tpfloc = SkyCoord([SkyCoord(tpf.ra, tpf.dec, unit='deg') for tpf in tpfs])
+        idx = np.asarray([match_coordinates_3d(loc, sources)[0] for loc in tpfloc])
+        jdx = np.asarray([match_coordinates_3d(source, tpfloc)[0] for source in sources])
+        self.fresh = ~np.in1d(np.arange(0, self.nsources), idx)
+
+        self.mean_model = self._build_model()
+        self._fit_model()
 
     def _find_PSF_edge(self, radius_limit=6, flux_limit=1e4):
         """ Find the edges of the PSF as a function of flux"""
@@ -196,7 +211,6 @@ class Collection(object):
         self.mask =  (r < radius[:, None])
 #        self.mask &= (self.mask.sum(axis=0) == 1)
 
-        self.mean_model = self._build_model()
 
     def __repr__(self):
         return f'Collection [{self.ntpfs} TPFs, {len(self.sources)} Sources]'
@@ -231,7 +245,7 @@ class Collection(object):
         # Find the distance from the source in polar coordinates, for every source.
         # We use only pixels near sources for this.
         r = np.hypot(self.dx[self.mask] - xcent_avg, self.dy[self.mask] - ycent_avg)
-        phi = np.arctan2(self.dx[self.mask] - xcent_avg, self.dy[self.mask] - ycent_avg)
+        phi = np.arctan2(self.dy[self.mask] - ycent_avg, self.dx[self.mask] - xcent_avg)
 
         # Bin the data in radius/phi space.
         k = np.isfinite(f)
@@ -267,10 +281,11 @@ class Collection(object):
 
         # These weights now give the best fit spline model to the data.
         psf_w = np.linalg.solve(sigma_w_inv, B)
+        self._psf_w = psf_w
 
         # Build the r and phi for -all- pixels
         r = np.hypot(self.dx - xcent_avg, self.dy - ycent_avg)
-        phi = np.arctan2(self.dx - xcent_avg, self.dy - ycent_avg)
+        phi = np.arctan2(self.dy - ycent_avg, self.dx - xcent_avg)
 
         # We then build the same design matrix
         Ap = _make_A(phi[self.close_mask], r[self.close_mask])
@@ -305,7 +320,7 @@ class Collection(object):
 
         prior_mu = self.gv[:, 0]#np.zeros(A.shape[1])
         prior_sigma = np.ones(A.shape[1]) * 10 * self.gv[:, 0]
-        for tdx in tqdm(np.arange(len(self.time))):
+        for tdx in tqdm(np.arange(len(self.time)), desc='Fitting PSF model'):
             k = np.isfinite(self.flux[tdx])
             sigma_w_inv = A[k].T.dot(A[k].multiply(1/self.flux_err[tdx][k, None]**2)).toarray()
             sigma_w_inv += np.diag(1/(prior_sigma ** 2))
@@ -321,7 +336,7 @@ class Collection(object):
         sap = np.zeros((self.mask.shape[0], self.time.shape[0]))
         sap_e = np.zeros((self.mask.shape[0], self.time.shape[0]))
         m = sparse.csr_matrix(self.mask.astype(float))
-        for tdx in tqdm(range(self.time.shape[0])):
+        for tdx in tqdm(range(self.time.shape[0]), desc='Simple SAP flux'):
             l = m.multiply(self.flux[tdx])
             le = m.multiply(self.flux_err[tdx])
             l.data[~np.isfinite(l.data)] = 0

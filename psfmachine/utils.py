@@ -19,6 +19,14 @@ from matplotlib import animation
 
 
 def get_sources_vizier(ra, dec, radius=None, height=None, width=None, magnitude_limit=14, epoch=2454833):
+
+    """
+    Deprecated
+
+    Use `get_sources`
+
+    This is slow
+    """
     if radius is not None:
         if not hasattr(radius, 'unit'):
             radius = Angle(radius, "deg")
