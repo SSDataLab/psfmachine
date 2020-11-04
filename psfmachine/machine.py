@@ -91,11 +91,15 @@ class Machine(object):
         self.sources = self.sources[clean]
 
     def _get_source_mask(self):
-        #
+        """
+        Mask of shape nsources x number of pixels, one where flux from a source exists
+        """
         return source_mask
 
     def _get_uncontaminated_pixel_mask(self):
-        #
+        """
+        Mask of shape npixels (maybe by nt) where not saturated, not faint, not contaminated etc
+        """
         return uncontaminated_pixel_mask
 
     def _get_centroids(self):
@@ -108,18 +112,39 @@ class Machine(object):
 
 
     def _build_time_variable_model():
+        return
 
     def _fit_time_variable_model():
-
+        return
 
     def build_model():
+        """
+        Builds a sparse model matrix of shape nsources x npixels
+
+        Builds the model using self.uncontaminated_pixel_mask
+        """
         self._build_time_variable_model()
         self.model =
 
     def fit_model():
+        """
+        Fits sparse model matrix to all flux values iteratively in time
+
+        Fits PSF model first using gaia flux, then updates `self.flux_estimates`
+        Second iteration, uses best fit flux estimates to find PSF shape
+
+        Fits model using self.source_mask
+        """
         self._fit_time_variable_model()
         self.model_flux =
 
+
+
+    def diagnostic_plotting(self):
+        """
+        Some helpful diagnostic plots
+        """
+    return
 
     @static_method
     def from_TPFs(tpfs):
