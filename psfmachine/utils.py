@@ -18,39 +18,6 @@ import astropy.units as u
 from matplotlib import animation
 
 
-def get_sources_vizier(ra, dec, radius=None, height=None, width=None, magnitude_limit=14, epoch=2454833):
-
-    """
-    Deprecated
-
-    Use `get_sources`
-
-    This is slow
-    """
-    if radius is not None:
-        if not hasattr(radius, 'unit'):
-            radius = Angle(radius, "deg")
-    if height is not None:
-        if not hasattr(height, 'unit'):
-            height = Angle(height, "deg")
-    if width is not None:
-        if not hasattr(width, 'unit'):
-            width = Angle(width, "deg")
-
-    c1 = SkyCoord(ra, dec, frame='icrs', unit='deg')
-    Vizier.ROW_LIMIT = -1
-
-    result = Vizier.query_region(c1, catalog=["I/345/gaia2"],
-                                 radius=radius, height=height, width=width)["I/345/gaia2"].to_pandas()
-    result = result[result.Gmag < magnitude_limit]
-    radecs = np.vstack([result['RA_ICRS'], result['DE_ICRS']]).T
-    year = ((epoch - Time(2457206.375, format='jd'))).to(u.year)
-    pmra = ((np.nan_to_num(np.asarray(result.pmRA)) * u.milliarcsecond/u.year) * year).to(u.deg).value
-    pmdec = ((np.nan_to_num(np.asarray(result.pmDE)) * u.milliarcsecond/u.year) * year).to(u.deg).value
-    result.RA_ICRS += pmra
-    result.DE_ICRS += pmdec
-    return result
-
 @functools.lru_cache()
 def get_sources(c, magnitude_limit=18):
     """ Will find gaia sources using a TAP query, accounting for proper motions."""
@@ -85,20 +52,30 @@ f"""SELECT solution_id, designation, source_id, random_index, ref_epoch, coord1(
 
 
 
-def _make_A(phi, r):
-    phi_spline = wrapped_spline(phi, order=3, nknots=8).T
+def _make_A(phi, r, cut_r=5):
+    """ Make spline design matrix in polar coordinates """
+    phi_spline = sparse.csr_matrix(psf.utils.wrapped_spline(phi, order=3, nknots=6).T)
+    r_knots = np.linspace(0.25**0.5, 5**0.5, 8)**2
+    r_spline = sparse.csr_matrix(np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)',
+                                      {'x':list(r), 'knots':r_knots})))
+    X = sparse.hstack([phi_spline.multiply(r_spline[:, idx]) for idx in range(r_spline.shape[1])], format='csr')
+    cut = np.arange(phi_spline.shape[1] * 1, phi_spline.shape[1]*cut_r)
+    a = list(set(np.arange(X.shape[1])) - set(cut))
+    X1 = sparse.hstack([X[:, a], r_spline[:, 1:cut_r], sparse.csr_matrix(np.ones(X.shape[0])).T], format='csr')
+    return X1
 
 
-    r_spline = np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)', {'x':r, 'knots':np.linspace(0.25, 3.25, 3)}))
-#    r_spline = lk.designmatrix.create_spline_matrix(r, knots=list(np.linspace(0.25, 3.25, 3)), degree=3).append_constant().X
-    r_spline = np.hstack([r_spline[:, 1:], r_spline[:, :1]])
-    A = np.hstack([(np.atleast_2d(phi_spline[:, idx]).T * r_spline[:, 3:]) for idx in range(len(phi_spline.T))])
-    A = np.hstack([A, r_spline[:, :3]])
+def _make_A_cartesian(x, y, cut_r=5, n_knots=8):
+    """ Make spline design matrix in cartesian coordinates """
+    x_knots = np.linspace(-4, 4, n_knots)
+    x_spline = sparse.csr_matrix(np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)',
+                                      {'x':list(x), 'knots':x_knots})))
+    y_knots = np.linspace(-4, 4, n_knots)
+    y_spline = sparse.csr_matrix(np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)',
+                                      {'x':list(y), 'knots':y_knots})))
+    X = sparse.hstack([x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])], format='csr')
+    return X
 
-#    r_spline = np.vstack([r**0, r**1]).T
-#    A = np.hstack([(np.atleast_2d(phi_spline[:, idx]).T * r_spline) for idx in range(len(phi_spline.T))])
-
-    return sparse.csr_matrix(A)
 
 def wrapped_spline(input_vector, order=2, nknots=10):
     """ This took me forever. MUST BE BETWEEN -PI and PI"""

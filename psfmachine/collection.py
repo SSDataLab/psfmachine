@@ -16,16 +16,7 @@ from patsy import dmatrix
 from scipy.integrate import simps
 
 
-def _make_A(phi, r):
-    phi_spline = wrapped_spline(phi, order=3, nknots=6).T
-    r_spline = np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)', {'x':r, 'knots':np.linspace(0.25, 4.25, 8)}))
 
-    # Put the ONES at the end
-    r_spline = np.hstack([r_spline[:, 1:], r_spline[:, :1]])
-
-    A = np.hstack([(np.atleast_2d(phi_spline[:, idx]).T * r_spline[:, 3:]) for idx in range(len(phi_spline.T))])
-    A = np.hstack([r_spline[:, :3], A])
-    return sparse.csr_matrix(A)
 
 class Collection(object):
     """ Class to work with TPF collections. """
