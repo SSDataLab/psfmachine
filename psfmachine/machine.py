@@ -4,7 +4,6 @@ import numpy as np
 import lightkurve as lk
 from scipy import sparse
 from astropy.coordinates import SkyCoord, match_coordinates_3d
-from patsy import dmatrix
 
 from .utils import get_sources, wrapped_spline
 
@@ -180,7 +179,7 @@ class Machine(object):
 
     @static_method
     def from_TPFs(tpfs):
-        """
+            """
         Convert TPF input into machine object
         """
         # Checks that all TPFs have identical time sampling
@@ -189,12 +188,13 @@ class Machine(object):
         # 1e-5 d = .8 sec
         if not np.all(dsdt < 1e-5):
             raise ValueError('All TPFs must have same time basis')
+        times = times[0]
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
         flux_err = np.hstack([np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs])
 
         # Remove nan pixels
-        nan_mask = np.isnan(fff)
+        nan_mask = np.isnan(flux)
         flux = np.array([fx[~ma] for fx, ma in zip(flux, nan_mask)])
         flux_err = np.array([fx[~ma] for fx, ma in zip(flux_err, nan_mask)])
 
@@ -203,18 +203,11 @@ class Machine(object):
         flux_err[bad_cadences] *= 1e2
 
         # calculate ra,dec of each pixel
-        # still need to remove pixels with f=nan
-        locs = np.hstack([np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row +
-                         tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs])
-        ra, dec = tpfs[0].wcs.wcs_pix2world(np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 1).T
-
-
-        print('times', times.shape)
-        print('flux', flux.shape)
-        print('flux_err', flux_err.shape)
-        print('ra', ra.shape)
-        print('dec', dec.shape)
-
+        locs = np.hstack([np.mgrid[tpf.column:tpf.column + tpf.shape[2],
+                                   tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs])
+        locs = locs[:, ~np.all(nan_mask, axis=0)]
+        ra, dec = tpfs[0].wcs.wcs_pix2world(np.vstack([(locs[0] - tpfs[0].column),
+                                                       (locs[1] - tpfs[0].row)]).T, 1).T
 
         return Machine(time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec)
 
