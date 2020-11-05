@@ -8,13 +8,11 @@ from patsy import dmatrix
 import lightkurve as lk
 import pyia
 
-
-from astroquery.vizier import Vizier
-Vizier.ROW_LIMIT = -1
-from astropy.coordinates import SkyCoord, Angle
+#from astroquery.vizier import Vizier
+#Vizier.ROW_LIMIT = -1
+#from astropy.coordinates import SkyCoord, Angle
 import astropy.units as u
 from astropy.time import Time
-import astropy.units as u
 from matplotlib import animation
 
 
