@@ -1,3 +1,12 @@
+"""Defines the main XXX object that fit PSF model to sources"""
+
+import numpy as np
+import lightkurve as lk
+from scipy import sparse
+from astropy.coordinates import SkyCoord, match_coordinates_3d
+from patsy import dmatrix
+
+from .utils import get_sources, wrapped_spline
 
 
 # help functions
@@ -5,7 +14,8 @@
 
 class Machine(object):
 
-    def __init__(self, time, flux, flux_err, x, y, ra, dec, radius_limit=20*u.arcsecond):
+    def __init__(self, time, flux, flux_err, ra, dec,
+                 radius_limit=20*u.arcsecond):
         """
 
         Parameters
@@ -44,34 +54,53 @@ class Machine(object):
             nsources
         """
 
-        # Find sources using Gaia
+        # assigning initial attribute
+        self.time = time
+        self.flux = flux
+        self.flux_err = flux_err
+        self.ra = ra
+        self.dec = dec
 
-        #pandas dataframe
-        self.sources = # utils.get_sources(...)
+        # We need this to know which pixels belong to which TPF later.
+        # should we keep this?
+        # ´get_sources()´ needs to know which TPF pixels come from
+        self.unw = np.hstack([np.zeros((tpf.shape[0],
+                                        tpf.shape[1] * tpf.shape[2]),
+                                       dtype=int) + idx for idx,tpf in enumerate(tpfs)])
 
-        # We need a way to pair down the source list to only sources that are 1) separated 2) on the image
+        # Find sources using Gaia to pandas DF
+        c = SkyCoord(self.ra, self.dec, unit='deg')
+        self.sources = get_sources(self, magnitude_limit=18).data.to_pandas()
+
+
+        # We need a way to pair down the source list to only sources that are
+        # 1) separated 2) on the image
         self._clean_source_list()
 
-        self.source_flux_estimates = # Get from gaia values
+        self.source_flux_estimates =  # Get from gaia values
 
         # Get the centroids of the images as a function of time
         self._get_centroids()
 
-        self.dra = # The separation in ra from each source at each pixel shape nsources x npixels
-        self.ddec = # The separation in dec from each source at each pixel shape nsources x npixels
+        # The separation in ra & dec from each source at each pixel shape
+        # nsources x npixels
+        self.dra =
+        self.ddec =
 
         # polar coordinates
-        self.r = np.hypot(self.dra, self.ddec) # radial distance from source in arcseconds
-        self.phi = np.arctan2(self.ddec, self.dra) # azimuthal angle from source in radians
+        self.r = np.hypot(self.dra, self.ddec)  # radial distance from source in arcseconds
+        self.phi = np.arctan2(self.ddec, self.dra)  # azimuthal angle from source in radians
 
-
-        self.source_mask = self._get_source_mask() # Mask of shape nsources x number of pixels, one where flux from a source exists
-        self.uncontaminated_pixel_mask = self._get_uncontaminated_pixel_mask() # Mask of shape npixels (maybe by nt) where not saturated, not faint, not contaminated etc
+        # Mask of shape nsources x number of pixels, one where flux from a
+        # source exists
+        self.source_mask = self._get_source_mask()
+        # Mask of shape npixels (maybe by nt) where not saturated, not faint,
+        # not contaminated etc
+        self.uncontaminated_pixel_mask = self._get_uncontaminated_pixel_mask()
 
         self.nsources = len(self.sources)
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
-
 
     @property
     def shape(self):
@@ -81,8 +110,10 @@ class Machine(object):
         return f'Machine {self.shape}'
 
     def _clean_source_list(self):
-        """ Removes sources that are too contaminated or off the edge of the image"""
-        clean = # Some source mask
+        """
+        Removes sources that are too contaminated or off the edge of the image
+        """
+        clean =  # Some source mask
 
         # Keep track of sources that we removed
         # Flag each source for why they were removed?
@@ -92,24 +123,27 @@ class Machine(object):
 
     def _get_source_mask(self):
         """
-        Mask of shape nsources x number of pixels, one where flux from a source exists
+        Mask of shape nsources x number of pixels, one where flux from a source
+        exists
         """
         return source_mask
 
     def _get_uncontaminated_pixel_mask(self):
         """
-        Mask of shape npixels (maybe by nt) where not saturated, not faint, not contaminated etc
+        Mask of shape npixels (maybe by nt) where not saturated, not faint,
+        not contaminated etc.
         """
         return uncontaminated_pixel_mask
 
     def _get_centroids(self):
-        """ Find the ra and dec centroid of the image, at each time"""
+        """
+        Find the ra and dec centroid of the image, at each time.
+        """
         #
         self.ra_centroid =
         self.dec_centroid =
         self.ra_centroid_avg =
         self.dec_centroid_avg =
-
 
     def _build_time_variable_model():
         return
@@ -138,8 +172,6 @@ class Machine(object):
         self._fit_time_variable_model()
         self.model_flux =
 
-
-
     def diagnostic_plotting(self):
         """
         Some helpful diagnostic plots
@@ -148,19 +180,52 @@ class Machine(object):
 
     @static_method
     def from_TPFs(tpfs):
-        """ Convert TPF input into object"""
-
+        """
+        Convert TPF input into machine object
+        """
         # Checks that all TPFs have identical time sampling
+        times = np.array([tpf.astropy_time.jd for tpf in tpfs])
+        dsdt = times[1:, :] - times[-1:, :]
+        # 1e-5 d = .8 sec
+        if not np.all(dsdt < 1e-5):
+            raise ValueError('All TPFs must have same time basis')
+        # put fluxes into ntimes x npix shape
+        flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
+        flux_err = np.hstack([np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs])
 
         # Remove nan pixels
+        nan_mask = np.isnan(fff)
+        flux = np.array([fx[~ma] for fx, ma in zip(flux, nan_mask)])
+        flux_err = np.array([fx[~ma] for fx, ma in zip(flux_err, nan_mask)])
 
         # Remove bad cadences where the pointing is rubbish
+        bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
+        flux_err[bad_cadences] *= 1e2
 
-        return Machine(time=, flux=, flux_err=, x=, y=, ra=, dec=)
+        # calculate ra,dec of each pixel
+        # still need to remove pixels with f=nan
+        locs = np.hstack([np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row +
+                         tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs])
+        ra, dec = tpfs[0].wcs.wcs_pix2world(np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 1).T
+
+
+        print('times', times.shape)
+        print('flux', flux.shape)
+        print('flux_err', flux_err.shape)
+        print('ra', ra.shape)
+        print('dec', dec.shape)
+
+
+        return Machine(time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec)
+
+
+"""
+Notes on user functionality
 
 mac = Machine().from_tpfs()
 mac.build_model()
 mac.fit_model()
 
-mac.model_flux # Values
-mac.model_flux_err # values
+mac.model_flux  # Values
+mac.model_flux_err  # values
+"""
