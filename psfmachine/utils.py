@@ -8,14 +8,12 @@ from patsy import dmatrix
 import lightkurve as lk
 import pyia
 
-#from astroquery.vizier import Vizier
-#Vizier.ROW_LIMIT = -1
-#from astropy.coordinates import SkyCoord, Angle
 import astropy.units as u
 from astropy.time import Time
 from matplotlib import animation
 
 
+# rewrite this...
 @functools.lru_cache()
 def get_sources(c, magnitude_limit=18):
     """ Will find gaia sources using a TAP query, accounting for proper motions."""
@@ -40,6 +38,7 @@ f"""SELECT solution_id, designation, source_id, random_index, ref_epoch, coord1(
         return gd
 
     ras, decs, rads = [], [], []
+    # for every TPF get the r,dec for that tpfs
     for l in np.unique(c.unw[0]):
         ra1 = c.ra[c.unw[0] == l]
         dec1 = c.dec[c.unw[0] == l]
@@ -49,10 +48,53 @@ f"""SELECT solution_id, designation, source_id, random_index, ref_epoch, coord1(
     return get_gaia(ras, decs, rads, magnitude_limit)
 
 
+@functools.lru_cache()
+def get_gaia_sources(ras, decs, rads, magnitude_limit=18):
+    """
+    Will find gaia sources using a TAP query, accounting for proper motions.
+
+    Inputs have be hashable, e.g. tuples
+
+    Parameters
+    ----------
+    ras : tuple
+        Tuple with right ascension coordinates to be queried
+        shape nsources
+    ras : tuple
+        Tuple with declination coordinates to be queried
+        shape nsources
+    ras : tuple
+        Tuple with radius query
+        shape nsources
+    magnitude_limit : int
+        Limiting magnitued for query
+
+    Returns
+    -------
+    Pandas DatFrame with number of result soruces (rows) and Gaia columns
+
+    """
+    wheres = [f"""1=CONTAINS(
+                  POINT('ICRS',ra,dec),
+                  CIRCLE('ICRS',{ra},{dec},{rad}))""" for ra, dec, rad in zip(ras, decs, rads)]
+
+    where = """\n\tOR """.join(wheres)
+    gd = pyia.GaiaData.from_query(
+f"""SELECT solution_id, designation, source_id, random_index, ref_epoch, coord1(prop) AS ra, ra_error, coord2(prop) AS dec, dec_error, parallax, parallax_error, parallax_over_error, pmra, pmra_error, pmdec, pmdec_error, ra_dec_corr, ra_parallax_corr, ra_pmra_corr, ra_pmdec_corr, dec_parallax_corr, dec_pmra_corr, dec_pmdec_corr, parallax_pmra_corr, parallax_pmdec_corr, pmra_pmdec_corr, astrometric_n_obs_al, astrometric_n_obs_ac, astrometric_n_good_obs_al, astrometric_n_bad_obs_al, astrometric_gof_al, astrometric_chi2_al, astrometric_excess_noise, astrometric_excess_noise_sig, astrometric_params_solved, astrometric_primary_flag, astrometric_weight_al, astrometric_pseudo_colour, astrometric_pseudo_colour_error, mean_varpi_factor_al, astrometric_matched_observations, visibility_periods_used, astrometric_sigma5d_max, frame_rotator_object_type, matched_observations, duplicated_source, phot_g_n_obs, phot_g_mean_flux, phot_g_mean_flux_error, phot_g_mean_flux_over_error, phot_g_mean_mag, phot_bp_n_obs, phot_bp_mean_flux, phot_bp_mean_flux_error, phot_bp_mean_flux_over_error, phot_bp_mean_mag, phot_rp_n_obs, phot_rp_mean_flux, phot_rp_mean_flux_error, phot_rp_mean_flux_over_error, phot_rp_mean_mag, phot_bp_rp_excess_factor, phot_proc_mode, bp_rp, bp_g, g_rp, radial_velocity, radial_velocity_error, rv_nb_transits, rv_template_teff, rv_template_logg, rv_template_fe_h, phot_variable_flag, l, b, ecl_lon, ecl_lat, priam_flags, teff_val, teff_percentile_lower, teff_percentile_upper, a_g_val, a_g_percentile_lower, a_g_percentile_upper, e_bp_min_rp_val, e_bp_min_rp_percentile_lower, e_bp_min_rp_percentile_upper, flame_flags, radius_val, radius_percentile_lower, radius_percentile_upper, lum_val, lum_percentile_lower, lum_percentile_upper, datalink_url, epoch_photometry_url, ra as ra_gaia, dec as dec_gaia FROM (
+ SELECT *,
+ EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, 2020) AS prop
+ FROM gaiadr2.gaia_source
+ WHERE {where}
+)  AS subquery
+WHERE phot_g_mean_mag<={magnitude_limit}
+
+""")
+    return gd.data.to_pandas()
+
 
 def _make_A(phi, r, cut_r=5):
     """ Make spline design matrix in polar coordinates """
-    phi_spline = sparse.csr_matrix(psf.utils.wrapped_spline(phi, order=3, nknots=6).T)
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
     r_knots = np.linspace(0.25**0.5, 5**0.5, 8)**2
     r_spline = sparse.csr_matrix(np.asarray(dmatrix('bs(x, knots=knots, degree=3, include_intercept=True)',
                                       {'x':list(r), 'knots':r_knots})))
