@@ -9,7 +9,7 @@ from astropy.time import Time
 
 import lightkurve as lk
 
-from .utils import get_sources, wrapped_spline
+from .utils import get_sources, wrapped_spline, _make_A
 
 from patsy import dmatrix
 
