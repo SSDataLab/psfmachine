@@ -1,4 +1,4 @@
-'''tools to deal with collections of tpfs'''
+"""tools to deal with collections of tpfs"""
 import numpy as np
 from scipy import sparse
 from tqdm.notebook import tqdm
@@ -16,12 +16,11 @@ from patsy import dmatrix
 from scipy.integrate import simps
 
 
-
-
 class Collection(object):
     """ Class to work with TPF collections. """
+
     def __init__(self, tpfs, radius_limit=6, flux_limit=1e4):
-        """ Class to work with TPF collections
+        """Class to work with TPF collections
 
         Parameters:
         -----------
@@ -75,79 +74,130 @@ class Collection(object):
         self.time = tpfs[0].time
         bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
 
-        self.flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
-        self.flux_err = np.hstack([np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs])
+        self.flux = np.hstack(
+            [np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs]
+        )
+        self.flux_err = np.hstack(
+            [np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs]
+        )
         self.flux_err[bad_cadences] *= 1e2
-
 
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
         self.ntpfs = len(self.tpfs)
 
-
         # We need this to know which pixels belong to which TPF later.
-        self.unw = np.hstack([np.zeros((tpf.shape[0], tpf.shape[1] * tpf.shape[2]), dtype=int) + idx for idx,tpf in enumerate(tpfs)])
+        self.unw = np.hstack(
+            [
+                np.zeros((tpf.shape[0], tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
+                for idx, tpf in enumerate(tpfs)
+            ]
+        )
 
         # Find the locations of all the pixels
-        locs = [np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs]
+        locs = [
+            np.mgrid[
+                tpf.column : tpf.column + tpf.shape[2], tpf.row : tpf.row + tpf.shape[1]
+            ].reshape(2, np.product(tpf.shape[1:]))
+            for tpf in tpfs
+        ]
         locs = np.hstack(locs)
         self.locs = locs
-        self.ra, self.dec = tpfs[0].wcs.wcs_pix2world(np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 1).T
+        self.ra, self.dec = (
+            tpfs[0]
+            .wcs.wcs_pix2world(
+                np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 0.0
+            )
+            .T
+        )
 
         # Create a set of sources from Gaia
-        c = SkyCoord(self.ra, self.dec, unit='deg')
+        c = SkyCoord(self.ra, self.dec, unit="deg")
         self.GaiaData = get_sources(self, magnitude_limit=18)
         sources = self.GaiaData.data.to_pandas()
-        coords = SkyCoord(sources.ra, sources.dec, unit=('deg'))
+        coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
 
+        slocs = np.asarray(
+            [
+                tpfs[0].wcs.wcs_world2pix(
+                    np.vstack([sources.ra[idx], sources.dec[idx]]).T, 0.0
+                )[0]
+                for idx in range(len(sources))
+            ]
+        )
+        self.slocs = slocs
 
+        sources["y"] = slocs[:, 1] + tpfs[0].row
+        sources["x"] = slocs[:, 0] + tpfs[0].column
 
-        slocs = np.asarray([tpfs[0].wcs.wcs_world2pix(np.vstack([sources.ra[idx], sources.dec[idx]]).T, 0.5)[0] for idx in range(len(sources))])
-
-        sources['y'] = slocs[:, 1] + tpfs[0].row
-        sources['x'] = slocs[:, 0] + tpfs[0].column
-
-        self.dx, self.dy, self.gv = np.asarray([np.vstack([locs[0] - sources['x'][idx], locs[1] - sources['y'][idx], np.zeros(len(locs[0])) + sources.phot_g_mean_flux[idx]]) for idx in range(len(sources))]).transpose([1, 0, 2])
-
+        self.dx, self.dy, self.gv = np.asarray(
+            [
+                np.vstack(
+                    [
+                        locs[0] - sources["x"][idx],
+                        locs[1] - sources["y"][idx],
+                        np.zeros(len(locs[0])) + sources.phot_g_mean_flux[idx],
+                    ]
+                )
+                for idx in range(len(sources))
+            ]
+        ).transpose([1, 0, 2])
 
         l, d = match_coordinates_3d(coords, coords, nthneighbor=2)[:2]
-        dmag = np.abs(np.asarray(sources.phot_g_mean_mag) - np.asarray(sources.phot_g_mean_mag[l]))
-        pixel_dist = np.abs(d.to('arcsec')).value/4
+        dmag = np.abs(
+            np.asarray(sources.phot_g_mean_mag) - np.asarray(sources.phot_g_mean_mag[l])
+        )
+        pixel_dist = np.abs(d.to("arcsec")).value / 4
 
         # Find the faint contaminated stars
         bad = pixel_dist < 1.5
         blocs = np.vstack([l[bad], np.where(bad)[0]]).T
-        mlocs = np.vstack([sources.phot_g_mean_mag[l[bad]], sources.phot_g_mean_mag[np.where(bad)[0]]]).T
+        mlocs = np.vstack(
+            [sources.phot_g_mean_mag[l[bad]], sources.phot_g_mean_mag[np.where(bad)[0]]]
+        ).T
         faintest = [blocs[idx][i] for idx, i in enumerate(np.argmax(mlocs, axis=1))]
         bad = np.in1d(np.arange(len(sources)), faintest)
 
         r = np.hypot(self.dx, self.dy)
-        self.close_mask =  (r < radius_limit)
-#        close_to_pixels = (np.hypot(self.dx, self.dy) < 1).sum(axis=1)
-
+        self.close_mask = r < radius_limit
+        #        close_to_pixels = (np.hypot(self.dx, self.dy) < 1).sum(axis=1)
 
         # Identifing targets that are ON silicon
         surrounded = np.zeros(len(sources), bool)
         for t in np.arange(self.ntpfs):
-            xok = (np.asarray(sources['x']) > self.locs[0, self.unw[0] == t][:, None]) & (np.asarray(sources['x']) < (self.locs[0, self.unw[0] == t][:, None] + 1))
-            yok = (np.asarray(sources['y']) > self.locs[1, self.unw[0] == t][:, None]) & (np.asarray(sources['y']) < (self.locs[1, self.unw[0] == t][:, None] + 1))
+            xok = (
+                np.asarray(sources["x"]) > self.locs[0, self.unw[0] == t][:, None]
+            ) & (
+                np.asarray(sources["x"]) < (self.locs[0, self.unw[0] == t][:, None] + 1)
+            )
+            yok = (
+                np.asarray(sources["y"]) > self.locs[1, self.unw[0] == t][:, None]
+            ) & (
+                np.asarray(sources["y"]) < (self.locs[1, self.unw[0] == t][:, None] + 1)
+            )
             surrounded |= (xok & yok).any(axis=0)
 
+        print(surrounded)
         bad |= ~surrounded
         self.bad_sources = sources[bad].reset_index(drop=True)
 
-        source_mask = np.asarray([(c.separation(d1).min().arcsec) < 12 for d1 in coords])
+        source_mask = np.asarray(
+            [(c.separation(d1).min().arcsec) < 12 for d1 in coords]
+        )
         source_mask &= ~bad
 
         sources = sources[source_mask].reset_index(drop=True)
-        self.dx, self.dy, self.gv = self.dx[source_mask], self.dy[source_mask], self.gv[source_mask]
+        self.dx, self.dy, self.gv = (
+            self.dx[source_mask],
+            self.dy[source_mask],
+            self.gv[source_mask],
+        )
         self.GaiaData = self.GaiaData[source_mask]
         self.sources = sources
         self.nsources = len(self.sources)
         r = np.hypot(self.dx, self.dy)
-        self.close_mask =  (r < radius_limit)
-#
-
+        self.close_mask = r < radius_limit
+        #
 
         self._find_PSF_edge(radius_limit=radius_limit, flux_limit=flux_limit)
 
@@ -155,15 +205,21 @@ class Collection(object):
         dx1, dy1 = self.dx[self.mask], self.dy[self.mask]
         self.xcents, self.ycents = np.ones(len(self.flux)), np.ones(len(self.flux))
         for tdx in range(len(self.flux)):
-            self.xcents[tdx] = np.average(dx1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data))
-            self.ycents[tdx] = np.average(dy1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data))
+            self.xcents[tdx] = np.average(
+                dx1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data)
+            )
+            self.ycents[tdx] = np.average(
+                dy1, weights=np.nan_to_num(m.multiply(self.flux[tdx]).data)
+            )
 
-        d = SkyCoord(self.sources.ra, self.sources.dec, unit='deg')
-        close = match_coordinates_3d(d, d, nthneighbor=2)[1].to('arcsecond').value < 8
-        sources = SkyCoord(self.sources.ra, self.sources.dec, unit=('deg'))
-        tpfloc = SkyCoord([SkyCoord(tpf.ra, tpf.dec, unit='deg') for tpf in tpfs])
+        d = SkyCoord(self.sources.ra, self.sources.dec, unit="deg")
+        close = match_coordinates_3d(d, d, nthneighbor=2)[1].to("arcsecond").value < 8
+        sources = SkyCoord(self.sources.ra, self.sources.dec, unit=("deg"))
+        tpfloc = SkyCoord([SkyCoord(tpf.ra, tpf.dec, unit="deg") for tpf in tpfs])
         idx = np.asarray([match_coordinates_3d(loc, sources)[0] for loc in tpfloc])
-        jdx = np.asarray([match_coordinates_3d(source, tpfloc)[0] for source in sources])
+        jdx = np.asarray(
+            [match_coordinates_3d(source, tpfloc)[0] for source in sources]
+        )
         self.fresh = ~np.in1d(np.arange(0, self.nsources), idx)
 
         self.mean_model = self._build_model()
@@ -176,11 +232,11 @@ class Collection(object):
         mean_flux = np.nanmean(self.flux, axis=0)
         r = np.hypot(self.dx, self.dy)
 
-        temp_mask =  (r < radius_limit) & (self.gv > flux_limit)
-        temp_mask &= (temp_mask.sum(axis=0) == 1)
+        temp_mask = (r < radius_limit) & (self.gv > flux_limit)
+        temp_mask &= temp_mask.sum(axis=0) == 1
 
         f = np.log10((temp_mask.astype(float) * mean_flux))
-        A = np.vstack([r[temp_mask]**0, r[temp_mask], np.log10(self.gv[temp_mask])]).T
+        A = np.vstack([r[temp_mask] ** 0, r[temp_mask], np.log10(self.gv[temp_mask])]).T
         k = np.isfinite(f[temp_mask])
         sigma_w_inv = A[k].T.dot(A[k])
         B = A[k].T.dot(f[temp_mask][k])
@@ -188,26 +244,41 @@ class Collection(object):
 
         test_gaia = np.linspace(np.log10(self.gv.min()), np.log10(self.gv.max()), 100)
         test_r = np.arange(1, 10, 0.25)
-        radius_check = np.asarray([np.vstack([[(np.ones(100) * v) ** idx for idx in range(2)], test_gaia]).T.dot(w) for v in test_r])
+        radius_check = np.asarray(
+            [
+                np.vstack(
+                    [[(np.ones(100) * v) ** idx for idx in range(2)], test_gaia]
+                ).T.dot(w)
+                for v in test_r
+            ]
+        )
+        self.radius_check = radius_check
 
-        cut = np.percentile(np.abs(radius_check - 1), 3) - np.min(np.abs(radius_check - 1))
-        x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check - 1) < cut]
+        cut = np.percentile(np.abs(radius_check - 1), 3) - np.min(
+            np.abs(radius_check - 1)
+        )
+        x, y = np.asarray(np.meshgrid(test_gaia, test_r))[
+            :, np.abs(radius_check - 1) < cut
+        ]
 
-        radius = np.polyval(np.polyfit(x, y, 5), np.log10(self.sources['phot_g_mean_flux']))
-        radius[np.log10(self.sources['phot_g_mean_flux']) < 3] = 2
-        radius[np.log10(self.sources['phot_g_mean_flux']) > 6.5] = 6
+        radius = np.polyval(
+            np.polyfit(x, y, 5), np.log10(self.sources["phot_g_mean_flux"])
+        )
+        radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 2
+        radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 6
         radius = np.ceil(radius)
+        # radius has estimation of the PSF edge per Gaia Source
         self.radius = radius
 
-        self.mask =  (r < radius[:, None])
-#        self.mask &= (self.mask.sum(axis=0) == 1)
+        self.mask = r < radius[:, None]
 
+    #        self.mask &= (self.mask.sum(axis=0) == 1)
 
     def __repr__(self):
-        return f'Collection [{self.ntpfs} TPFs, {len(self.sources)} Sources]'
+        return f"Collection [{self.ntpfs} TPFs, {len(self.sources)} Sources]"
 
     def _build_model(self, nphi=40, nr=30):
-        """ Use the TPF data to build a model of the PSF
+        """Use the TPF data to build a model of the PSF
 
         We use the sources above `flux_limit` to build a model of the PSF,
         in the "mean" frame. We do this by fitting a spline in polar coordinates
@@ -229,7 +300,12 @@ class Collection(object):
         """
 
         # Find the mean frame
-        f = np.log10(sparse.csr_matrix(self.mask.astype(float)).multiply(self.flux.mean(axis=0)).multiply(1/self.gv).data)
+        f = np.log10(
+            sparse.csr_matrix(self.mask.astype(float))
+            .multiply(self.flux.mean(axis=0))
+            .multiply(1 / self.gv)
+            .data
+        )
         xcent_avg = np.average(self.dx[self.mask], weights=np.nan_to_num(f))
         ycent_avg = np.average(self.dy[self.mask], weights=np.nan_to_num(f))
 
@@ -250,13 +326,14 @@ class Collection(object):
                 count[idx, jdx] = m.sum()
                 ar[idx, jdx] = np.nanmean(f[m])
 
-        phi_b, r_b = np.asarray(np.meshgrid(phis[:-1]+ np.median(np.diff(phis))/2, rs[:-1]))
+        phi_b, r_b = np.asarray(
+            np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
+        )
         ar[(r_b.T > 1) & (count < 3)] = np.nan
         ar[(r_b.T > 4) & ~np.isfinite(ar)] = -5
 
-#        norm = simps(simps(10**np.nan_to_num(ar), r_b[:, 0]), phi_b[0])
-#        ar = np.log10(10**(ar) / norm)
-
+        #        norm = simps(simps(10**np.nan_to_num(ar), r_b[:, 0]), phi_b[0])
+        #        ar = np.log10(10**(ar) / norm)
 
         # Fit the binned data
         A = _make_A(phi_b.ravel(), r_b.ravel())
@@ -266,9 +343,9 @@ class Collection(object):
         k = np.isfinite(ar.T.ravel())
 
         sigma_w_inv = A[k].T.dot(A[k]).toarray()
-        sigma_w_inv += np.diag(1/prior_sigma**2)
+        sigma_w_inv += np.diag(1 / prior_sigma ** 2)
         B = A[k].T.dot(ar.T.ravel()[k])
-        B += prior_mu/prior_sigma**2
+        B += prior_mu / prior_sigma ** 2
 
         # These weights now give the best fit spline model to the data.
         psf_w = np.linalg.solve(sigma_w_inv, B)
@@ -286,12 +363,11 @@ class Collection(object):
         mean_model = sparse.csr_matrix(r.shape)
 
         bad = Ap.dot(psf_w) <= -4
-        m = 10**Ap.dot(psf_w) #* self.gv[self.close_mask])
+        m = 10 ** Ap.dot(psf_w)  # * self.gv[self.close_mask])
 
         mean_model[self.close_mask] = m
         mean_model.eliminate_zeros()
         return mean_model
-
 
     def _fit_model(self):
         """Fit the PSF model to the data
@@ -309,25 +385,28 @@ class Collection(object):
         ws = np.zeros((self.nt, A.shape[1])) * np.nan
         werrs = np.zeros((self.nt, A.shape[1])) * np.nan
 
-        prior_mu = self.gv[:, 0]#np.zeros(A.shape[1])
+        prior_mu = self.gv[:, 0]  # np.zeros(A.shape[1])
         prior_sigma = np.ones(A.shape[1]) * 10 * self.gv[:, 0]
-        for tdx in tqdm(np.arange(len(self.time)), desc='Fitting PSF model'):
+        for tdx in tqdm(np.arange(len(self.time)), desc="Fitting PSF model"):
             k = np.isfinite(self.flux[tdx])
-            sigma_w_inv = A[k].T.dot(A[k].multiply(1/self.flux_err[tdx][k, None]**2)).toarray()
-            sigma_w_inv += np.diag(1/(prior_sigma ** 2))
-            B = A[k].T.dot((self.flux[tdx][k]/self.flux_err[tdx][k]**2))
-            B += prior_mu/(prior_sigma ** 2)
+            sigma_w_inv = (
+                A[k]
+                .T.dot(A[k].multiply(1 / self.flux_err[tdx][k, None] ** 2))
+                .toarray()
+            )
+            sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+            B = A[k].T.dot((self.flux[tdx][k] / self.flux_err[tdx][k] ** 2))
+            B += prior_mu / (prior_sigma ** 2)
             ws[tdx] = np.linalg.solve(sigma_w_inv, B)
-            werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal()**0.5
+            werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
 
         self.f = ws.T
         self.f_err = werrs.T
 
-
         sap = np.zeros((self.mask.shape[0], self.time.shape[0]))
         sap_e = np.zeros((self.mask.shape[0], self.time.shape[0]))
         m = sparse.csr_matrix(self.mask.astype(float))
-        for tdx in tqdm(range(self.time.shape[0]), desc='Simple SAP flux'):
+        for tdx in tqdm(range(self.time.shape[0]), desc="Simple SAP flux"):
             l = m.multiply(self.flux[tdx])
             le = m.multiply(self.flux_err[tdx])
             l.data[~np.isfinite(l.data)] = 0
@@ -335,7 +414,7 @@ class Collection(object):
             l.eliminate_zeros()
             le.eliminate_zeros()
             sap[:, tdx] = np.asarray(l.sum(axis=1))[:, 0]
-            sap_e[:, tdx] = np.asarray(le.power(2).sum(axis=1))[:, 0]**0.5
+            sap_e[:, tdx] = np.asarray(le.power(2).sum(axis=1))[:, 0] ** 0.5
 
         self.sap = sap
         self.sap_e = sap_e
