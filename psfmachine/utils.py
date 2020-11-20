@@ -13,7 +13,6 @@ from astropy.time import Time
 from matplotlib import animation
 
 
-# rewrite this...
 @functools.lru_cache()
 def get_sources(c, magnitude_limit=18):
     """ Will find gaia sources using a TAP query, accounting for proper motions."""
@@ -108,6 +107,31 @@ def _make_A(phi, r, cut_r=5):
     """ Make spline design matrix in polar coordinates """
     phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
     r_knots = np.linspace(0.25 ** 0.5, 5 ** 0.5, 8) ** 2
+    r_spline = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=3, include_intercept=True)",
+                {"x": list(r), "knots": r_knots},
+            )
+        )
+    )
+    X = sparse.hstack(
+        [phi_spline.multiply(r_spline[:, idx]) for idx in range(r_spline.shape[1])],
+        format="csr",
+    )
+    cut = np.arange(phi_spline.shape[1] * 1, phi_spline.shape[1] * cut_r)
+    a = list(set(np.arange(X.shape[1])) - set(cut))
+    X1 = sparse.hstack(
+        [X[:, a], r_spline[:, 1:cut_r], sparse.csr_matrix(np.ones(X.shape[0])).T],
+        format="csr",
+    )
+    return X1
+
+
+def _make_A_wcs(phi, r, cut_r=20):
+    """ Make spline design matrix in polar coordinates """
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
+    r_knots = np.linspace(1 ** 0.5, 20 ** 0.5, 8) ** 2
     r_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
