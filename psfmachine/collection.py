@@ -157,6 +157,7 @@ class Collection(object):
         ).T
         faintest = [blocs[idx][i] for idx, i in enumerate(np.argmax(mlocs, axis=1))]
         bad = np.in1d(np.arange(len(sources)), faintest)
+        self.too_close = bad
 
         r = np.hypot(self.dx, self.dy)
         self.close_mask = r < radius_limit
@@ -177,13 +178,14 @@ class Collection(object):
             )
             surrounded |= (xok & yok).any(axis=0)
 
-        print(surrounded)
+        self.surrounded = surrounded
         bad |= ~surrounded
         self.bad_sources = sources[bad].reset_index(drop=True)
 
         source_mask = np.asarray(
             [(c.separation(d1).min().arcsec) < 12 for d1 in coords]
         )
+        self.source_dist_mask = source_mask
         source_mask &= ~bad
 
         sources = sources[source_mask].reset_index(drop=True)
@@ -337,6 +339,7 @@ class Collection(object):
 
         # Fit the binned data
         A = _make_A(phi_b.ravel(), r_b.ravel())
+        self.A = A
 
         prior_sigma = np.ones(A.shape[1]) * 100
         prior_mu = np.zeros(A.shape[1])
