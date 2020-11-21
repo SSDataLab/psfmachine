@@ -238,12 +238,12 @@ class Machine(object):
 
         """
         # find saturated pixels, whats the saturation cap per pixel?
-        sat_pixel_mask = np.nanmean(self.flux, axis=0) > 200000
+        sat_pixel_mask = np.max(self.flux, axis=0) > 200000  # 1.5e5
 
         # find pixels from faint Sources
         faint_sources = np.log10(self.sources["phot_g_mean_flux"]).values < 3
 
-        # find source distances between nns
+        # find source distances between nns: change this to self.source_mask.sum(axis=0)
         s_coords = SkyCoord(self.sources["ra"], self.sources["dec"], unit=("deg"))
         midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
         far = mdist.arcsec > 10
@@ -252,6 +252,8 @@ class Machine(object):
         good_sources = ~faint_sources & far
 
         # combine source mask with good sources and not saturated pixels
+        # sparse.csr(sat_pixel_mask).dot(sparse.csr_matrix(saint_sources))
+        # check for sparse.lil_matrix
         self.uncontaminated_source_mask = (
             np.tile(~sat_pixel_mask[:, None], good_sources.shape).T
             & np.tile(good_sources[:, None], sat_pixel_mask.shape)
@@ -300,8 +302,8 @@ class Machine(object):
         phis = np.linspace(-np.pi, np.pi, nphi)
         # try r in squared space
         # try with no binning
-        rs = np.linspace(0, self.limit_radius.value, nr)
-        # rs = np.linspace(0 ** 0.5, self.limit_radius.value ** 0.5, nr) ** 2
+        # rs = np.linspace(0, self.limit_radius.value, nr)
+        rs = np.linspace(0 ** 0.5, self.limit_radius.value ** 0.5, nr) ** 2
         counts, _, _ = np.histogram2d(
             self.phi[self.uncontaminated_source_mask].value,
             self.r[self.uncontaminated_source_mask].to("arcsec").value,
@@ -320,7 +322,7 @@ class Machine(object):
 
         return r_b, phi_b, mean_f_b, counts
 
-    def build_model(self, nphi=40, nr=30):
+    def build_model(self, nphi=40, nr=30, update=False):
         """
         Builds a sparse model matrix of shape nsources x npixels
 
@@ -329,10 +331,14 @@ class Machine(object):
         # self._build_time_variable_model()
         # only use pixels near source
         # mean frame
+        if update:
+            flux_estimates = self.psf_flux
+        else:
+            flux_estimates = self.source_flux_estimates
         mean_f = np.log10(
             sparse.csr_matrix(self.uncontaminated_source_mask.astype(float))
             .multiply(self.flux.mean(axis=0))
-            .multiply(1 / self.source_flux_estimates)
+            .multiply(1 / flux_estimates)
             .data
         )
         if True:
@@ -460,7 +466,7 @@ class Machine(object):
         ax[1, 0].set_ylabel(r"$r^{\prime\prime}$")
 
         r_test, phi_test = np.meshgrid(
-            np.linspace(0, self.r_b.max(), 50),
+            np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 50) ** 2,
             np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 50),
         )
         A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
