@@ -217,7 +217,7 @@ class Machine(object):
         )
 
         # flux cap at which 95% of it is contained
-        cut = np.percentile(np.abs(radius_check), 95) - np.min(np.abs(radius_check))
+        cut = np.percentile(np.abs(radius_check), 5) - np.min(np.abs(radius_check))
         x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
         # calculate the radius at which the 95% is contained
         self.radius = np.polyval(
@@ -227,7 +227,9 @@ class Machine(object):
         # radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 8.0
         # radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 24.0
 
-        self.source_mask = self.r.to("arcsec").value < self.radius[:, None]
+        self.source_mask = sparse.csr_matrix(
+            self.r.to("arcsec").value < self.radius[:, None]
+        )
 
         return
 
@@ -237,31 +239,29 @@ class Machine(object):
         not contaminated etc.
 
         """
-        # find saturated pixels, whats the saturation cap per pixel?
-        sat_pixel_mask = np.max(self.flux, axis=0) > 200000  # 1.5e5
+        # find saturated pixels, the saturation cap per pixel in -e/s
+        sat_pixel_mask = np.max(self.flux, axis=0) > 1.5e5
 
         # find pixels from faint Sources
         faint_sources = np.log10(self.sources["phot_g_mean_flux"]).values < 3
 
-        # find source distances between nns: change this to self.source_mask.sum(axis=0)
-        s_coords = SkyCoord(self.sources["ra"], self.sources["dec"], unit=("deg"))
-        midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
-        far = mdist.arcsec > 10
+        # find pixels with flux from only one source
+        one_source_pix = self.source_mask.sum(axis=0) == 1
 
         # combine isolated and not faint sources
-        good_sources = ~faint_sources & far
+        good_pixels = sparse.csr_matrix(~sat_pixel_mask).multiply(one_source_pix)
 
         # combine source mask with good sources and not saturated pixels
-        # sparse.csr(sat_pixel_mask).dot(sparse.csr_matrix(saint_sources))
-        # check for sparse.lil_matrix
         self.uncontaminated_source_mask = (
-            np.tile(~sat_pixel_mask[:, None], good_sources.shape).T
-            & np.tile(good_sources[:, None], sat_pixel_mask.shape)
-            & self.source_mask
+            sparse.csr_matrix(~faint_sources[:, None])
+            .dot(good_pixels)
+            .multiply(self.source_mask)
         )
 
         # reduce to good pixels
-        self.uncontaminated_pixel_mask = self.uncontaminated_source_mask.sum(axis=0) > 0
+        self.uncontaminated_pixel_mask = sparse.csr_matrix(
+            self.uncontaminated_source_mask.sum(axis=0) > 0
+        )
 
         return
 
@@ -270,19 +270,15 @@ class Machine(object):
         Find the ra and dec centroid of the image, at each time.
         """
         # centroids are astropy quantities
-        # pixmask = np.ones(self.dra.shape, dtype=bool)
-        pixmask = self.source_mask.astype(float)
-        # centroids are astropy quantities
         self.ra_centroid = np.zeros(self.nt)
         self.dec_centroid = np.zeros(self.nt)
+        dra_m = self.source_mask.multiply(self.dra).data
+        ddec_m = self.source_mask.multiply(self.ddec).data
         for t in range(self.nt):
-            self.ra_centroid[t] = np.average(
-                self.dra.value, weights=np.multiply(pixmask, self.flux[t])
-            )
-            self.dec_centroid[t] = np.average(
-                self.ddec.value, weights=np.multiply(pixmask, self.flux[t])
-            )
-        del pixmask
+            wgts = self.source_mask.multiply(self.flux[t]).data
+            self.ra_centroid[t] = np.average(dra_m, weights=wgts)
+            self.dec_centroid[t] = np.average(ddec_m, weights=wgts)
+        del dra_m, ddec_m
         self.ra_centroid *= u.deg
         self.dec_centroid *= u.deg
         self.ra_centroid_avg = self.ra_centroid.mean()
@@ -301,28 +297,25 @@ class Machine(object):
         # bin data
         phis = np.linspace(-np.pi, np.pi, nphi)
         # try r in squared space
-        # try with no binning
         # rs = np.linspace(0, self.limit_radius.value, nr)
         rs = np.linspace(0 ** 0.5, self.limit_radius.value ** 0.5, nr) ** 2
-        counts, _, _ = np.histogram2d(
-            self.phi[self.uncontaminated_source_mask].value,
-            self.r[self.uncontaminated_source_mask].to("arcsec").value,
-            bins=(phis, rs),
-        )
-        mean_f_b, _, _ = np.histogram2d(
-            self.phi[self.uncontaminated_source_mask].value,
-            self.r[self.uncontaminated_source_mask].to("arcsec").value,
-            bins=(phis, rs),
-            weights=mean_f,
-        )
+
+        # phi_m = self.phi[self.uncontaminated_source_mask].value
+        # r_m = self.r[self.uncontaminated_source_mask].to("arcsec").value
+
+        phi_m = self.uncontaminated_source_mask.multiply(self.phi.value).data
+        r_m = self.uncontaminated_source_mask.multiply(self.r.value).data
+
+        counts, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs))
+        mean_f_b, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs), weights=mean_f)
         mean_f_b /= counts
         phi_b, r_b = np.asarray(
             np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
         )
 
-        return r_b, phi_b, mean_f_b, counts
+        return r_b, phi_b, mean_f_b.T, counts.T
 
-    def build_model(self, nphi=40, nr=30, update=False):
+    def build_model(self, nphi=40, nr=30, bin=True, update=False):
         """
         Builds a sparse model matrix of shape nsources x npixels
 
@@ -332,29 +325,33 @@ class Machine(object):
         # only use pixels near source
         # mean frame
         if update:
-            flux_estimates = self.psf_flux
+            if "psf_flux1" not in dir(self):
+                raise AttributeError(
+                    "Update model is set to True but no fluxes were "
+                    + "precomputed. Run self.fit_model() before."
+                )
+            flux_estimates = np.repeat(
+                self.psf_flux1.mean(axis=1)[:, None], self.npixels, axis=1
+            )
         else:
             flux_estimates = self.source_flux_estimates
         mean_f = np.log10(
-            sparse.csr_matrix(self.uncontaminated_source_mask.astype(float))
+            self.uncontaminated_source_mask.astype(float)
             .multiply(self.flux.mean(axis=0))
             .multiply(1 / flux_estimates)
             .data
         )
-        if True:
+        if bin:
             r_b, phi_b, mean_f_b, counts = self._bin_data(mean_f)
+            self.counts = counts
         else:
-            phi_b, r_b = np.meshgrid(
-                self.phi[self.uncontaminated_source_mask].value,
-                self.r[self.uncontaminated_source_mask].to("arcsec").value,
-            )
+            phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
+            r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
             mean_f_b = mean_f
             counts = mean_f
-            print(phi_b.shape, r_b.shape, mean_f.shape)
 
         self.mean_f = mean_f
         self.mean_f_b = mean_f_b
-        self.counts = counts
         self.phi_b = phi_b
         self.r_b = r_b
         # mean_f_b[(r_b.T > 1) & (counts < 3)] = np.nan
@@ -363,11 +360,11 @@ class Machine(object):
         A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
         prior_sigma = np.ones(A.shape[1]) * 100
         prior_mu = np.zeros(A.shape[1])
-        nan_mask = np.isfinite(mean_f_b.T.ravel())
+        nan_mask = np.isfinite(mean_f_b.ravel())
 
         psf_w = self._solve_linear_model(
             A,
-            mean_f_b.T.ravel(),
+            mean_f_b.ravel(),
             k=nan_mask,
             prior_mu=prior_mu,
             prior_sigma=prior_sigma,
@@ -376,7 +373,8 @@ class Machine(object):
 
         # We then build the same design matrix for all pixels with flux
         Ap = _make_A_wcs(
-            self.phi[self.source_mask].value, self.r[self.source_mask].value
+            self.source_mask.multiply(self.phi).data,
+            self.source_mask.multiply(self.r).data,
         )
 
         # And create a `mean_model` that has the psf model multiplied
@@ -415,14 +413,18 @@ class Machine(object):
                 prior_sigma=prior_sigma,
                 k=k[t],
             )
+        self.psf_flux1 = ws1.T
+        self.psf_flux1_err = werrs1.T
 
-        ws2 = np.zeros((self.nt, A.shape[1])) * np.nan
-        werrs2 = np.zeros((self.nt, A.shape[1])) * np.nan
+        ws2 = np.zeros_like(ws1) * np.nan
+        werrs2 = np.zeros_like(werrs1) * np.nan
         # update priors using previous fitting, do we average in time?
         prior_mu = ws1.mean(axis=0)
-        # it is sensitive to the sigma prior,
-        # think about how to avoid souble werrs invertion calculation, catching?
-        prior_sigma = werrs1.mean(axis=0) * 100
+        # prior_sigma = werrs1.mean(axis=1) * 100
+        # think about how to avoidsouble werrs invertion calculation, catching?
+        # update mean model
+        self.build_model(update=True)
+        A = (self.mean_model).T
         for t in tqdm(np.arange(self.nt), desc="Fitting PSF model, 2nd iter"):
             ws2[t], werrs2[t] = self._solve_linear_model(
                 A,
@@ -432,38 +434,26 @@ class Machine(object):
                 prior_sigma=prior_sigma,
                 k=k[t],
             )
-
-        self.psf_flux1 = ws1.T
-        self.psf_flux1_err = werrs1.T
         self.psf_flux2 = ws2.T
         self.psf_flux2_err = werrs2.T
 
-    def diagnostic_plotting(self):
+    def _plot_mean_model(self):
         """
-        Some helpful diagnostic plots
+        Diagnostic plot of the mean PSF model.
+        run self.build_model(first)
         """
         # Plotting r,phi,meanflux used to build PSF model
-        fig, ax = plt.subplots(2, 2, figsize=(9, 7))
-
-        ax[0, 0].set_title("Mean flux")
-        cax = ax[0, 0].scatter(
-            self.phi[self.uncontaminated_source_mask],
-            self.r[self.uncontaminated_source_mask].to("arcsec"),
+        fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+        ax[0].set_title("Mean flux")
+        cax = ax[0].scatter(
+            self.uncontaminated_source_mask.multiply(self.phi).data,
+            self.uncontaminated_source_mask.multiply(self.r).data,
             c=self.mean_f,
             marker=".",
         )
-        fig.colorbar(cax, ax=ax[0, 0])
-        ax[0, 0].set_ylabel(r"$r^{\prime\prime}$ ")
-
-        ax[0, 1].set_title("Counts per bin")
-        cax = ax[0, 1].pcolormesh(self.phi_b, self.r_b, self.counts.T)
-        fig.colorbar(cax, ax=ax[0, 1])
-
-        ax[1, 0].set_title("Binned mean flux")
-        cax = ax[1, 0].pcolormesh(self.phi_b, self.r_b, self.mean_f_b.T)
-        fig.colorbar(cax, ax=ax[1, 0])
-        ax[1, 0].set_xlabel(r"$\phi$ [rad]")
-        ax[1, 0].set_ylabel(r"$r^{\prime\prime}$")
+        fig.colorbar(cax, ax=ax[0])
+        ax[0].set_ylabel(r"$r^{\prime\prime}$ ")
+        ax[0].set_xlabel(r"$\phi$ [rad]")
 
         r_test, phi_test = np.meshgrid(
             np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 50) ** 2,
@@ -472,18 +462,34 @@ class Machine(object):
         A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
         model_test = A_test.dot(self.psf_w)
         model_test = model_test.reshape(phi_test.shape)
-        print(phi_test.shape, r_test.shape, model_test.shape)
 
-        ax[1, 1].set_title("Average PSF Model")
-        cax = ax[1, 1].pcolormesh(phi_test, r_test, model_test)
-        fig.colorbar(cax, ax=ax[1, 1])
-        ax[1, 1].set_xlabel(r"$\phi$ [rad]")
-
+        ax[1].set_title("Average PSF Model")
+        cax = ax[1].pcolormesh(phi_test, r_test, model_test)
+        fig.colorbar(cax, ax=ax[1])
+        ax[1].set_xlabel(r"$\phi$ [rad]")
         plt.show()
 
-        # plot_residual_scene()
-        # plot_psf_fit()
+        if "counts" in dir(self):
+            if self.counts.shape != self.mean_f_b.shape:
+                return
+            fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+            ax[0].set_title("Counts per bin")
+            cax = ax[0].pcolormesh(self.phi_b, self.r_b, self.counts)
+            fig.colorbar(cax, ax=ax[0])
+            ax[0].set_xlabel(r"$\phi$ [rad]")
+            ax[0].set_ylabel(r"$r^{\prime\prime}$")
 
+            ax[1].set_title("Binned mean flux")
+            cax = ax[1].pcolormesh(self.phi_b, self.r_b, self.mean_f_b)
+            fig.colorbar(cax, ax=ax[1])
+            ax[1].set_xlabel(r"$\phi$ [rad]")
+            plt.show()
+        return
+
+    def _plot_residual_scene():
+        return
+
+    def _plot_psf_fit():
         return
 
     @staticmethod
