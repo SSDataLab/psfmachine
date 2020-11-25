@@ -55,6 +55,13 @@ class Machine(object):
 
         source_flux_estiamtes : np.ndarray
             nsources
+
+        Exaples
+        -------
+
+        mac = Machine().from_tpfs()
+        mac.build_model()
+        mac.fit_model()
         """
 
         # assigning initial attributes
@@ -284,6 +291,8 @@ class Machine(object):
         self.ra_centroid_avg = self.ra_centroid.mean()
         self.dec_centroid_avg = self.dec_centroid.mean()
 
+        return
+
     def _build_time_variable_model():
         return
 
@@ -315,34 +324,33 @@ class Machine(object):
 
         return r_b, phi_b, mean_f_b.T, counts.T
 
-    def build_model(self, nphi=40, nr=30, bin=True, update=False):
+    def build_model(self, bin=True, update=False):
         """
         Builds a sparse model matrix of shape nsources x npixels
-
-        Builds the model using self.uncontaminated_pixel_mask
         """
         # self._build_time_variable_model()
-        # only use pixels near source
-        # mean frame
+        # assign the flux estimations to be used for mean flux normalization
         if update:
             if "psf_flux1" not in dir(self):
                 raise AttributeError(
                     "Update model is set to True but no fluxes were "
-                    + "precomputed. Run self.fit_model() before."
+                    "precomputed. Run self.fit_model() before."
                 )
             flux_estimates = np.repeat(
                 self.psf_flux1.mean(axis=1)[:, None], self.npixels, axis=1
             )
         else:
             flux_estimates = self.source_flux_estimates
+
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
             .multiply(self.flux.mean(axis=0))
             .multiply(1 / flux_estimates)
             .data
         )
+        # build a binned (or not) mean_flux, anf r, phi for uncontaminated pixel
         if bin:
-            r_b, phi_b, mean_f_b, counts = self._bin_data(mean_f)
+            r_b, phi_b, mean_f_b, counts = self._bin_data(mean_f, nphi=40, nr=30)
             self.counts = counts
         else:
             phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
@@ -354,14 +362,13 @@ class Machine(object):
         self.mean_f_b = mean_f_b
         self.phi_b = phi_b
         self.r_b = r_b
-        # mean_f_b[(r_b.T > 1) & (counts < 3)] = np.nan
-        # mean_f_b[(r_b.T > 4) & ~np.isfinite(mean_f_b)] = -5
 
         A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
         prior_sigma = np.ones(A.shape[1]) * 100
         prior_mu = np.zeros(A.shape[1])
         nan_mask = np.isfinite(mean_f_b.ravel())
 
+        # we solve for A * psf_w = mean_f_b
         psf_w = self._solve_linear_model(
             A,
             mean_f_b.ravel(),
@@ -377,14 +384,14 @@ class Machine(object):
             self.source_mask.multiply(self.r).data,
         )
 
-        # And create a `mean_model` that has the psf model multiplied
-        # by the expected gaia flux.
+        # And create a `mean_model` that has the psf model for all pixels with fluxes
         mean_model = sparse.csr_matrix(self.r.shape)
         m = 10 ** Ap.dot(psf_w)
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
-
         self.mean_model = mean_model
+
+        return
 
     def fit_model(self):
         """
@@ -425,7 +432,7 @@ class Machine(object):
         # update mean model
         self.build_model(update=True)
         A = (self.mean_model).T
-        for t in tqdm(np.arange(self.nt), desc="Fitting PSF model, 2nd iter"):
+        for t in tqdm(range(self.nt), desc="Fitting PSF model, 2nd iter"):
             ws2[t], werrs2[t] = self._solve_linear_model(
                 A,
                 self.flux[t],
@@ -492,12 +499,11 @@ class Machine(object):
     def _plot_psf_fit():
         return
 
-    @staticmethod
-    def from_TPFs(tpfs):
+    def _parse_TPFs(tpfs):
         """
-        Convert TPF input into machine object
+        Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
+        per pixel
         """
-        # Checks that all TPFs have identical time sampling
         times = np.array([tpf.astropy_time.jd for tpf in tpfs])
         # 2e-5 d = 1.7 sec
         if not np.all(times[1:, :] - times[-1:, :] < 1e-4):
@@ -515,18 +521,13 @@ class Machine(object):
                 for idx, tpf in enumerate(tpfs)
             ]
         )
+        return times, flux, flux_err, unw
 
-        # Remove nan pixels
-        nan_mask = np.isnan(flux)
-        flux = np.array([fx[~ma] for fx, ma in zip(flux, nan_mask)])
-        flux_err = np.array([fx[~ma] for fx, ma in zip(flux_err, nan_mask)])
-        unw = np.array([ii[~ma] for ii, ma in zip(unw, nan_mask)])
-
-        # Remove bad cadences where the pointing is rubbish
-        bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
-        flux_err[bad_cadences] *= 1e2
-        del bad_cadences
-
+    def _convert_to_wcs(tpfs):
+        """
+        Extract pairs of row, column coordinates per pixels and convert them into
+        World Cordinate System.
+        """
         # calculate x,y grid of each pixel
         locs = np.hstack(
             [
@@ -537,19 +538,8 @@ class Machine(object):
                 for tpf in tpfs
             ]
         )
-        locs = locs[:, ~np.all(nan_mask, axis=0)]
-
-        #  check for overlapped pixels between nearby tpfs, i.e. unique pixels
-        _, unique_pix = np.unique(locs, axis=1, return_index=True)
-        # important to srot indexes, np.unique return idx sorted by array values
-        unique_pix.sort()
-        locs = locs[:, unique_pix]
-        flux = flux[:, unique_pix]
-        flux_err = flux_err[:, unique_pix]
-        unw = unw[:, unique_pix]
 
         # convert pixel coord to ra, dec using TPF's solution
-        # what happens if tpfs don't have WCS solutions?
         ra, dec = (
             tpfs[0]
             .wcs.wcs_pix2world(
@@ -557,6 +547,55 @@ class Machine(object):
             )
             .T
         )
+        return locs, ra, dec
+
+    def _preprocess(flux, flux_err, unw, locs, ra, dec, tpfs):
+        """
+        Clean pixels with nan values, bad cadences and removes duplicated pixels.
+        """
+        # Remove nan pixels
+        nan_mask = np.isnan(flux)
+        flux = np.array([fx[~ma] for fx, ma in zip(flux, nan_mask)])
+        flux_err = np.array([fx[~ma] for fx, ma in zip(flux_err, nan_mask)])
+        unw = np.array([ii[~ma] for ii, ma in zip(unw, nan_mask)])
+        locs = locs[:, ~np.all(nan_mask, axis=0)]
+        ra = ra[~np.all(nan_mask, axis=0)]
+        dec = dec[~np.all(nan_mask, axis=0)]
+
+        # Remove bad cadences where the pointing is rubbish
+        bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
+        flux_err[bad_cadences] *= 1e2
+        del bad_cadences
+
+        #  check for overlapped pixels between nearby tpfs, i.e. unique pixels
+        _, unique_pix = np.unique(locs, axis=1, return_index=True)
+        # important to srot indexes, np.unique return idx sorted by array values
+        unique_pix.sort()
+        locs = locs[:, unique_pix]
+        ra = ra[unique_pix]
+        dec = dec[unique_pix]
+        flux = flux[:, unique_pix]
+        flux_err = flux_err[:, unique_pix]
+        unw = unw[:, unique_pix]
+
+        return flux, flux_err, unw, locs, ra, dec
+
+    @staticmethod
+    def from_TPFs(tpfs):
+        """
+        Convert TPF input into machine object
+        """
+        # parse tpfs
+        times, flux, flux_err, unw = Machine._parse_TPFs(tpfs)
+
+        # convert to RA Dec
+        locs, ra, dec = Machine._convert_to_wcs(tpfs)
+
+        # preprocess arrays
+        flux, flux_err, unw, locs, ra, dec = Machine._preprocess(
+            flux, flux_err, unw, locs, ra, dec, tpfs
+        )
+
         # find the max circle per TPF that contain all pixel data to query Gaia
         ras, decs, rads = [], [], []
         for l in np.unique(unw[0]):
@@ -576,7 +615,7 @@ class Machine(object):
             magnitude_limit=18,
             epoch=Time(times[0], format="jd").jyear,
         )
-        del locs, nan_mask, ra1, dec1, ras, decs, rads
+        del locs, ra1, dec1, ras, decs, rads
 
         # soruce list cleaning
         sources = Machine._clean_source_list(sources, ra, dec)
@@ -589,7 +628,7 @@ class Machine(object):
     @staticmethod
     def _clean_source_list(sources, ra, dec):
         """
-        Removes sources that are too contaminated or off the edge of the image
+        Removes sources that are too contaminated and/or off the edge of the image
 
         Parameters
         ----------
