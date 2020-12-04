@@ -19,4 +19,4 @@ jobs:
         poetry install
     - name: Run flake8
       run: |
-        make flake8
+        poetry run flake8
