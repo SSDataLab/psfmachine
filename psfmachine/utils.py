@@ -1,3 +1,5 @@
+""" Collection of utility functions"""
+
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,7 +12,6 @@ import pyia
 
 import astropy.units as u
 from astropy.time import Time
-from matplotlib import animation
 
 
 @functools.lru_cache()
@@ -103,7 +104,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020):
 
     Returns
     -------
-    Pandas DatFrame with number of result soruces (rows) and Gaia columns
+    Pandas DatFrame with number of result sources (rows) and Gaia columns
 
     """
     wheres = [
@@ -134,7 +135,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020):
         phot_rp_mean_flux, phot_rp_mean_flux_error, phot_rp_mean_flux_over_error,
         phot_rp_mean_mag, phot_bp_rp_excess_factor, phot_proc_mode, bp_rp, bp_g, g_rp,
         radial_velocity, radial_velocity_error, rv_nb_transits, rv_template_teff,
-        rv_template_logg, rv_template_fe_h, phot_variable_flag, l, b, ecl_lon, ecl_lat, 
+        rv_template_logg, rv_template_fe_h, phot_variable_flag, l, b, ecl_lon, ecl_lat,
         priam_flags, teff_val, teff_percentile_lower, teff_percentile_upper, a_g_val,
         a_g_percentile_lower, a_g_percentile_upper, e_bp_min_rp_val,
         e_bp_min_rp_percentile_lower, e_bp_min_rp_percentile_upper, flame_flags,
@@ -178,8 +179,30 @@ def _make_A(phi, r, cut_r=5):
     return X1
 
 
-def _make_A_wcs(phi, r, cut_r=20):
-    """ Make spline design matrix in polar coordinates """
+def _make_A_wcs(phi, r, cut_r=6):
+    """
+    Makes a design matrix of b-spline basis in polar coordinates. For the azimutal
+    angle axis, the splines are 2*pi periodic.
+
+    The design matrix is build with all combinatios of radius and angle spline basis,
+    with the exception of small angles (r < 6) where the angle dependency is removed
+    to avoid artifacts at the center of the PSF.
+
+    Parameters
+    ----------
+    phi : numpy.ndarray
+        Azimutal angle used to build the design matrix
+    r : numpy.ndarray
+        Radial distances used to build the design matrix
+    cut_r : int
+        Radius at which the angle dependecy is removed from the basis
+
+    Returns
+    -------
+    X1 : sparse.csr_matrix
+        A sparse design matrix
+    """
+    # create the spline bases for radius and angle
     phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
     r_knots = np.linspace(1 ** 0.5, 20 ** 0.5, 8) ** 2
     r_spline = sparse.csr_matrix(
@@ -190,11 +213,13 @@ def _make_A_wcs(phi, r, cut_r=20):
             )
         )
     )
+    # build full desing matrix
     X = sparse.hstack(
         [phi_spline.multiply(r_spline[:, idx]) for idx in range(r_spline.shape[1])],
         format="csr",
     )
-    cut = np.arange(phi_spline.shape[1] * 1, phi_spline.shape[1] * cut_r)
+    # find and remove the angle dependency for all basis for radius < 6
+    cut = np.arange(phi_spline.shape[1] * 0, phi_spline.shape[1] * cut_r)
     a = list(set(np.arange(X.shape[1])) - set(cut))
     X1 = sparse.hstack(
         [X[:, a], r_spline[:, 1:cut_r], sparse.csr_matrix(np.ones(X.shape[0])).T],
@@ -203,35 +228,26 @@ def _make_A_wcs(phi, r, cut_r=20):
     return X1
 
 
-def _make_A_cartesian(x, y, cut_r=5, n_knots=8):
-    """ Make spline design matrix in cartesian coordinates """
-    x_knots = np.linspace(-4, 4, n_knots)
-    x_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(x), "knots": x_knots},
-            )
-        )
-    )
-    y_knots = np.linspace(-4, 4, n_knots)
-    y_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(y), "knots": y_knots},
-            )
-        )
-    )
-    X = sparse.hstack(
-        [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
-        format="csr",
-    )
-    return X
-
-
 def wrapped_spline(input_vector, order=2, nknots=10):
-    """ This took me forever. MUST BE BETWEEN -PI and PI"""
+    """
+    Creates a vector of folded-spline basis according to the input data. This is meant
+    to be used to build the basis vectors for periodic data, like the angle in polar
+    coordinates.
+
+    Parameters
+    ----------
+    input_vector : numpy.ndarray
+        Input data to create basis, angle values MUST BE BETWEEN -PI and PI.
+    order : int
+        Order of the spline basis
+    nknots : int
+         Number of knots for the splines
+
+    Returns
+    -------
+    folded_basis : numpy.ndarray
+        Array of folded-spline basis
+    """
 
     if not ((input_vector > -np.pi) & (input_vector < np.pi)).all():
         raise ValueError("Must be between -pi and pi")
@@ -267,33 +283,3 @@ def wrapped_spline(input_vector, order=2, nknots=10):
     for idx in np.arange(-order, 0):
         folded_basis[idx, :] += np.copy(basis)[nt // 2 + idx, len(x) :]
     return folded_basis
-
-
-def movie(dat, title="", out="out.mp4", scale="linear", facecolor="red", **kwargs):
-    """Create an mp4 movie of a 3D array"""
-    if scale == "log":
-        data = np.log10(np.copy(dat))
-    else:
-        data = dat
-    fig, ax = plt.subplots(1, figsize=(5, 4))
-    ax.set_facecolor(facecolor)
-    if "vmax" not in kwargs:
-        kwargs["vmax"] = np.nanpercentile(data, 75)
-    if "vmin" not in kwargs:
-        kwargs["vmin"] = np.nanpercentile(data, 5)
-    im1 = ax.imshow(data[0], origin="bottom", **kwargs)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_title(title, fontsize=15)
-    cbar1 = fig.colorbar(im1, ax=ax)
-    cbar1.ax.tick_params(labelsize=10)
-    if scale == "log":
-        cbar1.set_label("log10(e$^-$s$^-1$)", fontsize=10)
-    else:
-        cbar1.set_label("e$^-$s$^-1$", fontsize=10)
-
-    def animate(i):
-        im1.set_array(data[i])
-
-    anim = animation.FuncAnimation(fig, animate, frames=len(data), interval=30)
-    anim.save(out, dpi=150)

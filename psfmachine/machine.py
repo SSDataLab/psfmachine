@@ -1,6 +1,10 @@
-"""Defines the main XXX object that fit PSF model to sources"""
+"""
+Defines the main Machine object that fit a mean PSF model to sources
+"""
+import logging
 
 import numpy as np
+import pandas as pd
 import lightkurve as lk
 from scipy import sparse
 from astropy.coordinates import SkyCoord, match_coordinates_3d
@@ -11,58 +15,136 @@ import matplotlib.pyplot as plt
 
 from .utils import get_gaia_sources, _make_A_wcs
 
-# help functions
+log = logging.getLogger(__name__)
 
+__all__ = ["Machine"]
 
+# Machine Class
 class Machine(object):
+    """
+    Class for calculating fast PSF photometry on a collection of images and
+    a list of in image sources. The moethod fits a common mean PSF model for
+    selected clean sources which is later fitted to al sources listed in `sources`.
+    This mothod solves a linear model to assuming Gaussian priors on the weight of
+    each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
+    (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+
+    This class is meant to be used with Kepler/K2 TPFs files, with a potential
+    for general use if the right arguments are provided.
+
+    The PSF model is build in polar coordinates.
+
+    Attributes
+    ----------
+    sources : pandas.DataFrame
+        Catalog of sources in the images
+    source_flux_estiamtes : np.ndarray
+        nsources
+
+    time : numpy.ndarray
+        Time values in JD
+    flux : numpy.ndarray
+        Flux values at each pixels and times in units of electrons / sec
+    flux_err : numpy.ndarray
+        Flux error values at each pixels and times in units of electrons / sec
+    ra : numpy.ndarray
+        Right Ascension coordinate of each pixel
+    dec : numpy.ndarray
+        Declination coordinate of each pixel
+    sources : pandas.DataFram
+        Data Frame with source present in the images
+    limit_radius : numpy.ndarray
+        Radius limit in arcsecs to select stars to be used for PSF modeling
+    limit_flux : numpy.ndarray
+        Flux limit in electrons / second to select stars to be used for PSF modeling
+    nsources : int
+        Number of sources to be extracted
+    nt : int
+        Number of onservations in the time series (aka number of cadences)
+    npixels : int
+        Total number of pixels with flux measurements
+    source_flux_estimates : numpy.ndarray
+        First estimation of pixel fluxes assuming values given by the sources catalog
+        (e.g. Gaia phot_g_mean_flux)
+    dra : numpy.ndarray
+        Distance in right ascension between pixel and source coordinates, units of
+        degrees
+    ddec : numpy.ndarray
+        Distance in declination between pixel and source coordinates, units of
+        degrees
+    r : numpy.ndarray
+        Radial distance between pixel and source coordinates (polar coordinates),
+        in units of arcseconds
+    phi : numpy.ndarray
+        Angle between pixel and source coordinates (polar coordinates),
+        in units of radians
+    source_mask : scipy.sparce.csr_matrix
+        Sparce mask matrix with pixels that contains flux from sources
+    uncontaminated_source_mask : scipy.sparce.csr_matrix
+        Sparce mask matrix with selected uncontaminated pixels per source to be used to
+        build the PSF model
+    ra_centroid : numpy.ndarray
+        Right ascension centroid values per source
+    dec_centroid : numpy.ndarray
+        Declination centroid values per source
+    mean_model : scipy.sparce.csr_matrix
+        Mean PSF model values per pixel used for PSF photometry
+    psf_flux : numpy.ndarray
+        PSF photometry for each source listed in `sources` as function of time in
+        units of electrons / s
+    psf_flux_err : numpy.ndarray
+        PSF photometry uncertainties for each source listed in `sources` as function
+        of time in units of electrons / s
+    """
+
     def __init__(self, time, flux, flux_err, ra, dec, sources, limit_radius=24.0):
         """
+        Class constructor. This constructur will compute the basic atributes that will
+        will be used by the object methods to perform PSF estimation and fitting.
 
         Parameters
         ----------
-        time : np.ndarray
+        time : numpy.ndarray
             Time in JD
-            shape nt
-        flux : np.ndarray
+            shape ntimes
+        flux : numpy.ndarray
             Flux at each pixel at each time
-            shape nt x npixel
-        flux_err : np.ndarray
+            shape ntimes x npixel
+        flux_err : numpy.ndarray
             Flux error at each pixel at each time
-            shape nt x npixel
-        x : np.ndarray
-            X pixel position averaged in time
-            shape npixel
-        y :  np.ndarray
-            Y pixel position averaged in time
-            shape npixel
-        ra : np.ndarray
+            shape ntimes x npixel
+        ra : numpy.ndarray
             RA pixel position averaged in time
             shape npixel
-        dec : np.ndarray
+        dec : numpy.ndarray
             Dec pixel position averaged in time
             shape npixel
-        sources : pandas DataFrame
+        sources : pandas.DataFrame
             Catalog with soruces on the pixel data (e.g. Gaia catalog)
             shape nsources x nfeatures
-        limit_radius : float astropy units
+        limit_radius : float
             Radius limit in arcsecs to select stars to be used for PSF modeling
-
-
-        Attributes
-        ----------
-
-        sources : pd.DataFrame
-
-        source_flux_estiamtes : np.ndarray
-            nsources
 
         Exaples
         -------
-
-        mac = Machine().from_tpfs()
+        import lightkurve as lk
+        from psfmachine.psfmachine import Machine
+        # download a collection of 100 TPFs around the target star
+        tpfs = lk.search_targetpixelfile(target='KIC 11904151', radius=1000,
+                                         limit=100, cadence='long',
+                                         mission='Kepler', quarter=4).download_all()
+        # create a machine object from TPF collection
+        mac = Machine().from_tpfs(tpfs)
+        # build PSF model using selected stars
         mac.build_model()
+        # fit PSF model to all sources listed in `sources`
         mac.fit_model()
+        # access all sources light curves
+        mac.time, mac.psf_flux
         """
+
+        if not isinstance(sources, pd.DataFrame):
+            raise TypeError("<sources> must be a of class Pandas Data Frame")
 
         # assigning initial attributes
         self.time = time
@@ -78,7 +160,7 @@ class Machine(object):
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
 
-        # gaia estimate flux value per pixel
+        # gaia estimate flux values per pixel to be used as flux priors
         self.source_flux_estimates = np.array(
             [
                 np.zeros(self.npixels) + sources.phot_g_mean_flux[idx]
@@ -86,8 +168,7 @@ class Machine(object):
             ]
         )
 
-        # The distance in ra & dec from each source at each pixel
-        # shape nsources x npixels, arcsec units
+        # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
                 [ra - self.sources["ra"][idx], dec - self.sources["dec"][idx]]
@@ -97,21 +178,19 @@ class Machine(object):
         self.dra = self.dra * (u.deg)
         self.ddec = self.ddec * (u.deg)
 
-        # polar coordinates, remember these two are astropy quantity objects
-        # radial distance from source in arcseconds
+        # convertion to polar coordinates
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        # azimuthal angle is in radians
         self.phi = np.arctan2(self.ddec, self.dra)
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        # self._get_source_mask()
+        self._get_source_mask()
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
-        # self._get_uncontaminated_pixel_mask()
+        self._get_uncontaminated_pixel_mask()
 
         # Get the centroids of the images as a function of time
-        # self._get_centroids()
+        self._get_centroids()
 
     @property
     def shape(self):
@@ -123,10 +202,14 @@ class Machine(object):
     @staticmethod
     def _solve_linear_model(A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None):
         """
-        Solves a linear model with design matrix A and observations y
+        Solves a linear model with design matrix A and observations y:
             Aw = y
-        return the solutions w for the system.
-        Alternative, the observation errors, priors, and a boolean mask can be provided.
+        return the solutions w for the system assuming Gaussian priors.
+        Alternatively the observation errors, priors, and a boolean mask for the
+        observations (row axis) can be provided.
+
+        Adapted from Luger, Foreman-Mackey & Hogg, 2017
+        (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
         Parameters
         ----------
@@ -181,14 +264,17 @@ class Machine(object):
 
     def _get_source_mask(self):
         """
-        Mask of shape nsources x number of pixels, one where flux from a source
-        exists
+        Creates a mask of shape nsources x number of pixels, one where flux from a
+        source exists, this mask is used to select which pixels will be used for
+        PSD photometry.
 
-        Returns
-        -------
-        Mask with all pixels containing flux from sources.
+        First finds a linear relation between flux and radius from the source center
+        to then calculate the radius at which the 97% of the flux is enclosed.
+
+        The created zero-ones-mask is a sparce csr_matrix, which helps to speed-up
+        following computation, especially for large number of sources and pixels.
         """
-        # mask by Gaia flux and maximum distance
+        # mask pixels by Gaia flux and maximum distance
         self.mean_flux = np.nanmean(self.flux, axis=0)
         temp_mask = (self.r.to("arcsec") < self.limit_radius) & (
             self.source_flux_estimates > self.limit_flux
@@ -212,7 +298,7 @@ class Machine(object):
             np.log10(self.source_flux_estimates.max()),
             50,
         )
-        # r is in arcsecs
+        # calculate radius of PSF edges from linear solution
         test_r = np.arange(0, 40, 1)
         radius_check = np.asarray(
             [
@@ -223,10 +309,10 @@ class Machine(object):
             ]
         )
 
-        # flux cap at which 95% of it is contained
-        cut = np.percentile(np.abs(radius_check), 5) - np.min(np.abs(radius_check))
+        # flux cap at which 97% of it is contained
+        cut = np.percentile(np.abs(radius_check), 3) - np.min(np.abs(radius_check))
         x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
-        # calculate the radius at which the 95% is contained
+        # calculate the radius at which the 97% is contained
         self.radius = np.polyval(
             np.polyfit(x, y, 5), np.log10(self.sources["phot_g_mean_flux"])
         )
@@ -234,6 +320,7 @@ class Machine(object):
         # radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 8.0
         # radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 24.0
 
+        # mask all pixels with radial distance less than the source PSF edge.
         self.source_mask = sparse.csr_matrix(
             self.r.to("arcsec").value < self.radius[:, None]
         )
@@ -242,11 +329,21 @@ class Machine(object):
 
     def _get_uncontaminated_pixel_mask(self):
         """
-        Mask of shape npixels (maybe by nt) where not saturated, not faint,
-        not contaminated etc.
+        creates a mask of shape npixels (maybe by nt) where not saturated, not faint,
+        and not contaminated. This mask is used to select pixels to build the PSF
+        model.
+
+        Pixel saturation defined by the limit where sensor response is linear,
+        ~1.5e5 -e/s.
+        Faint sources are filtered using the `sources` catalog, e.g.g
+        Gaia phot_g_mean_flux < 10^3.
+        Pixels with flux coming from multiple sources are flagged as contaminated.
+
+        A pixel mask per sources is created combined all previus three masks, this is a
+        sparce csr_matrix.
 
         """
-        # find saturated pixels, the saturation cap per pixel in -e/s
+        # find saturated pixels, the saturation cap per pixel is -e/s
         sat_pixel_mask = np.max(self.flux, axis=0) > 1.5e5
 
         # find pixels from faint Sources
@@ -255,10 +352,10 @@ class Machine(object):
         # find pixels with flux from only one source
         one_source_pix = self.source_mask.sum(axis=0) == 1
 
-        # combine isolated and not faint sources
+        # combine non-saturated pixels and only-one-source pixels
         good_pixels = sparse.csr_matrix(~sat_pixel_mask).multiply(one_source_pix)
 
-        # combine source mask with good sources and not saturated pixels
+        # combine faint sources mask with good pixels
         self.uncontaminated_source_mask = (
             sparse.csr_matrix(~faint_sources[:, None])
             .dot(good_pixels)
@@ -299,36 +396,72 @@ class Machine(object):
     def _fit_time_variable_model():
         return
 
-    def _bin_data(self, mean_f, nphi=40, nr=30):
+    def _bin_data(self, mean_f, nphi=10, nr=10):
         """
-        Bin data (radius and angle) to speed-up the linear modeling
-        """
-        # bin data
-        phis = np.linspace(-np.pi, np.pi, nphi)
-        # try r in squared space
-        # rs = np.linspace(0, self.limit_radius.value, nr)
-        rs = np.linspace(0 ** 0.5, self.limit_radius.value ** 0.5, nr) ** 2
+        Bin the `mean_f` (mean fluxes) in polar coordinates space to then build the
+        PSF model.
 
-        # phi_m = self.phi[self.uncontaminated_source_mask].value
-        # r_m = self.r[self.uncontaminated_source_mask].to("arcsec").value
+        Note: For the sake of modeling a PSF, we assing a lower bound value to all
+        bins with no counts and a significant large ditance (15 arcsec). This helps
+        to set boundary conditions when doing the linear modeling of the binned data.
+
+        Radial distance bins are square spaced.
+
+        Parameters
+        ----------
+        mean_f : numpy.ndarray
+            Values of mean flux at a given radial distance and azimutal angle
+        nphi : int, optional
+            Number of bins for the azimutal angle axis
+        nphi : int, optional
+            Number of bins for the radial distance axis
+
+        Returns
+        -------
+        r_b : numpy.ndarray
+            Mesh grid of radial distance binned values
+        phi_b : numpy.ndarray
+            Mesh grid of azimutal angle binned values
+        mean_f_b : numpy.ndarray
+            Mean flux value per bin
+        counts : numpy.ndarray
+            Number of counts per bin
+        """
+        # defining bin edges
+        phis = np.linspace(-np.pi, np.pi, nphi)
+        rs = np.linspace(0 ** 0.5, (self.radius.max()) ** 0.5, nr) ** 2
 
         phi_m = self.uncontaminated_source_mask.multiply(self.phi.value).data
         r_m = self.uncontaminated_source_mask.multiply(self.r.value).data
 
+        # binned data
         counts, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs))
         mean_f_b, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs), weights=mean_f)
         mean_f_b /= counts
         phi_b, r_b = np.asarray(
             np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
         )
+        # mean_f_b[(r_b.T > 1) & (counts < 1)] = np.nan
+        mean_f_b[(r_b.T > 15) & ~np.isfinite(mean_f_b)] = -6
 
         return r_b, phi_b, mean_f_b.T, counts.T
 
     def build_model(self, bin=True, update=False):
         """
-        Builds a sparse model matrix of shape nsources x npixels
+        Builds a sparse model matrix of shape nsources x npixels to be used when
+        fitting each source pixels to estimate its PSF photometry
+
+        Parameters
+        ----------
+        bin : boolean
+            Whether bin the mean flux values before finding the mean model or not
+        update : boolean
+            Updete mode True, changes the normalization of the mean fluxes if the
+            flux estimates where updated. Use whendoing second iteration of
+            `fit_model()`
         """
         # self._build_time_variable_model()
+        self._binned_model = bin
         # assign the flux estimations to be used for mean flux normalization
         if update:
             if "psf_flux1" not in dir(self):
@@ -342,13 +475,14 @@ class Machine(object):
         else:
             flux_estimates = self.source_flux_estimates
 
+        # mean flux values using uncontaminated mask and normalized by flux estimations
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
             .multiply(self.flux.mean(axis=0))
             .multiply(1 / flux_estimates)
             .data
         )
-        # build a binned (or not) mean_flux, anf r, phi for uncontaminated pixel
+        # Use binned (or not) normalized fluxes
         if bin:
             r_b, phi_b, mean_f_b, counts = self._bin_data(mean_f, nphi=40, nr=30)
             self.counts = counts
@@ -356,13 +490,20 @@ class Machine(object):
             phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
             r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
             mean_f_b = mean_f
-            counts = mean_f
+            # mean_f_b = np.append(mean_f, np.ones(100) * -6)
+            # mean_f_b = np.append(mean_f_b, np.ones(100) * -6)
+            # phi_b = np.append(phi_b, np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100))
+            # phi_b = np.append(phi_b, np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100))
+            # r_b = np.append(r_b, np.ones(100) * r_b.max())
+            # r_b = np.append(r_b, np.ones(100) * (r_b.max() - 1))
 
+        # save them for later plotting
         self.mean_f = mean_f
         self.mean_f_b = mean_f_b
         self.phi_b = phi_b
         self.r_b = r_b
 
+        # build a design matrix A with b-splines basis in radius and angle axis.
         A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
         prior_sigma = np.ones(A.shape[1]) * 100
         prior_mu = np.zeros(A.shape[1])
@@ -395,19 +536,20 @@ class Machine(object):
 
     def fit_model(self):
         """
-        Fits sparse model matrix to all flux values iteratively in time
+        Fits a sparse model matrix to all flux values iteratively in time to calculate
+        PSF photometry. This is done in two iteretions, firs using priors and
+        a mean model normalized with Gaia source expected fluxes, and a second
+        iteration updating the priors and normalizations with the precomputed fluxes.
 
-        Fits PSF model first using gaia flux, then updates `self.flux_estimates`
-        Second iteration, uses best fit flux estimates to find PSF shape
-
-        Fits model using self.source_mask
+        This method create two new class atributes that contain the PSF flux and
+        uncertainties (`psf_flux` and `psf_flux_err`)
         """
         # self._fit_time_variable_model()
         A = (self.mean_model).T
         ws1 = np.zeros((self.nt, A.shape[1])) * np.nan
         werrs1 = np.zeros((self.nt, A.shape[1])) * np.nan
 
-        # firs iteration uses Gaia flux as prior
+        # first iteration uses Gaia flux as prior
         prior_mu = self.source_flux_estimates[:, 0]
         prior_sigma = np.ones(A.shape[1]) * 10 * self.source_flux_estimates[:, 0]
         k = np.isfinite(self.flux)
@@ -425,12 +567,11 @@ class Machine(object):
 
         ws2 = np.zeros_like(ws1) * np.nan
         werrs2 = np.zeros_like(werrs1) * np.nan
-        # update priors using previous fitting, do we average in time?
+        # update priors using previous fitting, we keep wide priors for sigma
         prior_mu = ws1.mean(axis=0)
-        # prior_sigma = werrs1.mean(axis=1) * 100
-        # think about how to avoidsouble werrs invertion calculation, catching?
-        # update mean model
+        # update mean model with the flux estimations
         self.build_model(update=True)
+        self._plot_mean_model()
         A = (self.mean_model).T
         for t in tqdm(range(self.nt), desc="Fitting PSF model, 2nd iter"):
             ws2[t], werrs2[t] = self._solve_linear_model(
@@ -446,8 +587,11 @@ class Machine(object):
 
     def _plot_mean_model(self):
         """
-        Diagnostic plot of the mean PSF model.
-        run self.build_model(first)
+        Diagnostic plot of the mean PSF model. Run `self.build_model()` first.
+
+        Plot figures with the mean fluxes and mean model in polar coordinates, mean
+        model in WC, radial and angle profile.
+        Also includes the binned and counts of binned mean flux data if available
         """
         # Plotting r,phi,meanflux used to build PSF model
         fig, ax = plt.subplots(1, 2, figsize=(9, 3))
@@ -458,13 +602,14 @@ class Machine(object):
             c=self.mean_f,
             marker=".",
         )
+        ax[0].set_ylim(0, self.r_b.max())
         fig.colorbar(cax, ax=ax[0])
         ax[0].set_ylabel(r"$r^{\prime\prime}$ ")
         ax[0].set_xlabel(r"$\phi$ [rad]")
 
         r_test, phi_test = np.meshgrid(
-            np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 50) ** 2,
-            np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 50),
+            np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 100) ** 2,
+            np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100),
         )
         A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
         model_test = A_test.dot(self.psf_w)
@@ -476,9 +621,22 @@ class Machine(object):
         ax[1].set_xlabel(r"$\phi$ [rad]")
         plt.show()
 
-        if "counts" in dir(self):
-            if self.counts.shape != self.mean_f_b.shape:
-                return
+        plt.figure(figsize=(9, 8))
+        plt.pcolormesh(r_test * np.cos(phi_test), r_test * np.sin(phi_test), model_test)
+        plt.show()
+
+        fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+        ax[0].set_title("Marginal Dist")
+        ax[0].plot(r_test[0, :], model_test.sum(axis=0))
+        ax[0].set_xlabel(r"$r$")
+
+        ax[1].set_title("Marginal Dist")
+        ax[1].plot(phi_test[:, 0], model_test.sum(axis=1))
+        ax[1].set_xlabel(r"$\phi$")
+
+        plt.show()
+
+        if self._binned_model:
             fig, ax = plt.subplots(1, 2, figsize=(9, 3))
             ax[0].set_title("Counts per bin")
             cax = ax[0].pcolormesh(self.phi_b, self.r_b, self.counts)
@@ -491,6 +649,14 @@ class Machine(object):
             fig.colorbar(cax, ax=ax[1])
             ax[1].set_xlabel(r"$\phi$ [rad]")
             plt.show()
+        else:
+            fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+            ax.set_title("Mean flux")
+            cax = ax.scatter(self.phi_b, self.r_b, c=self.mean_f_b, marker=".")
+            ax.set_ylim(0, self.r_b.max())
+            fig.colorbar(cax, ax=ax)
+            ax.set_ylabel(r"$r^{\prime\prime}$ ")
+            ax.set_xlabel(r"$\phi$ [rad]")
         return
 
     def _plot_residual_scene():
@@ -503,12 +669,29 @@ class Machine(object):
         """
         Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
         per pixel
+
+        Parameters
+        ----------
+        tpfs : lightkurve TargetPixelFileCollection
+            Collection of Target Pixel files
+
+        Returns
+        -------
+        times : numpy.ndarray
+            Array with time values
+        flux : numpy.ndarray
+            Array with flux values per pixel
+        flux_err : numpy.ndarray
+            Array with flux errors per pixel
+        unw : numpy.ndarray
+            Array with TPF index for each pixel
         """
-        times = np.array([tpf.astropy_time.jd for tpf in tpfs])
-        # 2e-5 d = 1.7 sec
-        if not np.all(times[1:, :] - times[-1:, :] < 1e-4):
+        cadences = np.array([tpf.cadenceno for tpf in tpfs])
+        # check if all TPFs has same cadences
+        if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
             raise ValueError("All TPFs must have same time basis")
-        times = times[0]
+        # extract times
+        times = tpfs[0].astropy_time.jd
 
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
@@ -526,7 +709,21 @@ class Machine(object):
     def _convert_to_wcs(tpfs):
         """
         Extract pairs of row, column coordinates per pixels and convert them into
-        World Cordinate System.
+        World Cordinate System ra, dec.
+
+        Parameters
+        ----------
+        tpfs : lightkurve TargetPixelFileCollection
+            Collection of Target Pixel files
+
+        Returns
+        -------
+        locs : numpy.ndarray
+            2D array with pixel locations (columns, rows) from the TPFs
+        ra : numpy.ndarray
+            Array with right ascension values per pixel
+        dec : numpy.ndarray
+            Array with declination values per pixel
         """
         # calculate x,y grid of each pixel
         locs = np.hstack(
@@ -563,11 +760,9 @@ class Machine(object):
         dec = dec[~np.all(nan_mask, axis=0)]
 
         # Remove bad cadences where the pointing is rubbish
-        bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
-        flux_err[bad_cadences] *= 1e2
-        del bad_cadences
+        flux_err[np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10] *= 1e2
 
-        #  check for overlapped pixels between nearby tpfs, i.e. unique pixels
+        # check for overlapped pixels between nearby tpfs, i.e. unique pixels
         _, unique_pix = np.unique(locs, axis=1, return_index=True)
         # important to srot indexes, np.unique return idx sorted by array values
         unique_pix.sort()
@@ -580,22 +775,27 @@ class Machine(object):
 
         return flux, flux_err, unw, locs, ra, dec
 
-    @staticmethod
-    def from_TPFs(tpfs):
+    def _get_coord_and_query_gaia(ra, dec, unw, epoch):
         """
-        Convert TPF input into machine object
+        Calculate ra, dec coordinates and search radius to query Gaia catalog
+
+        Parameters
+        ----------
+        ra : numpy.ndarray
+            Right ascension coordinate of pixels to do Gaia search
+        ra : numpy.ndarray
+            Declination coordinate of pixels to do Gaia search
+        unw : numpy.ndarray
+            TPF index of each pixel
+        epoch : float
+            Epoch of obervation in Julian Days of ra, dec coordinates,
+            will be used to propagate proper motions in Gaia.
+
+        Returns
+        -------
+        sources : pandas.DataFrame
+            Catalog with query result
         """
-        # parse tpfs
-        times, flux, flux_err, unw = Machine._parse_TPFs(tpfs)
-
-        # convert to RA Dec
-        locs, ra, dec = Machine._convert_to_wcs(tpfs)
-
-        # preprocess arrays
-        flux, flux_err, unw, locs, ra, dec = Machine._preprocess(
-            flux, flux_err, unw, locs, ra, dec, tpfs
-        )
-
         # find the max circle per TPF that contain all pixel data to query Gaia
         ras, decs, rads = [], [], []
         for l in np.unique(unw[0]):
@@ -613,19 +813,59 @@ class Machine(object):
             tuple(decs),
             tuple(rads),
             magnitude_limit=18,
-            epoch=Time(times[0], format="jd").jyear,
+            epoch=Time(epoch, format="jd").jyear,
         )
-        del locs, ra1, dec1, ras, decs, rads
+        return sources
+
+    @staticmethod
+    def from_TPFs(tpfs):
+        """
+        Convert TPF input into Machine object:
+            * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
+            the TPF-pixel correspondance
+            * Convert pixel-based coordinates (row, column) into WCS (ra, dec) for
+            all pixels
+            * Clean pixels with no values, bad cadences, and remove duplicated pixels
+            due to overlapping TPFs
+            * Query Gaia DR2 data base to find all sources present in the TPF images
+            * Clean unresolve sources (within 6`` = 1.5 pixels) and sources off silicon
+            with a 1 pixel tolerance (distance from source gaia pocition and TPF edge)
+
+        Parameters
+        ----------
+        tpfs : lightkurve TargetPixelFileCollection
+            Collection of Target Pixel files
+
+        Returns
+        -------
+        Machine : Machine object
+            A Machine class object built from TPFs.
+        """
+        if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
+            raise TypeError("<tpfs> must be a of class Target Pixel Collection")
+
+        # parse tpfs
+        times, flux, flux_err, unw = Machine._parse_TPFs(tpfs)
+
+        # convert to RA Dec
+        locs, ra, dec = Machine._convert_to_wcs(tpfs)
+
+        # preprocess arrays
+        flux, flux_err, unw, locs, ra, dec = Machine._preprocess(
+            flux, flux_err, unw, locs, ra, dec, tpfs
+        )
+
+        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0])
+        print(sources.shape)
 
         # soruce list cleaning
-        sources = Machine._clean_source_list(sources, ra, dec)
+        sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
             time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources
         )
 
-    @staticmethod
     def _clean_source_list(sources, ra, dec):
         """
         Removes sources that are too contaminated and/or off the edge of the image
@@ -641,8 +881,15 @@ class Machine(object):
         dec     : numpy ndarray
             Dec pixel position averaged in time
             shape npixel
+
+        Returns
+        -------
+        sources : Pandas.DataFrame
+            Catalog with clean sources
+        removed_sources : Pandas.DataFrame
+            Catalog with removed sources
         """
-        # find souerces on the image
+        # find sources on the image
         inside = np.zeros(len(sources), dtype=bool)
         # max distance in arcsec from image edge to source ra, dec
         off = 3.0 / 3600
@@ -655,8 +902,7 @@ class Machine(object):
         # find well separated sources
         s_coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
         midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
-        # all sources closer than 6" = 1.5 pix, this is a model parameters
-        # that need to be tested
+        # remove sources closer than 6" = 1.5 pix
         closest = mdist.arcsec < 6.0
         blocs = np.vstack([midx[closest], np.where(closest)[0]])
         bmags = np.vstack(
@@ -676,23 +922,14 @@ class Machine(object):
 
         # combine 2 source masks
         clean = sources.clean_flag == 0
-
         removed_sources = sources[~clean].reset_index(drop=True)
         sources = sources[clean].reset_index(drop=True)
 
-        return sources
+        return sources, removed_sources
 
 
 """
 Notes on user functionality
-
-mac = Machine().from_tpfs()
-mac.build_model()
-mac.fit_model()
-
-mac.model_flux  # Values
-mac.model_flux_err  # values
-
 
 machine.plot_tpf(4)
  machine.plot_source(13)
