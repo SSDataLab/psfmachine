@@ -23,7 +23,7 @@ tqdm = "^4.54.0"
 matplotlib = "^3.3.3"
 patsy = "^0.5.1"
 pyia = "^1.2"
-lightkuerve = "^1.11.3"
+lightkurve = "^1.11.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.1.2"
