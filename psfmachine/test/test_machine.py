@@ -17,7 +17,7 @@ from psfmachine.machine import Machine
 lib_path = os.getcwd()
 
 tpfs = []
-flist = glob.glob(f"{lib_path}/test/data/tpf_test_*.fits")
+flist = glob.glob(f"{lib_path}/psfmachine/test/data/tpf_test_*.fits")
 for f in flist:
     tpfs.append(lk.KeplerTargetPixelFile(f))
 tpfs = lk.collections.TargetPixelFileCollection(tpfs)

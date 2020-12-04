@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["Machine"]
 
+
 # Machine Class
 class Machine(object):
     """

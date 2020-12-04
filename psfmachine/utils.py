@@ -1,13 +1,10 @@
 """ Collection of utility functions"""
 
-from tqdm import tqdm
-import matplotlib.pyplot as plt
 import numpy as np
 import functools
 
 from scipy import sparse
 from patsy import dmatrix
-import lightkurve as lk
 import pyia
 
 import astropy.units as u

@@ -2,16 +2,10 @@
 import numpy as np
 from scipy import sparse
 from tqdm.notebook import tqdm
-import matplotlib.pyplot as plt
 
 from astropy.coordinates import SkyCoord, match_coordinates_3d
-from astropy.time import Time
 
-import lightkurve as lk
-
-from .utils import get_sources, wrapped_spline, _make_A
-
-from patsy import dmatrix
+from .utils import get_sources, _make_A
 
 from scipy.integrate import simps
 
@@ -24,14 +18,16 @@ class Collection(object):
 
         Parameters:
         -----------
-        tpfs : lk.TargetPixelFileCollection
+        tpfs : lightkurve.TargetPixelFileCollection
             Collection of target pixel files from Kepler or TESS. These TPFs must be
-            from the same quarter, campaign or sector (they must share the same time basis)
+            from the same quarter, campaign or sector (they must share the same
+            time basis)
         radius_limit : int
-            The radius in pixels out to which we will consider flux to be part of the PSF
+            The radius in pixels out to which we will consider flux to be part of
+            the PSF
         flux_limit : float
-            The limit in flux where we will calculate the PSF model. The PSF model will still be
-            applied to fainter targets than this limit.
+            The limit in flux where we will calculate the PSF model. The PSF model
+            will still be applied to fainter targets than this limit.
 
         Attributes:
         -----------
@@ -51,24 +47,29 @@ class Collection(object):
         GaiaData : pyia.GaiaData
             The gaia data for all sources nearby to pixels
         sources : pd.DataFrame
-            Dataframe containing all the sources nearby to pixels. This is separate from GaiaData
-            attribute for convenience
+            Dataframe containing all the sources nearby to pixels. This is separate
+            from GaiaData attribute for convenience
         dx : np.ndarray
-            The x distance from every source at every pixel. Has dimensions nsources x npixels
+            The x distance from every source at every pixel.
+            Has dimensions nsources x npixels
         dy : np.ndarray
-            The y distance from every source at every pixel. Has dimensions nsources x npixels
+            The y distance from every source at every pixel.
+            Has dimensions nsources x npixels
         gv : np.ndarray
             The gaia flux of each target, has dimensions nsources x npixels
         close_mask : np.ndarray
             Boolean mask, True where the distance to a source is under `radius_limit`.
             Has shape nsources x npixels.
         mask : np.ndarray
-            Boolean mask, True where there is expected to be significant flux from the PSF of a source.
+            Boolean mask, True where there is expected to be significant flux from
+            the PSF of a source.
             Has shape nsources x npixels.
         xcent : np.ndarray
-            The x centroid position of the sources, as a function of time. Has dimensions (ntime)
+            The x centroid position of the sources, as a function of time.
+            Has dimensions (ntime)
         ycent : np.ndarray
-            The y centroid position of the sources, as a function of time. Has dimensions (ntime)
+            The y centroid position of the sources, as a function of time.
+            Has dimensions (ntime)
         """
         self.tpfs = tpfs
         self.time = tpfs[0].time
@@ -398,7 +399,8 @@ class Collection(object):
         soure, allowing the flux to vary. We assume that for Kepler,
         the motion of the source is negligible. This is not a great assumption.
 
-        We also assume the PSF shape isn't changing from the mean frame, not a great assumption.
+        We also assume the PSF shape isn't changing from the mean frame, not a great
+        assumption.
 
         BUT these assumptions are also in SAP flux, so...
         """
