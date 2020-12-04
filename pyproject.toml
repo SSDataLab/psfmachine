@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "psfmachine"
+version = "0.1.0"
+description = "Tool to perform fast PSF photometry of primary and background targets from Kepler/K2 Target Pixel Files"
+authors = ["jorgemarpa <jorgemarpa@ug.uchile.cl>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+numpy = "^1.19.4"
+scipy = "^1.5.4"
+astropy = "^4.2"
+tqdm = "^4.54.0"
+matplotlib = "^3.3.3"
+patsy = "^0.5.1"
+pyia = "^1.2"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
