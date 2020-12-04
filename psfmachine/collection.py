@@ -279,7 +279,7 @@ class Collection(object):
     def __repr__(self):
         return f"Collection [{self.ntpfs} TPFs, {len(self.sources)} Sources]"
 
-    def _build_model(self, nphi=40, nr=30):
+    def _build_model(self, nphi=40, nr=30, bin=True):
         """Use the TPF data to build a model of the PSF
 
         We use the sources above `flux_limit` to build a model of the PSF,
@@ -308,6 +308,7 @@ class Collection(object):
             .multiply(1 / self.gv)
             .data
         )
+        self.mean_f = f
         xcent_avg = np.average(self.dx[self.mask], weights=np.nan_to_num(f))
         ycent_avg = np.average(self.dy[self.mask], weights=np.nan_to_num(f))
 
@@ -315,24 +316,42 @@ class Collection(object):
         # We use only pixels near sources for this.
         r = np.hypot(self.dx[self.mask] - xcent_avg, self.dy[self.mask] - ycent_avg)
         phi = np.arctan2(self.dy[self.mask] - ycent_avg, self.dx[self.mask] - xcent_avg)
+        self.r = r
+        self.phi = phi
 
         # Bin the data in radius/phi space.
         k = np.isfinite(f)
-        phis = np.linspace(-np.pi, np.pi, nphi)
-        rs = np.linspace(0, 8, nr)
-        ar = np.zeros((len(phis) - 1, len(rs) - 1))
-        count = np.zeros((len(phis) - 1, len(rs) - 1))
-        for idx, phi1 in enumerate(phis[1:]):
-            for jdx, r1 in enumerate(rs[1:]):
-                m = (phi > phis[idx]) & (phi <= phi1) & (r > rs[jdx]) & (r <= r1)
-                count[idx, jdx] = m.sum()
-                ar[idx, jdx] = np.nanmean(f[m])
+        if bin:
+            phis = np.linspace(-np.pi, np.pi, nphi)
+            # rs = np.linspace(0, 8, nr)
+            rs = np.linspace(0 ** 0.5, 8 ** 0.5, nr) ** 2
+            ar = np.zeros((len(phis) - 1, len(rs) - 1))
+            count = np.zeros((len(phis) - 1, len(rs) - 1))
+            for idx, phi1 in enumerate(phis[1:]):
+                for jdx, r1 in enumerate(rs[1:]):
+                    m = (phi > phis[idx]) & (phi <= phi1) & (r > rs[jdx]) & (r <= r1)
+                    count[idx, jdx] = m.sum()
+                    ar[idx, jdx] = np.nanmean(f[m])
 
-        phi_b, r_b = np.asarray(
-            np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
-        )
-        ar[(r_b.T > 1) & (count < 3)] = np.nan
-        ar[(r_b.T > 4) & ~np.isfinite(ar)] = -5
+            phi_b, r_b = np.asarray(
+                np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
+            )
+            ar[(r_b.T > 1) & (count < 1)] = np.nan
+            ar[(r_b.T > 4) & ~np.isfinite(ar)] = -5
+        else:
+            phi_b = phi
+            r_b = r
+            ar = f
+            count = f
+            # phi_b = np.append(phi, np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100))
+            # r_b = np.append(r, np.ones(100) * r.max() * 1.1)
+            # ar = np.append(f, np.ones(100) * -6)
+            # count = np.append(f, np.ones(100) * -6)
+
+        self.count = count
+        self.ar = ar
+        self.phi_b = phi_b
+        self.r_b = r_b
 
         #        norm = simps(simps(10**np.nan_to_num(ar), r_b[:, 0]), phi_b[0])
         #        ar = np.log10(10**(ar) / norm)
