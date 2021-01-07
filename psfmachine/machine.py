@@ -776,7 +776,7 @@ class Machine(object):
 
         return flux, flux_err, unw, locs, ra, dec
 
-    def _get_coord_and_query_gaia(ra, dec, unw, epoch):
+    def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit):
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -813,13 +813,13 @@ class Machine(object):
             tuple(ras),
             tuple(decs),
             tuple(rads),
-            magnitude_limit=18,
+            magnitude_limit=magnitude_limit,
             epoch=Time(epoch, format="jd").jyear,
         )
         return sources
 
     @staticmethod
-    def from_TPFs(tpfs):
+    def from_TPFs(tpfs, magnitude_limit=18):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -856,7 +856,7 @@ class Machine(object):
             flux, flux_err, unw, locs, ra, dec, tpfs
         )
 
-        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0])
+        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
         print(sources.shape)
 
         # soruce list cleaning

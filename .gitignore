@@ -24,6 +24,8 @@ var/
 *.egg
 
 tutorials/.ipynb_checkpoints
+.python-version
+.ipynb_checkpoints/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
