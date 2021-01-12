@@ -754,7 +754,7 @@ class Machine(object):
         )
         return locs, ra, dec
 
-    def _preprocess(flux, flux_err, unw, locs, ra, dec, tpfs):
+    def _preprocess(flux, flux_err, unw, locs, ra, dec, column, row, tpfs):
         """
         Clean pixels with nan values, bad cadences and removes duplicated pixels.
         """
@@ -766,6 +766,8 @@ class Machine(object):
         locs = locs[:, ~np.all(nan_mask, axis=0)]
         ra = ra[~np.all(nan_mask, axis=0)]
         dec = dec[~np.all(nan_mask, axis=0)]
+        column = column[~np.all(nan_mask, axis=0)]
+        row = row[~np.all(nan_mask, axis=0)]
 
         # Remove bad cadences where the pointing is rubbish
         flux_err[np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10] *= 1e2
@@ -775,13 +777,15 @@ class Machine(object):
         # important to srot indexes, np.unique return idx sorted by array values
         unique_pix.sort()
         locs = locs[:, unique_pix]
+        column = column[unique_pix]
+        row = row[unique_pix]
         ra = ra[unique_pix]
         dec = dec[unique_pix]
         flux = flux[:, unique_pix]
         flux_err = flux_err[:, unique_pix]
         unw = unw[:, unique_pix]
 
-        return flux, flux_err, unw, locs, ra, dec
+        return flux, flux_err, unw, locs, ra, dec, column, row
 
     def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit):
         """
@@ -859,8 +863,8 @@ class Machine(object):
         locs, ra, dec = Machine._convert_to_wcs(tpfs)
 
         # preprocess arrays
-        flux, flux_err, unw, locs, ra, dec = Machine._preprocess(
-            flux, flux_err, unw, locs, ra, dec, tpfs
+        flux, flux_err, unw, locs, ra, dec, column, row = Machine._preprocess(
+            flux, flux_err, unw, locs, ra, dec, column, row, tpfs
         )
 
         sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
