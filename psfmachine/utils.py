@@ -153,7 +153,7 @@ WHERE phot_g_mean_mag<={magnitude_limit}
 
 def _make_A(phi, r, cut_r=5):
     """ Make spline design matrix in polar coordinates """
-    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=10).T)
     r_knots = np.linspace(0.25 ** 0.5, 5 ** 0.5, 8) ** 2
     r_spline = sparse.csr_matrix(
         np.asarray(
@@ -200,8 +200,8 @@ def _make_A_wcs(phi, r, cut_r=6):
         A sparse design matrix
     """
     # create the spline bases for radius and angle
-    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=6).T)
-    r_knots = np.linspace(1 ** 0.5, 20 ** 0.5, 8) ** 2
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=10).T)
+    r_knots = np.linspace(1 ** 0.5, 18 ** 0.5, 8) ** 2
     r_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(

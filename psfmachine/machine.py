@@ -98,7 +98,7 @@ class Machine(object):
         of time in units of electrons / s
     """
 
-    def __init__(self, time, flux, flux_err, ra, dec, sources, limit_radius=24.0):
+    def __init__(self, time, flux, flux_err, ra, dec, sources, column, row, limit_radius=24.0):
         """
         Class constructor. This constructur will compute the basic atributes that will
         will be used by the object methods to perform PSF estimation and fitting.
@@ -154,6 +154,8 @@ class Machine(object):
         self.ra = ra
         self.dec = dec
         self.sources = sources
+        self.column = column
+        self.row = row
         self.limit_radius = limit_radius * u.arcsecond
         self.limit_flux = 1e4
 
@@ -185,13 +187,13 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask()
+#        self._get_source_mask()
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
-        self._get_uncontaminated_pixel_mask()
+#        self._get_uncontaminated_pixel_mask()
 
         # Get the centroids of the images as a function of time
-        self._get_centroids()
+#        self._get_centroids()
 
     @property
     def shape(self):
@@ -267,7 +269,7 @@ class Machine(object):
         """
         Creates a mask of shape nsources x number of pixels, one where flux from a
         source exists, this mask is used to select which pixels will be used for
-        PSD photometry.
+        PSF photometry.
 
         First finds a linear relation between flux and radius from the source center
         to then calculate the radius at which the 97% of the flux is enclosed.
@@ -295,8 +297,8 @@ class Machine(object):
         w = self._solve_linear_model(A, f, k=k)
 
         test_gaia = np.linspace(
-            np.log10(self.source_flux_estimates.min()),
-            np.log10(self.source_flux_estimates.max()),
+            np.log10(np.nanmin(self.source_flux_estimates)),
+            np.log10(np.nanmax(self.source_flux_estimates)),
             50,
         )
         # calculate radius of PSF edges from linear solution
@@ -688,11 +690,16 @@ class Machine(object):
             Array with TPF index for each pixel
         """
         cadences = np.array([tpf.cadenceno for tpf in tpfs])
+
         # check if all TPFs has same cadences
         if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
             raise ValueError("All TPFs must have same time basis")
         # extract times
-        times = tpfs[0].astropy_time.jd
+        times = np.asarray(tpfs[0].time.jd)
+
+        locs = [np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs]
+        locs = np.hstack(locs)
+        column, row = locs
 
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
@@ -705,7 +712,7 @@ class Machine(object):
                 for idx, tpf in enumerate(tpfs)
             ]
         )
-        return times, flux, flux_err, unw
+        return times, flux, flux_err, column, row, unw
 
     def _convert_to_wcs(tpfs):
         """
@@ -805,7 +812,7 @@ class Machine(object):
             ras.append(ra1.mean())
             decs.append(dec1.mean())
             rads.append(
-                np.hypot(ra1 - ra1.mean(), dec1 - dec1.mean()).max() / 2
+                np.hypot(ra1 - ra1.mean(), dec1 - dec1.mean()).max()
                 + (u.arcsecond * 6).to(u.deg).value
             )
         # query Gaia with epoch propagation
@@ -846,7 +853,7 @@ class Machine(object):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
         # parse tpfs
-        times, flux, flux_err, unw = Machine._parse_TPFs(tpfs)
+        times, flux, flux_err, column, row, unw = Machine._parse_TPFs(tpfs)
 
         # convert to RA Dec
         locs, ra, dec = Machine._convert_to_wcs(tpfs)
@@ -857,14 +864,13 @@ class Machine(object):
         )
 
         sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
-        print(sources.shape)
 
         # soruce list cleaning
         sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
-            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources
+            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources, column=column, row=row,
         )
 
     def _clean_source_list(sources, ra, dec):
@@ -904,7 +910,7 @@ class Machine(object):
         s_coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
         midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
         # remove sources closer than 6" = 1.5 pix
-        closest = mdist.arcsec < 6.0
+        closest = mdist.arcsec < 2.0
         blocs = np.vstack([midx[closest], np.where(closest)[0]])
         bmags = np.vstack(
             [
