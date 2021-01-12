@@ -189,13 +189,13 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-#        self._get_source_mask()
+        self._get_source_mask()
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
-#        self._get_uncontaminated_pixel_mask()
+        self._get_uncontaminated_pixel_mask()
 
         # Get the centroids of the images as a function of time
-#        self._get_centroids()
+        self._get_centroids()
 
     @property
     def shape(self):
