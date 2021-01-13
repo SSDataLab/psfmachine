@@ -726,25 +726,25 @@ class Machine(object):
         dec : numpy.ndarray
             Array with declination values per pixel
         """
-        # calculate x,y grid of each pixel
-        locs = np.hstack(
-            [
-                np.mgrid[
-                    tpf.column : tpf.column + tpf.shape[2],
-                    tpf.row : tpf.row + tpf.shape[1],
-                ].reshape(2, np.product(tpf.shape[1:]))
-                for tpf in tpfs
-            ]
-        )
+        locs, ra, dec = [], [], []
+        for tpf in tpfs:
+            # calculate x,y grid of each pixel
+            loc = np.mgrid[
+                tpf.column : tpf.column + tpf.shape[2],
+                tpf.row : tpf.row + tpf.shape[1],
+            ].reshape(2, np.product(tpf.shape[1:]))
+            # convert pixel coord to ra, dec using TPF's solution
+            r, d = tpf.wcs.wcs_pix2world(
+                np.vstack([(loc[0] - tpf.column), (loc[1] - tpf.row)]).T, 1.0
+            ).T
+            locs.append(loc)
+            ra.append(r)
+            dec.append(d)
 
-        # convert pixel coord to ra, dec using TPF's solution
-        ra, dec = (
-            tpfs[0]
-            .wcs.wcs_pix2world(
-                np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 0.0
-            )
-            .T
-        )
+        locs = np.hstack(locs)
+        ra = np.hstack(ra)
+        dec = np.hstack(dec)
+
         return locs, ra, dec
 
     def _preprocess(flux, flux_err, unw, locs, ra, dec, tpfs):
@@ -805,7 +805,7 @@ class Machine(object):
             ras.append(ra1.mean())
             decs.append(dec1.mean())
             rads.append(
-                np.hypot(ra1 - ra1.mean(), dec1 - dec1.mean()).max() / 2
+                np.hypot(ra1 - ra1.mean(), dec1 - dec1.mean()).max()
                 + (u.arcsecond * 6).to(u.deg).value
             )
         # query Gaia with epoch propagation
@@ -813,7 +813,7 @@ class Machine(object):
             tuple(ras),
             tuple(decs),
             tuple(rads),
-            magnitude_limit=18,
+            magnitude_limit=20,
             epoch=Time(epoch, format="jd").jyear,
         )
         return sources
