@@ -14,7 +14,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
-from .utils import get_gaia_sources, _make_A_wcs
+from .utils import get_gaia_sources, _make_A_wcs, _make_A_edges
 
 log = logging.getLogger(__name__)
 
@@ -280,28 +280,25 @@ class Machine(object):
             return w, w_err
         return w
 
-    def _find_psf_edge(self, radius_limit=(5 * 4), cut=300, plot=True):
+    def _find_psf_edge(self, radius_limit=(5 * 4), cut=300, plot=True, dm_type="cubic"):
 
         mean_flux = np.nanmean(self.flux, axis=0)
         r = self.r
 
         temp_mask = (r.value < radius_limit) & (self.source_flux_estimates < 1e6)
-        print("temp_mask", temp_mask.shape, (temp_mask.sum(axis=0) == 1).sum())
         temp_mask &= temp_mask.sum(axis=0) == 1
 
-        f = np.log10((temp_mask.astype(float) * mean_flux))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f = np.log10((temp_mask.astype(float) * mean_flux))
         weights = (
             (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
         ) * temp_mask
-        A = np.vstack(
-            [
-                r.value[temp_mask] ** 0,
-                r.value[temp_mask],
-                r.value[temp_mask] ** 2,
-                np.log10(self.source_flux_estimates[temp_mask]),
-                np.log10(self.source_flux_estimates[temp_mask]) ** 2,
-            ]
-        ).T
+
+        A = _make_A_edges(
+            r.value[temp_mask],
+            np.log10(self.source_flux_estimates[temp_mask]),
+            type=dm_type,
+        )
         k = np.isfinite(f[temp_mask])
         for count in [0, 1, 2]:
             sigma_w_inv = A[k].T.dot(A[k] / weights[temp_mask][k, None] ** 2)
@@ -318,19 +315,8 @@ class Machine(object):
         test_r = np.arange(0, radius_limit, 0.25)
         test_r2, test_f2 = np.meshgrid(test_r, test_f)
 
-        test_val = (
-            np.vstack(
-                [
-                    test_r2.ravel() ** 0,
-                    test_r2.ravel(),
-                    test_r2.ravel() ** 2,
-                    test_f2.ravel(),
-                    test_f2.ravel() ** 2,
-                ]
-            )
-            .T.dot(w)
-            .reshape(test_r2.shape)
-        )
+        test_A = _make_A_edges(test_r2.ravel(), test_f2.ravel(), type=dm_type)
+        test_val = test_A.dot(w).reshape(test_r2.shape)
 
         # find radius where flux > cut
         l = np.zeros(len(test_f)) * np.nan
@@ -344,9 +330,6 @@ class Machine(object):
         )
         source_radius_limit[source_radius_limit > radius_limit] = radius_limit
         self.radius = source_radius_limit
-        self.source_mask = sparse.csr_matrix(
-            self.r.to("arcsec").value < self.radius[:, None]
-        )
 
         if plot:
             fig, ax = plt.subplots(1, 2, figsize=(14, 5), facecolor="white")
@@ -395,55 +378,9 @@ class Machine(object):
         The created zero-ones-mask is a sparce csr_matrix, which helps to speed-up
         following computation, especially for large number of sources and pixels.
         """
-        # mask pixels by Gaia flux and maximum distance
-        self.mean_flux = np.nanmean(self.flux, axis=0)
-        temp_mask = (self.r.to("arcsec") < self.limit_radius) & (
-            self.source_flux_estimates > self.limit_flux
+        self._find_psf_edge(
+            radius_limit=(5 * 4), cut=300, plot=False, dm_type="cuadratic"
         )
-        temp_mask &= temp_mask.sum(axis=0) == 1
-
-        # estimates the PSF edges as a function of flux
-        with np.errstate(divide="ignore", invalid="ignore"):
-            f = np.log10((temp_mask.astype(float) * self.mean_flux))[temp_mask]
-        A = np.vstack(
-            [
-                self.r[temp_mask].to("arcsec").value ** 0,
-                self.r[temp_mask].to("arcsec").value,
-                np.log10(self.source_flux_estimates[temp_mask]),
-            ]
-        ).T
-        k = np.isfinite(f)
-        w = self._solve_linear_model(A, f, k=k)
-
-        test_gaia = np.linspace(
-            np.log10(np.nanmin(self.source_flux_estimates)),
-            np.log10(np.nanmax(self.source_flux_estimates)),
-            50,
-        )
-        # calculate radius of PSF edges from linear solution
-        test_r = np.arange(0, 40, 1)
-        radius_check = np.asarray(
-            [
-                np.vstack(
-                    [[(np.ones(50) * v) ** idx for idx in range(2)], test_gaia]
-                ).T.dot(w)
-                for v in test_r
-            ]
-        )
-
-        # flux cap at which 97% of it is contained
-        cut = np.percentile(np.abs(radius_check), 5) - np.min(np.abs(radius_check))
-        print(cut)
-        x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
-        # calculate the radius at which the 97% is contained
-        self.radius = np.polyval(
-            np.polyfit(x, y, 5), np.log10(self.sources["phot_g_mean_flux"])
-        )
-        # cap the radius for faint and saturated sources
-        # radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 8.0
-        # radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 24.0
-
-        # mask all pixels with radial distance less than the source PSF edge.
         self.source_mask = sparse.csr_matrix(
             self.r.to("arcsec").value < self.radius[:, None]
         )
