@@ -176,6 +176,22 @@ def _make_A(phi, r, cut_r=5):
     return X1
 
 
+def make_A_edges(r, f, type="cuadratic"):
+    if type == "linear":
+        A = np.vstack([r ** 0, r, f]).T
+    elif type == "cuadratic":
+        A = np.vstack([r ** 0, r, r ** 2, f]).T
+    elif type == "cubic":
+        A = np.vstack([r ** 0, r, r ** 2, r ** 3, f]).T
+    elif type == "exp":
+        A = np.vstack([r ** 0, np.exp(-r), f]).T
+    elif type == "inverse":
+        A = np.vstack([r ** 0, 1 / r, f]).T
+    else:
+        print("Wrong desing matrix basis type")
+    return A
+
+
 def _make_A_wcs(phi, r, cut_r=6):
     """
     Makes a design matrix of b-spline basis in polar coordinates. For the azimutal

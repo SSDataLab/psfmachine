@@ -735,25 +735,25 @@ class Machine(object):
         dec : numpy.ndarray
             Array with declination values per pixel
         """
-        # calculate x,y grid of each pixel
-        locs = np.hstack(
-            [
-                np.mgrid[
-                    tpf.column : tpf.column + tpf.shape[2],
-                    tpf.row : tpf.row + tpf.shape[1],
-                ].reshape(2, np.product(tpf.shape[1:]))
-                for tpf in tpfs
-            ]
-        )
+        locs, ra, dec = [], [], []
+        for tpf in tpfs:
+            # calculate x,y grid of each pixel
+            loc = np.mgrid[
+                tpf.column : tpf.column + tpf.shape[2],
+                tpf.row : tpf.row + tpf.shape[1],
+            ].reshape(2, np.product(tpf.shape[1:]))
+            # convert pixel coord to ra, dec using TPF's solution
+            r, d = tpf.wcs.wcs_pix2world(
+                np.vstack([(loc[0] - tpf.column), (loc[1] - tpf.row)]).T, 1.0
+            ).T
+            locs.append(loc)
+            ra.append(r)
+            dec.append(d)
 
-        # convert pixel coord to ra, dec using TPF's solution
-        ra, dec = (
-            tpfs[0]
-            .wcs.wcs_pix2world(
-                np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 0.0
-            )
-            .T
-        )
+        locs = np.hstack(locs)
+        ra = np.hstack(ra)
+        dec = np.hstack(dec)
+
         return locs, ra, dec
 
 
