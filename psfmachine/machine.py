@@ -99,7 +99,19 @@ class Machine(object):
         of time in units of electrons / s
     """
 
-    def __init__(self, time, flux, flux_err, ra, dec, sources, column, row, limit_radius=24.0, pix2obs=None):
+    def __init__(
+        self,
+        time,
+        flux,
+        flux_err,
+        ra,
+        dec,
+        sources,
+        column,
+        row,
+        limit_radius=24.0,
+        pix2obs=None,
+    ):
         """
         Class constructor. This constructur will compute the basic atributes that will
         will be used by the object methods to perform PSF estimation and fitting.
@@ -803,15 +815,16 @@ class Machine(object):
         if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
             raise ValueError("All TPFs must have same time basis")
         # extract times
-<<<<<<< HEAD
-        times = tpfs[0].time.jd
-=======
         times = np.asarray(tpfs[0].time.jd)
 
-        locs = [np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs]
+        locs = [
+            np.mgrid[
+                tpf.column : tpf.column + tpf.shape[2], tpf.row : tpf.row + tpf.shape[1]
+            ].reshape(2, np.product(tpf.shape[1:]))
+            for tpf in tpfs
+        ]
         locs = np.hstack(locs)
         column, row = locs
->>>>>>> 9cfda8ad470daa8d1e5bd71d0a17f22b3e7fd166
 
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
@@ -866,10 +879,9 @@ class Machine(object):
 
         return locs, ra, dec
 
-
-
-
-    def _preprocess(flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5):
+    def _preprocess(
+        flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5
+    ):
         """
         Clean pixels with nan values, bad cadences and removes duplicated pixels.
         """
@@ -881,9 +893,18 @@ class Machine(object):
             saturated = np.where((saturated > saturation_limit).astype(float))[0]
 
             # Find bad pixels, including allowence for a bleed column.
-            bad_pixels = np.vstack([np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]), np.hstack([row[saturated] for idx in np.arange(-3, 3)])]).T
+            bad_pixels = np.vstack(
+                [
+                    np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]),
+                    np.hstack([row[saturated] for idx in np.arange(-3, 3)]),
+                ]
+            ).T
             # Find unique row/column combinations
-            bad_pixels = bad_pixels[np.unique([''.join(s) for s in bad_pixels.astype(str)], return_index=True)[1]]
+            bad_pixels = bad_pixels[
+                np.unique(
+                    ["".join(s) for s in bad_pixels.astype(str)], return_index=True
+                )[1]
+            ]
             # Build a mask of saturated pixels
             m = np.zeros(len(column), bool)
             for p in bad_pixels:
@@ -897,23 +918,11 @@ class Machine(object):
         not_nan = np.isfinite(flux).all(axis=0)
         # Unique Pixels
         _, unique_pix = np.unique(locs, axis=1, return_index=True)
-<<<<<<< HEAD
-        # important to srot indexes, np.unique return idx sorted by array values
-        unique_pix.sort()
-        locs = locs[:, unique_pix]
-        ra = ra[unique_pix]
-        dec = dec[unique_pix]
-        flux = flux[:, unique_pix]
-        flux_err = flux_err[:, unique_pix]
-        unw = unw[:, unique_pix]
-
-        return flux, flux_err, unw, locs, ra, dec
-
-    def _get_coord_and_query_gaia(ra, dec, unw, epoch=2020, magnitude_limit=20):
-=======
         unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
         # No saturation and bleed columns
-        not_saturated = ~_saturated_pixels_mask(flux, column, row, saturation_limit=saturation_limit)
+        not_saturated = ~_saturated_pixels_mask(
+            flux, column, row, saturation_limit=saturation_limit
+        )
 
         mask = not_nan & unique_pix & not_saturated
 
@@ -929,7 +938,6 @@ class Machine(object):
         return flux, flux_err, unw, locs, ra, dec, column, row
 
     def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit):
->>>>>>> 9cfda8ad470daa8d1e5bd71d0a17f22b3e7fd166
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -1009,14 +1017,24 @@ class Machine(object):
             flux, flux_err, unw, locs, ra, dec, column, row, tpfs
         )
 
-        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
+        sources = Machine._get_coord_and_query_gaia(
+            ra, dec, unw, times[0], magnitude_limit
+        )
 
         # soruce list cleaning
         sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
-            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources, column=column, row=row, pix2obs=unw
+            time=times,
+            flux=flux,
+            flux_err=flux_err,
+            ra=ra,
+            dec=dec,
+            sources=sources,
+            column=column,
+            row=row,
+            pix2obs=unw,
         )
 
     def _clean_source_list(sources, ra, dec):
