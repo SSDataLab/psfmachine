@@ -12,6 +12,7 @@ from astropy.time import Time
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from astropy.stats import sigma_clip
 
 from .utils import get_gaia_sources, _make_A_wcs
 
@@ -263,6 +264,109 @@ class Machine(object):
             return w, w_err
         return w
 
+    def _find_psf_edge(self, radius_limit=(5 * 4), cut=300, plot=True):
+
+        mean_flux = np.nanmean(self.flux, axis=0)
+        r = self.r
+
+        temp_mask = (r.value < radius_limit) & (self.source_flux_estimates < 1e6)
+        print("temp_mask", temp_mask.shape, (temp_mask.sum(axis=0) == 1).sum())
+        temp_mask &= temp_mask.sum(axis=0) == 1
+
+        f = np.log10((temp_mask.astype(float) * mean_flux))
+        weights = (
+            (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
+        ) * temp_mask
+        A = np.vstack(
+            [
+                r.value[temp_mask] ** 0,
+                r.value[temp_mask],
+                r.value[temp_mask] ** 2,
+                np.log10(self.source_flux_estimates[temp_mask]),
+                np.log10(self.source_flux_estimates[temp_mask]) ** 2,
+            ]
+        ).T
+        k = np.isfinite(f[temp_mask])
+        for count in [0, 1, 2]:
+            sigma_w_inv = A[k].T.dot(A[k] / weights[temp_mask][k, None] ** 2)
+            B = A[k].T.dot(f[temp_mask][k] / weights[temp_mask][k] ** 2)
+            w = np.linalg.solve(sigma_w_inv, B)
+            res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
+            k &= ~sigma_clip(res, sigma=3).mask
+
+        test_f = np.linspace(
+            np.log10(self.source_flux_estimates.min()),
+            np.log10(self.source_flux_estimates.max()),
+            100,
+        )
+        test_r = np.arange(0, radius_limit, 0.25)
+        test_r2, test_f2 = np.meshgrid(test_r, test_f)
+
+        test_val = (
+            np.vstack(
+                [
+                    test_r2.ravel() ** 0,
+                    test_r2.ravel(),
+                    test_r2.ravel() ** 2,
+                    test_f2.ravel(),
+                    test_f2.ravel() ** 2,
+                ]
+            )
+            .T.dot(w)
+            .reshape(test_r2.shape)
+        )
+
+        # find radius where flux > cut
+        l = np.zeros(len(test_f)) * np.nan
+        for idx in range(len(test_f)):
+            loc = np.where(10 ** test_val[idx] < cut)[0]
+            if len(loc) > 0:
+                l[idx] = test_r[loc[0]]
+        ok = np.isfinite(l)
+        source_radius_limit = np.polyval(
+            np.polyfit(test_f[ok], l[ok], 2), np.log10(self.source_flux_estimates[:, 0])
+        )
+        source_radius_limit[source_radius_limit > radius_limit] = radius_limit
+        self.radius = source_radius_limit
+        self.source_mask = sparse.csr_matrix(
+            self.r.to("arcsec").value < self.radius[:, None]
+        )
+
+        if plot:
+            fig, ax = plt.subplots(1, 2, figsize=(14, 5), facecolor="white")
+
+            ax[0].scatter(
+                r.value[temp_mask][k], f[temp_mask][k], s=0.4, c="k", label="Data"
+            )
+            ax[0].scatter(
+                r.value[temp_mask][k], A[k].dot(w), c="r", s=0.4, label="Model"
+            )
+            ax[0].set(xlabel=("Radius [arcsec]"), ylabel=("log$_{10}$ Flux"))
+            ax[0].legend(frameon=True)
+
+            im = ax[1].pcolormesh(
+                test_f2,
+                test_r2,
+                10 ** test_val,
+                vmin=0,
+                vmax=500,
+                cmap="viridis",
+                shading="auto",
+            )
+            line = np.polyval(np.polyfit(test_f[ok], l[ok], 2), test_f)
+            line[line > radius_limit] = radius_limit
+            ax[1].plot(test_f, line, color="r", label="Mask threshold")
+            ax[1].legend(frameon=True)
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label("Contained PSF Flux [counts]")
+
+            ax[1].set(
+                ylabel=("Radius from Source [arcsecond]"),
+                xlabel=("log$_{10}$ Source Flux"),
+            )
+            plt.show()
+        return
+
     def _get_source_mask(self):
         """
         Creates a mask of shape nsources x number of pixels, one where flux from a
@@ -283,7 +387,8 @@ class Machine(object):
         temp_mask &= temp_mask.sum(axis=0) == 1
 
         # estimates the PSF edges as a function of flux
-        f = np.log10((temp_mask.astype(float) * self.mean_flux))[temp_mask]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f = np.log10((temp_mask.astype(float) * self.mean_flux))[temp_mask]
         A = np.vstack(
             [
                 self.r[temp_mask].to("arcsec").value ** 0,
@@ -311,7 +416,8 @@ class Machine(object):
         )
 
         # flux cap at which 97% of it is contained
-        cut = np.percentile(np.abs(radius_check), 3) - np.min(np.abs(radius_check))
+        cut = np.percentile(np.abs(radius_check), 5) - np.min(np.abs(radius_check))
+        print(cut)
         x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
         # calculate the radius at which the 97% is contained
         self.radius = np.polyval(
@@ -692,7 +798,7 @@ class Machine(object):
         if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
             raise ValueError("All TPFs must have same time basis")
         # extract times
-        times = tpfs[0].astropy_time.jd
+        times = tpfs[0].time.jd
 
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
@@ -735,7 +841,7 @@ class Machine(object):
             ].reshape(2, np.product(tpf.shape[1:]))
             # convert pixel coord to ra, dec using TPF's solution
             r, d = tpf.wcs.wcs_pix2world(
-                np.vstack([(loc[0] - tpf.column), (loc[1] - tpf.row)]).T, 1.0
+                np.vstack([(loc[0] - tpf.column), (loc[1] - tpf.row)]).T, 0.0
             ).T
             locs.append(loc)
             ra.append(r)
@@ -776,7 +882,7 @@ class Machine(object):
 
         return flux, flux_err, unw, locs, ra, dec
 
-    def _get_coord_and_query_gaia(ra, dec, unw, epoch):
+    def _get_coord_and_query_gaia(ra, dec, unw, epoch=2020, magnitude_limit=20):
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -813,7 +919,7 @@ class Machine(object):
             tuple(ras),
             tuple(decs),
             tuple(rads),
-            magnitude_limit=20,
+            magnitude_limit=magnitude_limit,
             epoch=Time(epoch, format="jd").jyear,
         )
         return sources
@@ -918,8 +1024,8 @@ class Machine(object):
 
         # Keep track of sources that we removed
         sources.loc[:, "clean_flag"] = 0
-        sources.loc[:, "clean_flag"][~inside] = 2 ** 0  # outside TPF
-        sources.loc[:, "clean_flag"][unresolved] += 2 ** 1  # close contaminant
+        sources.loc[:, "clean_flag"].iloc[~inside] = 2 ** 0  # outside TPF
+        sources.loc[:, "clean_flag"].iloc[unresolved] += 2 ** 1  # close contaminant
 
         # combine 2 source masks
         clean = sources.clean_flag == 0
