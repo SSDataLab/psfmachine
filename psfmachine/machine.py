@@ -99,7 +99,7 @@ class Machine(object):
         of time in units of electrons / s
     """
 
-    def __init__(self, time, flux, flux_err, ra, dec, sources, limit_radius=24.0):
+    def __init__(self, time, flux, flux_err, ra, dec, sources, column, row, limit_radius=24.0, pix2obs=None):
         """
         Class constructor. This constructur will compute the basic atributes that will
         will be used by the object methods to perform PSF estimation and fitting.
@@ -155,8 +155,12 @@ class Machine(object):
         self.ra = ra
         self.dec = dec
         self.sources = sources
+        self.column = column
+        self.row = row
         self.limit_radius = limit_radius * u.arcsecond
         self.limit_flux = 1e4
+        # Convert between pixel and the original observation
+        self.pix2obs = pix2obs
 
         self.nsources = len(self.sources)
         self.nt = len(self.time)
@@ -371,7 +375,7 @@ class Machine(object):
         """
         Creates a mask of shape nsources x number of pixels, one where flux from a
         source exists, this mask is used to select which pixels will be used for
-        PSD photometry.
+        PSF photometry.
 
         First finds a linear relation between flux and radius from the source center
         to then calculate the radius at which the 97% of the flux is enclosed.
@@ -400,8 +404,8 @@ class Machine(object):
         w = self._solve_linear_model(A, f, k=k)
 
         test_gaia = np.linspace(
-            np.log10(self.source_flux_estimates.min()),
-            np.log10(self.source_flux_estimates.max()),
+            np.log10(np.nanmin(self.source_flux_estimates)),
+            np.log10(np.nanmax(self.source_flux_estimates)),
             50,
         )
         # calculate radius of PSF edges from linear solution
@@ -794,11 +798,20 @@ class Machine(object):
             Array with TPF index for each pixel
         """
         cadences = np.array([tpf.cadenceno for tpf in tpfs])
+
         # check if all TPFs has same cadences
         if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
             raise ValueError("All TPFs must have same time basis")
         # extract times
+<<<<<<< HEAD
         times = tpfs[0].time.jd
+=======
+        times = np.asarray(tpfs[0].time.jd)
+
+        locs = [np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs]
+        locs = np.hstack(locs)
+        column, row = locs
+>>>>>>> 9cfda8ad470daa8d1e5bd71d0a17f22b3e7fd166
 
         # put fluxes into ntimes x npix shape
         flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
@@ -811,7 +824,7 @@ class Machine(object):
                 for idx, tpf in enumerate(tpfs)
             ]
         )
-        return times, flux, flux_err, unw
+        return times, flux, flux_err, column, row, unw
 
     def _convert_to_wcs(tpfs):
         """
@@ -853,24 +866,38 @@ class Machine(object):
 
         return locs, ra, dec
 
-    def _preprocess(flux, flux_err, unw, locs, ra, dec, tpfs):
+
+
+
+    def _preprocess(flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5):
         """
         Clean pixels with nan values, bad cadences and removes duplicated pixels.
         """
-        # Remove nan pixels
-        nan_mask = np.isnan(flux)
-        flux = np.array([fx[~ma] for fx, ma in zip(flux, nan_mask)])
-        flux_err = np.array([fx[~ma] for fx, ma in zip(flux_err, nan_mask)])
-        unw = np.array([ii[~ma] for ii, ma in zip(unw, nan_mask)])
-        locs = locs[:, ~np.all(nan_mask, axis=0)]
-        ra = ra[~np.all(nan_mask, axis=0)]
-        dec = dec[~np.all(nan_mask, axis=0)]
 
-        # Remove bad cadences where the pointing is rubbish
-        flux_err[np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10] *= 1e2
+        def _saturated_pixels_mask(flux, column, row, saturation_limit=1.5e5):
+            """Finds and removes saturated pixels, including bleed columns."""
+            # Which pixels are saturated
+            saturated = np.nanpercentile(flux, 99, axis=0)
+            saturated = np.where((saturated > saturation_limit).astype(float))[0]
 
-        # check for overlapped pixels between nearby tpfs, i.e. unique pixels
+            # Find bad pixels, including allowence for a bleed column.
+            bad_pixels = np.vstack([np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]), np.hstack([row[saturated] for idx in np.arange(-3, 3)])]).T
+            # Find unique row/column combinations
+            bad_pixels = bad_pixels[np.unique([''.join(s) for s in bad_pixels.astype(str)], return_index=True)[1]]
+            # Build a mask of saturated pixels
+            m = np.zeros(len(column), bool)
+            for p in bad_pixels:
+                m |= (column == p[0]) & (row == p[1])
+            return m
+
+        flux = np.asarray(flux)
+        flux_err = np.asarray(flux_err)
+
+        # Finite pixels
+        not_nan = np.isfinite(flux).all(axis=0)
+        # Unique Pixels
         _, unique_pix = np.unique(locs, axis=1, return_index=True)
+<<<<<<< HEAD
         # important to srot indexes, np.unique return idx sorted by array values
         unique_pix.sort()
         locs = locs[:, unique_pix]
@@ -883,6 +910,26 @@ class Machine(object):
         return flux, flux_err, unw, locs, ra, dec
 
     def _get_coord_and_query_gaia(ra, dec, unw, epoch=2020, magnitude_limit=20):
+=======
+        unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
+        # No saturation and bleed columns
+        not_saturated = ~_saturated_pixels_mask(flux, column, row, saturation_limit=saturation_limit)
+
+        mask = not_nan & unique_pix & not_saturated
+
+        locs = locs[:, mask]
+        column = column[mask]
+        row = row[mask]
+        ra = ra[mask]
+        dec = dec[mask]
+        flux = flux[:, mask]
+        flux_err = flux_err[:, mask]
+        unw = unw[:, mask]
+
+        return flux, flux_err, unw, locs, ra, dec, column, row
+
+    def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit):
+>>>>>>> 9cfda8ad470daa8d1e5bd71d0a17f22b3e7fd166
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -925,7 +972,7 @@ class Machine(object):
         return sources
 
     @staticmethod
-    def from_TPFs(tpfs):
+    def from_TPFs(tpfs, magnitude_limit=18):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -952,25 +999,24 @@ class Machine(object):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
         # parse tpfs
-        times, flux, flux_err, unw = Machine._parse_TPFs(tpfs)
+        times, flux, flux_err, column, row, unw = Machine._parse_TPFs(tpfs)
 
         # convert to RA Dec
         locs, ra, dec = Machine._convert_to_wcs(tpfs)
 
         # preprocess arrays
-        flux, flux_err, unw, locs, ra, dec = Machine._preprocess(
-            flux, flux_err, unw, locs, ra, dec, tpfs
+        flux, flux_err, unw, locs, ra, dec, column, row = Machine._preprocess(
+            flux, flux_err, unw, locs, ra, dec, column, row, tpfs
         )
 
-        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0])
-        print(sources.shape)
+        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
 
         # soruce list cleaning
         sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
-            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources
+            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources, column=column, row=row, pix2obs=unw
         )
 
     def _clean_source_list(sources, ra, dec):
@@ -1010,7 +1056,7 @@ class Machine(object):
         s_coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
         midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
         # remove sources closer than 6" = 1.5 pix
-        closest = mdist.arcsec < 6.0
+        closest = mdist.arcsec < 2.0
         blocs = np.vstack([midx[closest], np.where(closest)[0]])
         bmags = np.vstack(
             [
