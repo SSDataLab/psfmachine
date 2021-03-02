@@ -72,14 +72,14 @@ class Collection(object):
             Has dimensions (ntime)
         """
         self.tpfs = tpfs
-        self.time = tpfs[0].time
+        self.time = tpfs[0].time.value
         bad_cadences = np.hypot(tpfs[0].pos_corr1, tpfs[0].pos_corr2) > 10
 
         self.flux = np.hstack(
-            [np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs]
+            [np.hstack(tpf.flux.value.transpose([2, 0, 1])) for tpf in tpfs]
         )
         self.flux_err = np.hstack(
-            [np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs]
+            [np.hstack(tpf.flux_err.value.transpose([2, 0, 1])) for tpf in tpfs]
         )
         self.flux_err[bad_cadences] *= 1e2
 
