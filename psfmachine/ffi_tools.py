@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import fitsio
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from scipy import sparse
 
@@ -11,7 +11,7 @@ from astropy.wcs import WCS
 from astropy.time import Time
 import astropy.units as u
 
-from .utils import get_sources, _make_A
+from .utils import get_gaia_sources, _make_A
 
 
 class lazy_loader(object):
@@ -173,29 +173,38 @@ class Cube(object):
         )
         #        height = ((np.max(dec) - np.min(dec)) * 1.01)*u.deg
         #        width = ((np.max(ra) - np.min(ra))/4)*u.deg
-        radius = np.hypot((ra.max() - ra.min()) / 2, (dec.max() - dec.min()) / 2)
+
+        rad = SkyCoord(
+            ra[len(ra) // 2],
+            dec[len(dec) // 2],
+            unit="deg",
+        ).separation(SkyCoord(ra, dec, unit="deg"))
+
+        rad = rad.deg.max()
+        rad += 0.005
+        #        radius = np.hypot((ra.max() - ra.min()) / 2, (dec.max() - dec.min()) / 2)
         #        r = np.hypot(ra - ra2, dec - dec2)
         #        print(ra, dec, r)
-        sources = get_sources(
+        sources = get_gaia_sources(
             ra.mean(),
             dec.mean(),
-            radius=radius,  # height=height, width=width,
-            epoch=self.time[0],
+            rads=rad,  # height=height, width=width,
+            epoch=int(self.time[0].isot[:4]),
             magnitude_limit=self.magnitude_limit,
         ).reset_index(drop=True)
 
         # Use gaia space motion to correct for any drifts in time
         dist = Distance(
-            parallax=np.asarray(sources["Plx"]) * u.mas, allow_negative=True
+            parallax=np.asarray(sources["parallax"]) * u.mas, allow_negative=True
         )
         coords = SkyCoord(
-            ra=np.asarray(sources["RA_ICRS"]) * u.deg,
-            dec=np.asarray(sources["DE_ICRS"]) * u.deg,
-            pm_ra_cosdec=np.nan_to_num(sources["pmRA"]) * u.mas / u.year,
-            pm_dec=np.nan_to_num(sources["pmDE"]) * u.mas / u.year,
+            ra=np.asarray(sources["ra"]) * u.deg,
+            dec=np.asarray(sources["dec"]) * u.deg,
+            pm_ra_cosdec=np.nan_to_num(sources["pmra"]) * u.mas / u.year,
+            pm_dec=np.nan_to_num(sources["pmdec"]) * u.mas / u.year,
             distance=dist,
             obstime="J2015.05",
-            radial_velocity=np.nan_to_num(sources["RV"]) * u.km / u.s,
+            radial_velocity=np.nan_to_num(sources["radial_velocity"]) * u.km / u.s,
         )
         cs = coords.apply_space_motion(self.time[0])
         locs = self.wcs[0].wcs_world2pix(np.atleast_2d((cs.ra.deg, cs.dec.deg)).T, 0)
@@ -244,11 +253,11 @@ class Cube(object):
         ]
 
         radius = np.ones(len(self.sources)) * 1
-        radius[self.sources.Gmag < 17] = 2
-        radius[self.sources.Gmag < 14] = 3
-        radius[self.sources.Gmag < 12] = 4
-        radius[self.sources.Gmag < 10] = 5
-        radius[self.sources.Gmag < 9] = 7
+        radius[self.sources.phot_g_mean_mag < 17] = 2
+        radius[self.sources.phot_g_mean_mag < 14] = 3
+        radius[self.sources.phot_g_mean_mag < 12] = 4
+        radius[self.sources.phot_g_mean_mag < 10] = 5
+        radius[self.sources.phot_g_mean_mag < 9] = 7
         #        radius = 5
 
         for tdx, d in enumerate(tqdm(dmodule[1:])):

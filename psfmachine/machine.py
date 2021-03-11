@@ -98,7 +98,19 @@ class Machine(object):
         of time in units of electrons / s
     """
 
-    def __init__(self, time, flux, flux_err, ra, dec, sources, column, row, limit_radius=24.0, pix2obs=None):
+    def __init__(
+        self,
+        time,
+        flux,
+        flux_err,
+        ra,
+        dec,
+        sources,
+        column,
+        row,
+        limit_radius=24.0,
+        pix2obs=None,
+    ):
         """
         Class constructor. This constructur will compute the basic atributes that will
         will be used by the object methods to perform PSF estimation and fitting.
@@ -205,7 +217,9 @@ class Machine(object):
         return f"Machine (N sources, N times, N pixels): {self.shape}"
 
     @staticmethod
-    def _solve_linear_model(A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None):
+    def _solve_linear_model(
+        A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None, errors=False
+    ):
         """
         Solves a linear model with design matrix A and observations y:
             Aw = y
@@ -255,14 +269,18 @@ class Machine(object):
             sigma_w_inv = A[k].T.dot(A[k])
             B = A[k].T.dot(y[k])
 
-        if type(sigma_w_inv) == sparse.csr_matrix:
-            sigma_w_inv = sigma_w_inv.toarray()
-
         if prior_mu is not None and prior_sigma is not None:
             sigma_w_inv += np.diag(1 / prior_sigma ** 2)
             B += prior_mu / prior_sigma ** 2
+
+        if type(sigma_w_inv) == sparse.csr_matrix:
+            sigma_w_inv = sigma_w_inv.toarray()
+
+        if type(sigma_w_inv) == np.matrix:
+            sigma_w_inv = np.asarray(sigma_w_inv)
+
         w = np.linalg.solve(sigma_w_inv, B)
-        if y_err is not None:
+        if errors is True:
             w_err = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
             return w, w_err
         return w
@@ -699,7 +717,12 @@ class Machine(object):
         # extract times
         times = np.asarray(tpfs[0].time.jd)
 
-        locs = [np.mgrid[tpf.column:tpf.column + tpf.shape[2], tpf.row: tpf.row + tpf.shape[1]].reshape(2, np.product(tpf.shape[1:])) for tpf in tpfs]
+        locs = [
+            np.mgrid[
+                tpf.column : tpf.column + tpf.shape[2], tpf.row : tpf.row + tpf.shape[1]
+            ].reshape(2, np.product(tpf.shape[1:]))
+            for tpf in tpfs
+        ]
         locs = np.hstack(locs)
         column, row = locs
 
@@ -756,10 +779,9 @@ class Machine(object):
         )
         return locs, ra, dec
 
-
-
-
-    def _preprocess(flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5):
+    def _preprocess(
+        flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5
+    ):
         """
         Clean pixels with nan values, bad cadences and removes duplicated pixels.
         """
@@ -771,9 +793,18 @@ class Machine(object):
             saturated = np.where((saturated > saturation_limit).astype(float))[0]
 
             # Find bad pixels, including allowence for a bleed column.
-            bad_pixels = np.vstack([np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]), np.hstack([row[saturated] for idx in np.arange(-3, 3)])]).T
+            bad_pixels = np.vstack(
+                [
+                    np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]),
+                    np.hstack([row[saturated] for idx in np.arange(-3, 3)]),
+                ]
+            ).T
             # Find unique row/column combinations
-            bad_pixels = bad_pixels[np.unique([''.join(s) for s in bad_pixels.astype(str)], return_index=True)[1]]
+            bad_pixels = bad_pixels[
+                np.unique(
+                    ["".join(s) for s in bad_pixels.astype(str)], return_index=True
+                )[1]
+            ]
             # Build a mask of saturated pixels
             m = np.zeros(len(column), bool)
             for p in bad_pixels:
@@ -789,7 +820,9 @@ class Machine(object):
         _, unique_pix = np.unique(locs, axis=1, return_index=True)
         unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
         # No saturation and bleed columns
-        not_saturated = ~_saturated_pixels_mask(flux, column, row, saturation_limit=saturation_limit)
+        not_saturated = ~_saturated_pixels_mask(
+            flux, column, row, saturation_limit=saturation_limit
+        )
 
         mask = not_nan & unique_pix & not_saturated
 
@@ -804,7 +837,7 @@ class Machine(object):
 
         return flux, flux_err, unw, locs, ra, dec, column, row
 
-    def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit):
+    def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit, dr=2):
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -843,11 +876,12 @@ class Machine(object):
             tuple(rads),
             magnitude_limit=magnitude_limit,
             epoch=Time(epoch, format="jd").jyear,
+            dr=dr,
         )
         return sources
 
     @staticmethod
-    def from_TPFs(tpfs, magnitude_limit=18):
+    def from_TPFs(tpfs, magnitude_limit=18, dr=2):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -884,14 +918,24 @@ class Machine(object):
             flux, flux_err, unw, locs, ra, dec, column, row, tpfs
         )
 
-        sources = Machine._get_coord_and_query_gaia(ra, dec, unw, times[0], magnitude_limit)
+        sources = Machine._get_coord_and_query_gaia(
+            ra, dec, unw, times[0], magnitude_limit, dr=dr
+        )
 
         # soruce list cleaning
-        sources, _ = Machine._clean_source_list(sources, ra, dec)
+        #        sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
-            time=times, flux=flux, flux_err=flux_err, ra=ra, dec=dec, sources=sources, column=column, row=row, pix2obs=unw
+            time=times,
+            flux=flux,
+            flux_err=flux_err,
+            ra=ra,
+            dec=dec,
+            sources=sources,
+            column=column,
+            row=row,
+            pix2obs=unw,
         )
 
     def _clean_source_list(sources, ra, dec):
@@ -946,7 +990,7 @@ class Machine(object):
         # Keep track of sources that we removed
         sources.loc[:, "clean_flag"] = 0
         sources.loc[:, "clean_flag"][~inside] = 2 ** 0  # outside TPF
-        sources.loc[:, "clean_flag"][unresolved] += 2 ** 1  # close contaminant
+        # sources.loc[:, "clean_flag"][unresolved] += 2 ** 1  # close contaminant
 
         # combine 2 source masks
         clean = sources.clean_flag == 0
