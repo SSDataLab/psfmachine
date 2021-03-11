@@ -79,7 +79,7 @@ def get_sources(c, magnitude_limit=18):
     return get_gaia(ras, decs, rads, magnitude_limit)
 
 
-# @functools.lru_cache()
+@functools.lru_cache()
 def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     """
     Will find gaia sources using a TAP query, accounting for proper motions.
@@ -180,57 +180,10 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     return gd.data.to_pandas()
 
 
-def _make_A(phi, r, cut_r=5):
-    """ Make spline design matrix in polar coordinates """
-    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=10).T)
-    r_knots = np.linspace(0.25 ** 0.5, 5 ** 0.5, 8) ** 2
-    r_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(r), "knots": r_knots},
-            )
-        )
-    )
-    X = sparse.hstack(
-        [phi_spline.multiply(r_spline[:, idx]) for idx in range(r_spline.shape[1])],
-        format="csr",
-    )
-    cut = np.arange(phi_spline.shape[1] * 1, phi_spline.shape[1] * cut_r)
-    a = list(set(np.arange(X.shape[1])) - set(cut))
-    X1 = sparse.hstack(
-        [X[:, a], r_spline[:, 1:cut_r], sparse.csr_matrix(np.ones(X.shape[0])).T],
-        format="csr",
-    )
-    return X1
-
-
-def _make_A_wcs(phi, r, cut_r=6):
-    """
-    Makes a design matrix of b-spline basis in polar coordinates. For the azimutal
-    angle axis, the splines are 2*pi periodic.
-
-    The design matrix is build with all combinatios of radius and angle spline basis,
-    with the exception of small angles (r < 6) where the angle dependency is removed
-    to avoid artifacts at the center of the PSF.
-
-    Parameters
-    ----------
-    phi : numpy.ndarray
-        Azimutal angle used to build the design matrix
-    r : numpy.ndarray
-        Radial distances used to build the design matrix
-    cut_r : int
-        Radius at which the angle dependecy is removed from the basis
-
-    Returns
-    -------
-    X1 : sparse.csr_matrix
-        A sparse design matrix
-    """
+def _make_A_wcs(phi, r, cut_r=4):
     # create the spline bases for radius and angle
-    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=10).T)
-    r_knots = np.linspace(1 ** 0.5, 18 ** 0.5, 8) ** 2
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=15).T)
+    r_knots = np.linspace(1 ** 0.5, 18 ** 0.5, 12) ** 2
     r_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
@@ -252,6 +205,32 @@ def _make_A_wcs(phi, r, cut_r=6):
         format="csr",
     )
     return X1
+
+
+def _make_A_cartesian(x, y, cut_r=5, n_knots=10, radius=3.0):
+    x_knots = np.linspace(-radius, radius, n_knots)
+    x_spline = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=3, include_intercept=True)",
+                {"x": list(x), "knots": x_knots},
+            )
+        )
+    )
+    y_knots = np.linspace(-radius, radius, n_knots)
+    y_spline = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=3, include_intercept=True)",
+                {"x": list(y), "knots": y_knots},
+            )
+        )
+    )
+    X = sparse.hstack(
+        [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
+        format="csr",
+    )
+    return X
 
 
 def wrapped_spline(input_vector, order=2, nknots=10):

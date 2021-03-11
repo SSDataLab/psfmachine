@@ -12,8 +12,9 @@ from astropy.time import Time
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from astropy.stats import sigma_clip, sigma_clipped_stats
 
-from .utils import get_gaia_sources, _make_A_wcs
+from .utils import get_gaia_sources, _make_A_wcs, _make_A_cartesian
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class Machine(object):
     Class for calculating fast PSF photometry on a collection of images and
     a list of in image sources. The moethod fits a common mean PSF model for
     selected clean sources which is later fitted to al sources listed in `sources`.
-    This mothod solves a linear model to assuming Gaussian priors on the weight of
+    This method solves a linear model to assuming Gaussian priors on the weight of
     each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
     (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
@@ -110,6 +111,7 @@ class Machine(object):
         row,
         limit_radius=24.0,
         pix2obs=None,
+        plot=False,
     ):
         """
         Class constructor. This constructur will compute the basic atributes that will
@@ -172,6 +174,7 @@ class Machine(object):
         self.limit_flux = 1e4
         # Convert between pixel and the original observation
         self.pix2obs = pix2obs
+        self.plot = plot
 
         self.nsources = len(self.sources)
         self.nt = len(self.time)
@@ -201,7 +204,7 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask()
+        self._get_source_mask(plot=self.plot)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -285,70 +288,204 @@ class Machine(object):
             return w, w_err
         return w
 
-    def _get_source_mask(self):
-        """
-        Creates a mask of shape nsources x number of pixels, one where flux from a
-        source exists, this mask is used to select which pixels will be used for
-        PSF photometry.
+    def _get_source_mask(
+        self,
+        upper_radius_limit=20,
+        lower_radius_limit=4.5,
+        flux_cut_off=100,
+        flux_limit=1e6,
+        plot=False,
+    ):
 
-        First finds a linear relation between flux and radius from the source center
-        to then calculate the radius at which the 97% of the flux is enclosed.
+        mean_flux = np.nanmean(self.flux, axis=0)
+        r = self.r
 
-        The created zero-ones-mask is a sparce csr_matrix, which helps to speed-up
-        following computation, especially for large number of sources and pixels.
-        """
-        # mask pixels by Gaia flux and maximum distance
-        self.mean_flux = np.nanmean(self.flux, axis=0)
-        temp_mask = (self.r.to("arcsec") < self.limit_radius) & (
-            self.source_flux_estimates > self.limit_flux
+        temp_mask = (r.value < upper_radius_limit) & (
+            self.source_flux_estimates < flux_limit
         )
         temp_mask &= temp_mask.sum(axis=0) == 1
 
-        # estimates the PSF edges as a function of flux
-        f = np.log10((temp_mask.astype(float) * self.mean_flux))[temp_mask]
+        f = np.log10((temp_mask.astype(float) * mean_flux))
+
+        weights = (
+            (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
+        ) * temp_mask
+
+        mf = np.log10(self.source_flux_estimates[temp_mask])
+
+        # Model is polynomial in r and log of the flux estimate.
         A = np.vstack(
             [
-                self.r[temp_mask].to("arcsec").value ** 0,
-                self.r[temp_mask].to("arcsec").value,
-                np.log10(self.source_flux_estimates[temp_mask]),
+                r.value[temp_mask] ** 0,
+                r.value[temp_mask],
+                r.value[temp_mask] ** 2,
+                r.value[temp_mask] ** 0 * mf,
+                r.value[temp_mask] * mf,
+                r.value[temp_mask] ** 2 * mf,
+                r.value[temp_mask] ** 0 * mf ** 2,
+                r.value[temp_mask] * mf ** 2,
+                r.value[temp_mask] ** 2 * mf ** 2,
             ]
         ).T
-        k = np.isfinite(f)
-        w = self._solve_linear_model(A, f, k=k)
 
-        test_gaia = np.linspace(
-            np.log10(np.nanmin(self.source_flux_estimates)),
-            np.log10(np.nanmax(self.source_flux_estimates)),
-            50,
+        k = np.isfinite(f[temp_mask])
+        for count in [0, 1, 2]:
+            sigma_w_inv = A[k].T.dot(A[k] / weights[temp_mask][k, None] ** 2)
+            B = A[k].T.dot(f[temp_mask][k] / weights[temp_mask][k] ** 2)
+            w = np.linalg.solve(sigma_w_inv, B)
+            res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
+            k &= ~sigma_clip(res, sigma=3).mask
+
+        test_f = np.linspace(
+            np.log10(self.source_flux_estimates.min()),
+            np.log10(self.source_flux_estimates.max()),
+            100,
         )
-        # calculate radius of PSF edges from linear solution
-        test_r = np.arange(0, 40, 1)
-        radius_check = np.asarray(
-            [
-                np.vstack(
-                    [[(np.ones(50) * v) ** idx for idx in range(2)], test_gaia]
-                ).T.dot(w)
-                for v in test_r
-            ]
+        test_r = np.arange(lower_radius_limit, upper_radius_limit, 0.25)
+        test_r2, test_f2 = np.meshgrid(test_r, test_f)
+
+        test_val = (
+            np.vstack(
+                [
+                    test_r2.ravel() ** 0,
+                    test_r2.ravel(),
+                    test_r2.ravel() ** 2,
+                    test_r2.ravel() ** 0 * test_f2.ravel(),
+                    test_r2.ravel() * test_f2.ravel(),
+                    test_r2.ravel() ** 2 * test_f2.ravel(),
+                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
+                    test_r2.ravel() * test_f2.ravel() ** 2,
+                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
+                ]
+            )
+            .T.dot(w)
+            .reshape(test_r2.shape)
         )
 
-        # flux cap at which 97% of it is contained
-        cut = np.percentile(np.abs(radius_check), 3) - np.min(np.abs(radius_check))
-        x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
-        # calculate the radius at which the 97% is contained
-        self.radius = np.polyval(
-            np.polyfit(x, y, 5), np.log10(self.sources["phot_g_mean_flux"])
+        l = np.zeros(len(test_f)) * np.nan
+        for idx in range(len(test_f)):
+            loc = np.where(10 ** test_val[idx] < flux_cut_off)[0]
+            if len(loc) > 0:
+                l[idx] = test_r[loc[0]]
+        ok = np.isfinite(l)
+        source_radius_limit = np.polyval(
+            np.polyfit(test_f[ok], l[ok], 2), np.log10(self.source_flux_estimates[:, 0])
         )
-        # cap the radius for faint and saturated sources
-        # radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 8.0
-        # radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 24.0
+        source_radius_limit[
+            source_radius_limit > upper_radius_limit
+        ] = upper_radius_limit
+        source_radius_limit[
+            source_radius_limit < lower_radius_limit
+        ] = lower_radius_limit
 
-        # mask all pixels with radial distance less than the source PSF edge.
-        self.source_mask = sparse.csr_matrix(
-            self.r.to("arcsec").value < self.radius[:, None]
-        )
+        self.radius = source_radius_limit + 1
+        self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
 
+        if plot:
+            fig, ax = plt.subplots(1, 2, figsize=(8, 3), facecolor="white")
+
+            ax[0].scatter(
+                r.value[temp_mask][k], f[temp_mask][k], s=0.4, c="k", label="Data"
+            )
+            ax[0].scatter(
+                r.value[temp_mask][k], A[k].dot(w), c="r", s=0.4, label="Model"
+            )
+            ax[0].set(
+                xlabel=("Radius from Source [arcsec]"),
+                ylabel=("log$_{10}$ Kepler Flux"),
+            )
+            ax[0].legend(frameon=True)
+
+            im = ax[1].pcolormesh(
+                test_f2,
+                test_r2,
+                10 ** test_val,
+                vmin=0,
+                vmax=flux_cut_off * 2,
+                cmap="viridis",
+            )
+            line = np.polyval(np.polyfit(test_f[ok], l[ok], 2), test_f)
+            line[line > upper_radius_limit] = upper_radius_limit
+            line[line < lower_radius_limit] = lower_radius_limit
+            ax[1].plot(test_f, line, color="r", label="Best Fit PSF Edge")
+            ax[1].set_ylim(lower_radius_limit, upper_radius_limit)
+            ax[1].legend(frameon=True)
+
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label("PSF Flux [$e^-s^{-1}$]")
+
+            ax[1].set(
+                ylabel=("Radius from Source [arcsecond]"),
+                xlabel=("log$_{10}$ Gaia Source Flux"),
+            )
+            return fig
         return
+
+    #
+    # def _get_source_mask(self):
+    #     """
+    #     Creates a mask of shape nsources x number of pixels, one where flux from a
+    #     source exists, this mask is used to select which pixels will be used for
+    #     PSF photometry.
+    #
+    #     First finds a linear relation between flux and radius from the source center
+    #     to then calculate the radius at which the 97% of the flux is enclosed.
+    #
+    #     The created zero-ones-mask is a sparce csr_matrix, which helps to speed-up
+    #     following computation, especially for large number of sources and pixels.
+    #     """
+    #     # mask pixels by Gaia flux and maximum distance
+    #     self.mean_flux = np.nanmean(self.flux, axis=0)
+    #     temp_mask = (self.r.to("arcsec") < self.limit_radius) & (
+    #         self.source_flux_estimates > self.limit_flux
+    #     )
+    #     temp_mask &= temp_mask.sum(axis=0) == 1
+    #
+    #     # estimates the PSF edges as a function of flux
+    #     f = np.log10((temp_mask.astype(float) * self.mean_flux))[temp_mask]
+    #     A = np.vstack(
+    #         [
+    #             self.r[temp_mask].to("arcsec").value ** 0,
+    #             self.r[temp_mask].to("arcsec").value,
+    #             np.log10(self.source_flux_estimates[temp_mask]),
+    #         ]
+    #     ).T
+    #     k = np.isfinite(f)
+    #     w = self._solve_linear_model(A, f, k=k)
+    #
+    #     test_gaia = np.linspace(
+    #         np.log10(np.nanmin(self.source_flux_estimates)),
+    #         np.log10(np.nanmax(self.source_flux_estimates)),
+    #         50,
+    #     )
+    #     # calculate radius of PSF edges from linear solution
+    #     test_r = np.arange(0, 40, 1)
+    #     radius_check = np.asarray(
+    #         [
+    #             np.vstack(
+    #                 [[(np.ones(50) * v) ** idx for idx in range(2)], test_gaia]
+    #             ).T.dot(w)
+    #             for v in test_r
+    #         ]
+    #     )
+    #
+    #     # flux cap at which 97% of it is contained
+    #     cut = np.percentile(np.abs(radius_check), 3) - np.min(np.abs(radius_check))
+    #     x, y = np.asarray(np.meshgrid(test_gaia, test_r))[:, np.abs(radius_check) < cut]
+    #     # calculate the radius at which the 97% is contained
+    #     self.radius = np.polyval(
+    #         np.polyfit(x, y, 5), np.log10(self.sources["phot_g_mean_flux"])
+    #     )
+    #     # cap the radius for faint and saturated sources
+    #     # radius[np.log10(self.sources["phot_g_mean_flux"]) < 3] = 8.0
+    #     # radius[np.log10(self.sources["phot_g_mean_flux"]) > 6.5] = 24.0
+    #
+    #     # mask all pixels with radial distance less than the source PSF edge.
+    #     self.source_mask = sparse.csr_matrix(
+    #         self.r.to("arcsec").value < self.radius[:, None]
+    #     )
+    #
+    #     return
 
     def _get_uncontaminated_pixel_mask(self):
         """
@@ -413,112 +550,295 @@ class Machine(object):
 
         return
 
-    def _build_time_variable_model():
-        return
-
-    def _fit_time_variable_model():
-        return
-
-    def _bin_data(self, mean_f, nphi=10, nr=10):
-        """
-        Bin the `mean_f` (mean fluxes) in polar coordinates space to then build the
-        PSF model.
-
-        Note: For the sake of modeling a PSF, we assing a lower bound value to all
-        bins with no counts and a significant large ditance (15 arcsec). This helps
-        to set boundary conditions when doing the linear modeling of the binned data.
-
-        Radial distance bins are square spaced.
+    def _time_bin(self, npoints=200):
+        """Bin the data down in time
 
         Parameters
         ----------
-        mean_f : numpy.ndarray
-            Values of mean flux at a given radial distance and azimutal angle
-        nphi : int, optional
-            Number of bins for the azimutal angle axis
-        nphi : int, optional
-            Number of bins for the radial distance axis
+
+        npoints: how many points in each time bin
 
         Returns
         -------
-        r_b : numpy.ndarray
-            Mesh grid of radial distance binned values
-        phi_b : numpy.ndarray
-            Mesh grid of azimutal angle binned values
-        mean_f_b : numpy.ndarray
-            Mean flux value per bin
-        counts : numpy.ndarray
-            Number of counts per bin
+
+        time_original
+
+        time_binned
+
+        flux_binned_raw
+
+        flux_binned
+
+        flux_err_binned
         """
-        # defining bin edges
-        phis = np.linspace(-np.pi, np.pi, nphi)
-        rs = np.linspace(0 ** 0.5, (self.radius.max()) ** 0.5, nr) ** 2
-
-        phi_m = self.uncontaminated_source_mask.multiply(self.phi.value).data
-        r_m = self.uncontaminated_source_mask.multiply(self.r.value).data
-
-        # binned data
-        counts, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs))
-        mean_f_b, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs), weights=mean_f)
-        mean_f_b /= counts
-        phi_b, r_b = np.asarray(
-            np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
+        splits = np.append(
+            np.append(0, np.where(np.diff(self.time) > 0.1)[0]), len(self.time)
         )
-        # mean_f_b[(r_b.T > 1) & (counts < 1)] = np.nan
-        mean_f_b[(r_b.T > 15) & ~np.isfinite(mean_f_b)] = -6
+        splits_a = splits[:-1] + 100
+        splits_b = splits[1:]
+        dsplits = (splits_b - splits_a) // npoints
+        breaks = []
+        for spdx in range(len(splits_a)):
+            breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx] - 1) * npoints)
+        breaks = np.hstack(breaks)
 
-        return r_b, phi_b, mean_f_b.T, counts.T
+        # Time averaged
+        tm = np.vstack(
+            [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
+        ).ravel()
+        ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
 
-    def build_model(self, bin=True, update=False):
+        ms = [
+            np.in1d(np.arange(self.nt), i)
+            for i in np.array_split(np.arange(self.nt), breaks)
+        ]
+        # Average Pixel values
+        fm = np.asarray(
+            [
+                (
+                    sparse.csr_matrix(self.uncontaminated_source_mask)
+                    .multiply(self.flux[ms[tdx]].mean(axis=0))
+                    .data
+                )
+                for tdx in range(len(ms))
+            ]
+        )
+        fm_raw = np.asarray(
+            [
+                (
+                    sparse.csr_matrix(self.uncontaminated_source_mask)
+                    .multiply(self.flux[ms[tdx]].mean(axis=0))
+                    .data
+                )
+                for tdx in range(len(ms))
+            ]
+        )
+        fem = np.asarray(
+            [
+                (
+                    sparse.csr_matrix(self.uncontaminated_source_mask)
+                    .multiply((self.flux_err ** 2)[ms[tdx]].sum(axis=0) ** 0.5)
+                    .data
+                    / ms[tdx].sum()
+                )
+                for tdx in range(len(ms))
+            ]
+        )
+
+        fem /= np.nanmean(fm, axis=0)
+        fm /= np.nanmean(fm, axis=0)
+
+        tm = ((tm - tm.mean()) / (tm.max() - tm.mean()))[:, None] * np.ones(fm.shape)
+
+        return ta, tm, fm_raw, fm, fem
+
+    def build_time_model(self, npoints=200, n_knots=10, plot=False):
+        (
+            time_original,
+            time_binned,
+            flux_binned_raw,
+            flux_binned,
+            flux_err_binned,
+        ) = self._time_bin(npoints=npoints)
+
+        self._time_model_knots = n_knots
+        self._whitened_time = time_original
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dra.value),
+            self.uncontaminated_source_mask.multiply(self.ddec.value),
+        )
+        dx = dx.data * u.deg.to(u.arcsecond)
+        dy = dy.data * u.deg.to(u.arcsecond)
+
+        A_c = _make_A_cartesian(dx, dy, n_knots=n_knots, radius=12)
+        A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
+        # Cartesian spline with time dependence
+        A3 = sparse.hstack(
+            [
+                A2,
+                A2.multiply(time_binned.ravel()[:, None]),
+                A2.multiply(time_binned.ravel()[:, None] ** 2),
+                A2.multiply(time_binned.ravel()[:, None] ** 3),
+            ],
+            format="csr",
+        )
+
+        # No saturated pixels
+        k = (
+            (flux_binned_raw < 1.4e5).any(axis=0)[None, :]
+            * np.ones(flux_binned_raw.shape, bool)
+        ).ravel()
+        # No faint pixels
+        k &= (
+            (flux_binned_raw > 10).any(axis=0)[None, :]
+            * np.ones(flux_binned_raw.shape, bool)
+        ).ravel()
+        # No huge variability
+        k &= (
+            (np.abs(flux_binned - 1) < 1).all(axis=0)[None, :]
+            * np.ones(flux_binned.shape, bool)
+        ).ravel()
+        # No nans
+        k &= np.isfinite(flux_binned.ravel()) & np.isfinite(flux_err_binned.ravel())
+        prior_sigma = np.ones(A3.shape[1]) * 10
+        prior_mu = np.zeros(A3.shape[1])
+
+        for count in [0, 1, 2]:
+            sigma_w_inv = A3[k].T.dot(A3[k])
+            sigma_w_inv += np.diag(1 / prior_sigma ** 2)
+            # Fit the flux - 1
+            B = A3[k].T.dot((flux_binned.ravel() - 1)[k])
+            B += prior_mu / (prior_sigma ** 2)
+            velocity_aberration_w = np.linalg.solve(sigma_w_inv, B)
+            res = flux_binned - A3.dot(velocity_aberration_w).reshape(flux_binned.shape)
+            res = np.ma.masked_array(res, (~k).reshape(flux_binned.shape))
+            bad_targets = sigma_clip(res, sigma=5).mask
+            bad_targets = (
+                np.ones(flux_binned.shape, bool) & bad_targets.any(axis=0)
+            ).ravel()
+            #    k &= ~sigma_clip(flux_binned.ravel() - A3.dot(velocity_aberration_w)).mask
+            k &= ~bad_targets
+
+        self.velocity_aberration_w = velocity_aberration_w
+        if plot:
+            model = A3.dot(velocity_aberration_w).reshape(flux_binned.shape) + 1
+            fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
+            k1 = k.reshape(flux_binned.shape)[0]
+            k2 = k.reshape(flux_binned.shape)[-1]
+            im = ax[0, 0].scatter(
+                dx[k1],
+                dy[k1],
+                c=flux_binned[0][k1],
+                s=3,
+                vmin=0.7,
+                vmax=1.3,
+                cmap="coolwarm",
+            )
+            ax[0, 1].scatter(
+                dx[k2],
+                dy[k2],
+                c=flux_binned[-1][k2],
+                s=3,
+                vmin=0.7,
+                vmax=1.3,
+                cmap="coolwarm",
+            )
+            ax[1, 0].scatter(
+                dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.7, vmax=1.3, cmap="coolwarm"
+            )
+            ax[1, 1].scatter(
+                dx[k2],
+                dy[k2],
+                c=model[-1][k2],
+                s=3,
+                vmin=0.7,
+                vmax=1.3,
+                cmap="coolwarm",
+            )
+            ax[0, 0].set(title="Data First Cadence", ylabel="$\delta y$")
+            ax[0, 1].set(title="Data Last Cadence")
+            ax[1, 0].set(
+                title="Model First Cadence", ylabel="$\delta y$", xlabel="$\delta x$"
+            )
+            ax[1, 1].set(title="Model Last Cadence", xlabel="$\delta x$")
+            plt.subplots_adjust(hspace=0.3)
+
+            cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+            cbar.set_label("Normalized Flux")
+            return fig
+        return
+
+    #
+    # def _bin_data(self, mean_f, nphi=10, nr=10):
+    #     """
+    #     Bin the `mean_f` (mean fluxes) in polar coordinates space to then build the
+    #     PSF model.
+    #
+    #     Note: For the sake of modeling a PSF, we assing a lower bound value to all
+    #     bins with no counts and a significant large ditance (15 arcsec). This helps
+    #     to set boundary conditions when doing the linear modeling of the binned data.
+    #
+    #     Radial distance bins are square spaced.
+    #
+    #     Parameters
+    #     ----------
+    #     mean_f : numpy.ndarray
+    #         Values of mean flux at a given radial distance and azimutal angle
+    #     nphi : int, optional
+    #         Number of bins for the azimutal angle axis
+    #     nphi : int, optional
+    #         Number of bins for the radial distance axis
+    #
+    #     Returns
+    #     -------
+    #     r_b : numpy.ndarray
+    #         Mesh grid of radial distance binned values
+    #     phi_b : numpy.ndarray
+    #         Mesh grid of azimutal angle binned values
+    #     mean_f_b : numpy.ndarray
+    #         Mean flux value per bin
+    #     counts : numpy.ndarray
+    #         Number of counts per bin
+    #     """
+    #     # defining bin edges
+    #     phis = np.linspace(-np.pi, np.pi, nphi)
+    #     rs = np.linspace(0 ** 0.5, (self.radius.max()) ** 0.5, nr) ** 2
+    #
+    #     phi_m = self.uncontaminated_source_mask.multiply(self.phi.value).data
+    #     r_m = self.uncontaminated_source_mask.multiply(self.r.value).data
+    #
+    #     # binned data
+    #     counts, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs))
+    #     mean_f_b, _, _ = np.histogram2d(phi_m, r_m, bins=(phis, rs), weights=mean_f)
+    #     mean_f_b /= counts
+    #     phi_b, r_b = np.asarray(
+    #         np.meshgrid(phis[:-1] + np.median(np.diff(phis)) / 2, rs[:-1])
+    #     )
+    #     # mean_f_b[(r_b.T > 1) & (counts < 1)] = np.nan
+    #     mean_f_b[(r_b.T > 15) & ~np.isfinite(mean_f_b)] = -6
+    #
+    #     return r_b, phi_b, mean_f_b.T, counts.T
+
+    def build_shape_model(self, flux_estimates=None, sigma=5, niters=3, plot=False):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
         fitting each source pixels to estimate its PSF photometry
 
         Parameters
         ----------
-        bin : boolean
-            Whether bin the mean flux values before finding the mean model or not
-        update : boolean
-            Updete mode True, changes the normalization of the mean fluxes if the
-            flux estimates where updated. Use whendoing second iteration of
-            `fit_model()`
+        sigma
         """
-        # self._build_time_variable_model()
-        self._binned_model = bin
-        # assign the flux estimations to be used for mean flux normalization
-        if update:
-            if "psf_flux1" not in dir(self):
-                raise AttributeError(
-                    "Update model is set to True but no fluxes were "
-                    "precomputed. Run self.fit_model() before."
-                )
-            flux_estimates = np.repeat(
-                self.psf_flux1.mean(axis=1)[:, None], self.npixels, axis=1
-            )
-        else:
+        if flux_estimates is None:
             flux_estimates = self.source_flux_estimates
 
         # mean flux values using uncontaminated mask and normalized by flux estimations
+        # mean_f = np.log10(
+        #     self.uncontaminated_source_mask.astype(float)
+        #     .multiply(self.flux.mean(axis=0))
+        #     .multiply(1 / flux_estimates)
+        #     .data
+        # )
+
+        f, fe = (self.flux).mean(axis=0), ((self.flux_err ** 2).sum(axis=0) ** 0.5) / (
+            self.nt
+        )
+
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux.mean(axis=0))
+            .multiply(f)
             .multiply(1 / flux_estimates)
             .data
         )
-        # Use binned (or not) normalized fluxes
-        if bin:
-            r_b, phi_b, mean_f_b, counts = self._bin_data(mean_f, nphi=40, nr=30)
-            self.counts = counts
-        else:
-            phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
-            r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
-            mean_f_b = mean_f
-            # mean_f_b = np.append(mean_f, np.ones(100) * -6)
-            # mean_f_b = np.append(mean_f_b, np.ones(100) * -6)
-            # phi_b = np.append(phi_b, np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100))
-            # phi_b = np.append(phi_b, np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100))
-            # r_b = np.append(r_b, np.ones(100) * r_b.max())
-            # r_b = np.append(r_b, np.ones(100) * (r_b.max() - 1))
+        mean_f_err = (
+            self.uncontaminated_source_mask.astype(float)
+            .multiply(fe / (f * np.log(10)))
+            .multiply(1 / flux_estimates)
+            .data
+        )
+
+        phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
+        r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
+        mean_f_b = mean_f
 
         # save them for later plotting
         self.mean_f = mean_f
@@ -535,11 +855,24 @@ class Machine(object):
         # we solve for A * psf_w = mean_f_b
         psf_w = self._solve_linear_model(
             A,
-            mean_f_b.ravel(),
+            y=mean_f_b.ravel(),
+            #    y_err=mean_f_err.ravel(),
             k=nan_mask,
             prior_mu=prior_mu,
             prior_sigma=prior_sigma,
         )
+
+        bad = sigma_clip(mean_f_b.ravel() - A.dot(psf_w), sigma=5).mask
+
+        psf_w = self._solve_linear_model(
+            A,
+            y=mean_f_b.ravel(),
+            #    y_err=mean_f_err.ravel(),
+            k=nan_mask & ~bad,
+            prior_mu=prior_mu,
+            prior_sigma=prior_sigma,
+        )
+
         self.psf_w = psf_w
 
         # We then build the same design matrix for all pixels with flux
@@ -554,133 +887,290 @@ class Machine(object):
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
-
+        if plot:
+            return self.plot_shape_model()
         return
 
-    def fit_model(self):
-        """
-        Fits a sparse model matrix to all flux values iteratively in time to calculate
-        PSF photometry. This is done in two iteretions, firs using priors and
-        a mean model normalized with Gaia source expected fluxes, and a second
-        iteration updating the priors and normalizations with the precomputed fluxes.
-
-        This method create two new class atributes that contain the PSF flux and
-        uncertainties (`psf_flux` and `psf_flux_err`)
-        """
-        # self._fit_time_variable_model()
-        A = (self.mean_model).T
-        ws1 = np.zeros((self.nt, A.shape[1])) * np.nan
-        werrs1 = np.zeros((self.nt, A.shape[1])) * np.nan
-
-        # first iteration uses Gaia flux as prior
-        prior_mu = self.source_flux_estimates[:, 0]
-        prior_sigma = np.ones(A.shape[1]) * 10 * self.source_flux_estimates[:, 0]
-        k = np.isfinite(self.flux)
-        for t in tqdm(np.arange(self.nt), desc="Fitting PSF model, Gaia prior"):
-            ws1[t], werrs1[t] = self._solve_linear_model(
-                A,
-                self.flux[t],
-                y_err=self.flux_err[t],
-                prior_mu=prior_mu,
-                prior_sigma=prior_sigma,
-                k=k[t],
-            )
-        self.psf_flux1 = ws1.T
-        self.psf_flux1_err = werrs1.T
-
-        ws2 = np.zeros_like(ws1) * np.nan
-        werrs2 = np.zeros_like(werrs1) * np.nan
-        # update priors using previous fitting, we keep wide priors for sigma
-        prior_mu = ws1.mean(axis=0)
-        # update mean model with the flux estimations
-        self.build_model(update=True)
-        self._plot_mean_model()
-        A = (self.mean_model).T
-        for t in tqdm(range(self.nt), desc="Fitting PSF model, 2nd iter"):
-            ws2[t], werrs2[t] = self._solve_linear_model(
-                A,
-                self.flux[t],
-                y_err=self.flux_err[t],
-                prior_mu=prior_mu,
-                prior_sigma=prior_sigma,
-                k=k[t],
-            )
-        self.psf_flux2 = ws2.T
-        self.psf_flux2_err = werrs2.T
-
-    def _plot_mean_model(self):
-        """
-        Diagnostic plot of the mean PSF model. Run `self.build_model()` first.
-
-        Plot figures with the mean fluxes and mean model in polar coordinates, mean
-        model in WC, radial and angle profile.
-        Also includes the binned and counts of binned mean flux data if available
-        """
-        # Plotting r,phi,meanflux used to build PSF model
-        fig, ax = plt.subplots(1, 2, figsize=(9, 3))
-        ax[0].set_title("Mean flux")
-        cax = ax[0].scatter(
-            self.uncontaminated_source_mask.multiply(self.phi).data,
-            self.uncontaminated_source_mask.multiply(self.r).data,
-            c=self.mean_f,
-            marker=".",
+    def plot_shape_model(self):
+        """ Diagnostic plot of shape model..."""
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dra.value),
+            self.uncontaminated_source_mask.multiply(self.ddec.value),
         )
-        ax[0].set_ylim(0, self.r_b.max())
-        fig.colorbar(cax, ax=ax[0])
-        ax[0].set_ylabel(r"$r^{\prime\prime}$ ")
-        ax[0].set_xlabel(r"$\phi$ [rad]")
+        dx = dx.data * u.deg.to(u.arcsecond)
+        dy = dy.data * u.deg.to(u.arcsecond)
 
-        r_test, phi_test = np.meshgrid(
-            np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 100) ** 2,
-            np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100),
+        mean_f = np.log10(
+            self.uncontaminated_source_mask.astype(float)
+            .multiply(self.flux.mean(axis=0))
+            .multiply(1 / self.source_flux_estimates)
+            .data
         )
-        A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
-        model_test = A_test.dot(self.psf_w)
-        model_test = model_test.reshape(phi_test.shape)
 
-        ax[1].set_title("Average PSF Model")
-        cax = ax[1].pcolormesh(phi_test, r_test, model_test)
-        fig.colorbar(cax, ax=ax[1])
-        ax[1].set_xlabel(r"$\phi$ [rad]")
-        plt.show()
+        fig, ax = plt.subplots(1, 4, figsize=(16, 3))
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dra.value),
+            self.uncontaminated_source_mask.multiply(self.ddec.value),
+        )
+        dx = dx.data * u.deg.to(u.arcsecond)
+        dy = dy.data * u.deg.to(u.arcsecond)
 
-        plt.figure(figsize=(9, 8))
-        plt.pcolormesh(r_test * np.cos(phi_test), r_test * np.sin(phi_test), model_test)
-        plt.show()
+        im = ax[0].scatter(
+            dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
+        )
+        ax[0].set(xlabel='$\delta x$ ["]', ylabel='$\delta y$ ["]', title="Data")
 
-        fig, ax = plt.subplots(1, 2, figsize=(9, 3))
-        ax[0].set_title("Marginal Dist")
-        ax[0].plot(r_test[0, :], model_test.sum(axis=0))
-        ax[0].set_xlabel(r"$r$")
+        phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
+        im = ax[1].scatter(
+            phi, r, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
+        )
+        ax[1].set(xlabel="$\phi$ [$^\circ$]", ylabel='$r$ ["]', title="Data")
 
-        ax[1].set_title("Marginal Dist")
-        ax[1].plot(phi_test[:, 0], model_test.sum(axis=1))
-        ax[1].set_xlabel(r"$\phi$")
+        A = _make_A_wcs(phi, r)
+        im = ax[2].scatter(
+            phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
+        )
+        ax[2].set(xlabel="$\phi$ [$^\circ$]", ylabel='$r$ ["]', title="Model")
 
-        plt.show()
+        im = ax[3].scatter(
+            dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
+        )
+        ax[3].set(xlabel='$\delta x$ ["]', ylabel='$\delta y$ ["]', title="Model")
 
-        if self._binned_model:
-            fig, ax = plt.subplots(1, 2, figsize=(9, 3))
-            ax[0].set_title("Counts per bin")
-            cax = ax[0].pcolormesh(self.phi_b, self.r_b, self.counts)
-            fig.colorbar(cax, ax=ax[0])
-            ax[0].set_xlabel(r"$\phi$ [rad]")
-            ax[0].set_ylabel(r"$r^{\prime\prime}$")
+        cbar = fig.colorbar(im, ax=ax, shrink=0.7, location="right")
+        cbar.set_label("log$_{10}$ Normalized Flux")
 
-            ax[1].set_title("Binned mean flux")
-            cax = ax[1].pcolormesh(self.phi_b, self.r_b, self.mean_f_b)
-            fig.colorbar(cax, ax=ax[1])
-            ax[1].set_xlabel(r"$\phi$ [rad]")
-            plt.show()
+        return fig
+
+    def fit_model(self, fit_va=False):
+
+        if fit_va:
+            if not hasattr(self, "velocity_aberration_w"):
+                raise ValueError(
+                    "Please use `build_time_model` before fitting with velocity aberration."
+                )
+
+            dx, dy = (
+                self.source_mask.multiply(self.dra.value),
+                self.source_mask.multiply(self.ddec.value),
+            )
+            dx = dx.data * u.deg.to(u.arcsecond)
+            dy = dy.data * u.deg.to(u.arcsecond)
+
+            A_cp = _make_A_cartesian(dx, dy, n_knots=self._time_model_knots, radius=12)
+            A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
+            m = sparse.csr_matrix(dx)
+
+            prior_mu = self.source_flux_estimates[:, 0]  # np.zeros(A.shape[1])
+            prior_sigma = (
+                np.ones(self.mean_model.shape[0])
+                * 10
+                * self.source_flux_estimates[:, 0]
+            )
+
+            self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
+            self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
+
+            self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
+            self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
+
+            for tdx in tqdm(
+                range(self.nt), desc=f"Fitting {self.nsources} Sources (w. VA)"
+            ):
+                X = self.mean_model.copy()
+                X = X.T
+
+                sigma_w_inv = X.T.dot(
+                    X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
+                ).toarray()
+                sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+                B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
+                B += prior_mu / (prior_sigma ** 2)
+                self.ws[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+
+                # Divide through by expected velocity aberration
+                X = self.mean_model.copy()
+                t_mult = np.hstack(
+                    (self._whitened_time[tdx] ** np.arange(4))[:, None]
+                    * np.ones(A_cp3.shape[1] // 4)
+                )
+                X.data *= A_cp3.multiply(t_mult).dot(self.velocity_aberration_w) + 1
+                X = X.T
+
+                k = np.isfinite(self.flux[tdx])
+                sigma_w_inv = X.T.dot(
+                    X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
+                ).toarray()
+                sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+                B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
+                B += prior_mu / (prior_sigma ** 2)
+                self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+
+            nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
+            self.ws[:, nodata] *= np.nan
+            self.werrs[:, nodata] *= np.nan
+            self.ws_va[:, nodata] *= np.nan
+            self.werrs_va[:, nodata] *= np.nan
+
         else:
-            fig, ax = plt.subplots(1, 1, figsize=(4, 3))
-            ax.set_title("Mean flux")
-            cax = ax.scatter(self.phi_b, self.r_b, c=self.mean_f_b, marker=".")
-            ax.set_ylim(0, self.r_b.max())
-            fig.colorbar(cax, ax=ax)
-            ax.set_ylabel(r"$r^{\prime\prime}$ ")
-            ax.set_xlabel(r"$\phi$ [rad]")
+            prior_mu = self.source_flux_estimates[:, 0]  # np.zeros(A.shape[1])
+            prior_sigma = (
+                np.ones(self.mean_model.shape[0])
+                * 10
+                * self.source_flux_estimates[:, 0]
+            )
+
+            self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
+            self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
+
+            X = self.mean_model.copy()
+            X = X.T
+
+            for tdx in tqdm(
+                range(self.nt), desc=f"Fitting {self.nsources} Sources (No VA)"
+            ):
+                sigma_w_inv = X.T.dot(
+                    X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
+                ).toarray()
+                sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+                B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
+                B += prior_mu / (prior_sigma ** 2)
+                self.ws[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+
+            nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
+            self.ws[:, nodata] *= np.nan
+            self.werrs[:, nodata] *= np.nan
+
         return
+
+    #
+    # def fit_model(self):
+    #     """
+    #     Fits a sparse model matrix to all flux values iteratively in time to calculate
+    #     PSF photometry. This is done in two iteretions, firs using priors and
+    #     a mean model normalized with Gaia source expected fluxes, and a second
+    #     iteration updating the priors and normalizations with the precomputed fluxes.
+    #
+    #     This method create two new class atributes that contain the PSF flux and
+    #     uncertainties (`psf_flux` and `psf_flux_err`)
+    #     """
+    #     # self._fit_time_variable_model()
+    #     A = (self.mean_model).T
+    #     ws1 = np.zeros((self.nt, A.shape[1])) * np.nan
+    #     werrs1 = np.zeros((self.nt, A.shape[1])) * np.nan
+    #
+    #     # first iteration uses Gaia flux as prior
+    #     prior_mu = self.source_flux_estimates[:, 0]
+    #     prior_sigma = np.ones(A.shape[1]) * 10 * self.source_flux_estimates[:, 0]
+    #     k = np.isfinite(self.flux)
+    #     for t in tqdm(np.arange(self.nt), desc="Fitting PSF model, Gaia prior"):
+    #         ws1[t], werrs1[t] = self._solve_linear_model(
+    #             A,
+    #             self.flux[t],
+    #             y_err=self.flux_err[t],
+    #             prior_mu=prior_mu,
+    #             prior_sigma=prior_sigma,
+    #             k=k[t],
+    #         )
+    #     self.psf_flux1 = ws1.T
+    #     self.psf_flux1_err = werrs1.T
+    #
+    #     ws2 = np.zeros_like(ws1) * np.nan
+    #     werrs2 = np.zeros_like(werrs1) * np.nan
+    #     # update priors using previous fitting, we keep wide priors for sigma
+    #     prior_mu = ws1.mean(axis=0)
+    #     # update mean model with the flux estimations
+    #     self.build_model(update=True)
+    #     self._plot_mean_model()
+    #     A = (self.mean_model).T
+    #     for t in tqdm(range(self.nt), desc="Fitting PSF model, 2nd iter"):
+    #         ws2[t], werrs2[t] = self._solve_linear_model(
+    #             A,
+    #             self.flux[t],
+    #             y_err=self.flux_err[t],
+    #             prior_mu=prior_mu,
+    #             prior_sigma=prior_sigma,
+    #             k=k[t],
+    #         )
+    #     self.psf_flux2 = ws2.T
+    #     self.psf_flux2_err = werrs2.T
+    #
+    # def _plot_mean_model(self):
+    #     """
+    #     Diagnostic plot of the mean PSF model. Run `self.build_model()` first.
+    #
+    #     Plot figures with the mean fluxes and mean model in polar coordinates, mean
+    #     model in WC, radial and angle profile.
+    #     Also includes the binned and counts of binned mean flux data if available
+    #     """
+    #     # Plotting r,phi,meanflux used to build PSF model
+    #     fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+    #     ax[0].set_title("Mean flux")
+    #     cax = ax[0].scatter(
+    #         self.uncontaminated_source_mask.multiply(self.phi).data,
+    #         self.uncontaminated_source_mask.multiply(self.r).data,
+    #         c=self.mean_f,
+    #         marker=".",
+    #     )
+    #     ax[0].set_ylim(0, self.r_b.max())
+    #     fig.colorbar(cax, ax=ax[0])
+    #     ax[0].set_ylabel(r"$r^{\prime\prime}$ ")
+    #     ax[0].set_xlabel(r"$\phi$ [rad]")
+    #
+    #     r_test, phi_test = np.meshgrid(
+    #         np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 100) ** 2,
+    #         np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100),
+    #     )
+    #     A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
+    #     model_test = A_test.dot(self.psf_w)
+    #     model_test = model_test.reshape(phi_test.shape)
+    #
+    #     ax[1].set_title("Average PSF Model")
+    #     cax = ax[1].pcolormesh(phi_test, r_test, model_test)
+    #     fig.colorbar(cax, ax=ax[1])
+    #     ax[1].set_xlabel(r"$\phi$ [rad]")
+    #     plt.show()
+    #
+    #     plt.figure(figsize=(9, 8))
+    #     plt.pcolormesh(r_test * np.cos(phi_test), r_test * np.sin(phi_test), model_test)
+    #     plt.show()
+    #
+    #     fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+    #     ax[0].set_title("Marginal Dist")
+    #     ax[0].plot(r_test[0, :], model_test.sum(axis=0))
+    #     ax[0].set_xlabel(r"$r$")
+    #
+    #     ax[1].set_title("Marginal Dist")
+    #     ax[1].plot(phi_test[:, 0], model_test.sum(axis=1))
+    #     ax[1].set_xlabel(r"$\phi$")
+    #
+    #     plt.show()
+    #
+    #     if self._binned_model:
+    #         fig, ax = plt.subplots(1, 2, figsize=(9, 3))
+    #         ax[0].set_title("Counts per bin")
+    #         cax = ax[0].pcolormesh(self.phi_b, self.r_b, self.counts)
+    #         fig.colorbar(cax, ax=ax[0])
+    #         ax[0].set_xlabel(r"$\phi$ [rad]")
+    #         ax[0].set_ylabel(r"$r^{\prime\prime}$")
+    #
+    #         ax[1].set_title("Binned mean flux")
+    #         cax = ax[1].pcolormesh(self.phi_b, self.r_b, self.mean_f_b)
+    #         fig.colorbar(cax, ax=ax[1])
+    #         ax[1].set_xlabel(r"$\phi$ [rad]")
+    #         plt.show()
+    #     else:
+    #         fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+    #         ax.set_title("Mean flux")
+    #         cax = ax.scatter(self.phi_b, self.r_b, c=self.mean_f_b, marker=".")
+    #         ax.set_ylim(0, self.r_b.max())
+    #         fig.colorbar(cax, ax=ax)
+    #         ax.set_ylabel(r"$r^{\prime\prime}$ ")
+    #         ax.set_xlabel(r"$\phi$ [rad]")
+    #     return
 
     def _plot_residual_scene():
         return
