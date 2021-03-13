@@ -180,7 +180,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     return gd.data.to_pandas()
 
 
-def _make_A_wcs(phi, r, cut_r=4):
+def _make_A_wcs(phi, r, cut_r=6):
     # create the spline bases for radius and angle
     phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=15).T)
     r_knots = np.linspace(1 ** 0.5, 18 ** 0.5, 12) ** 2

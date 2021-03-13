@@ -1,11 +1,14 @@
-"""tools to deal with collections of tpfs"""
+"""tools to deal with collections of tpfs
+
+should be deprecated...
+"""
 import numpy as np
 from scipy import sparse
 from tqdm.notebook import tqdm
 
 from astropy.coordinates import SkyCoord, match_coordinates_3d
 
-from .utils import get_sources, _make_A
+from .utils import get_sources  # , _make_A
 
 from scipy.integrate import simps
 

@@ -40,7 +40,7 @@ class Machine(object):
     ----------
     sources : pandas.DataFrame
         Catalog of sources in the images
-    source_flux_estiamtes : np.ndarray
+    source_flux_estimates : np.ndarray
         nsources
 
     time : numpy.ndarray
@@ -111,7 +111,7 @@ class Machine(object):
         row,
         limit_radius=24.0,
         pix2obs=None,
-        plot=False,
+        focus_mask=None,
     ):
         """
         Class constructor. This constructur will compute the basic atributes that will
@@ -174,19 +174,25 @@ class Machine(object):
         self.limit_flux = 1e4
         # Convert between pixel and the original observation
         self.pix2obs = pix2obs
-        self.plot = plot
+
+        if focus_mask is None:
+            # Cut out 1.5 days after every data gap
+            dt = np.hstack([10, np.diff(time)])
+            self.focus_mask = ~np.in1d(
+                np.arange(len(time)),
+                np.hstack(
+                    [
+                        np.arange(t, t + int(1.5 / np.median(dt)))
+                        for t in np.where(dt > (np.median(dt) * 5))[0]
+                    ]
+                ),
+            )
+        else:
+            self.focus_mask = focus_mask
 
         self.nsources = len(self.sources)
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
-
-        # gaia estimate flux values per pixel to be used as flux priors
-        self.source_flux_estimates = np.array(
-            [
-                np.zeros(self.npixels) + sources.phot_g_mean_flux[idx]
-                for idx in range(len(sources))
-            ]
-        )
 
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
@@ -202,15 +208,9 @@ class Machine(object):
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         self.phi = np.arctan2(self.ddec, self.dra)
 
-        # Mask of shape nsources x number of pixels, one where flux from a
-        # source exists
-        self._get_source_mask(plot=self.plot)
-        # Mask of shape npixels (maybe by nt) where not saturated, not faint,
-        # not contaminated etc
-        self._get_uncontaminated_pixel_mask()
-
         # Get the centroids of the images as a function of time
-        self._get_centroids()
+
+    #        self._get_centroids()
 
     @property
     def shape(self):
@@ -290,18 +290,21 @@ class Machine(object):
 
     def _get_source_mask(
         self,
-        upper_radius_limit=20,
+        upper_radius_limit=28,
         lower_radius_limit=4.5,
         flux_cut_off=100,
         flux_limit=1e6,
         plot=False,
     ):
 
-        mean_flux = np.nanmean(self.flux, axis=0)
+        mean_flux = np.nanmean(self.flux[self.focus_mask], axis=0)
         r = self.r
+        source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
+            :, None
+        ] * np.ones((self.nsources, self.npixels))
 
         temp_mask = (r.value < upper_radius_limit) & (
-            self.source_flux_estimates < flux_limit
+            source_flux_estimates < flux_limit
         )
         temp_mask &= temp_mask.sum(axis=0) == 1
 
@@ -311,7 +314,7 @@ class Machine(object):
             (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
         ) * temp_mask
 
-        mf = np.log10(self.source_flux_estimates[temp_mask])
+        mf = np.log10(source_flux_estimates[temp_mask])
 
         # Model is polynomial in r and log of the flux estimate.
         A = np.vstack(
@@ -337,8 +340,8 @@ class Machine(object):
             k &= ~sigma_clip(res, sigma=3).mask
 
         test_f = np.linspace(
-            np.log10(self.source_flux_estimates.min()),
-            np.log10(self.source_flux_estimates.max()),
+            np.log10(source_flux_estimates.min()),
+            np.log10(source_flux_estimates.max()),
             100,
         )
         test_r = np.arange(lower_radius_limit, upper_radius_limit, 0.25)
@@ -369,7 +372,7 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 2), np.log10(self.source_flux_estimates[:, 0])
+            np.polyfit(test_f[ok], l[ok], 2), np.log10(source_flux_estimates[:, 0])
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -378,7 +381,7 @@ class Machine(object):
             source_radius_limit < lower_radius_limit
         ] = lower_radius_limit
 
-        self.radius = source_radius_limit + 1
+        self.radius = source_radius_limit + 2
         self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
 
         if plot:
@@ -650,7 +653,7 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        A_c = _make_A_cartesian(dx, dy, n_knots=n_knots, radius=12)
+        A_c = _make_A_cartesian(dx, dy, n_knots=n_knots, radius=8)
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         A3 = sparse.hstack(
@@ -710,8 +713,8 @@ class Machine(object):
                 dy[k1],
                 c=flux_binned[0][k1],
                 s=3,
-                vmin=0.7,
-                vmax=1.3,
+                vmin=0.5,
+                vmax=1.5,
                 cmap="coolwarm",
             )
             ax[0, 1].scatter(
@@ -719,20 +722,20 @@ class Machine(object):
                 dy[k2],
                 c=flux_binned[-1][k2],
                 s=3,
-                vmin=0.7,
-                vmax=1.3,
+                vmin=0.5,
+                vmax=1.5,
                 cmap="coolwarm",
             )
             ax[1, 0].scatter(
-                dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.7, vmax=1.3, cmap="coolwarm"
+                dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.5, vmax=1.5, cmap="coolwarm"
             )
             ax[1, 1].scatter(
                 dx[k2],
                 dy[k2],
                 c=model[-1][k2],
                 s=3,
-                vmin=0.7,
-                vmax=1.3,
+                vmin=0.5,
+                vmax=1.5,
                 cmap="coolwarm",
             )
             ax[0, 0].set(title="Data First Cadence", ylabel="$\delta y$")
@@ -799,7 +802,7 @@ class Machine(object):
     #
     #     return r_b, phi_b, mean_f_b.T, counts.T
 
-    def build_shape_model(self, flux_estimates=None, sigma=5, niters=3, plot=False):
+    def build_shape_model(self, sigma=5, niters=3, plot=False, flux_cut_off=1):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
         fitting each source pixels to estimate its PSF photometry
@@ -807,75 +810,133 @@ class Machine(object):
         Parameters
         ----------
         sigma
+
+        flux_cut_off: the flux in COUNTS at which to stop evaluating the model!
         """
-        if flux_estimates is None:
-            flux_estimates = self.source_flux_estimates
 
-        # mean flux values using uncontaminated mask and normalized by flux estimations
-        # mean_f = np.log10(
-        #     self.uncontaminated_source_mask.astype(float)
-        #     .multiply(self.flux.mean(axis=0))
-        #     .multiply(1 / flux_estimates)
-        #     .data
-        # )
+        # gaia estimate flux values per pixel to be used as flux priors
+        self.source_flux_estimates = np.copy(np.asarray(self.sources.phot_g_mean_flux))
 
-        f, fe = (self.flux).mean(axis=0), ((self.flux_err ** 2).sum(axis=0) ** 0.5) / (
-            self.nt
-        )
+        # Mask of shape nsources x number of pixels, one where flux from a
+        # source exists
+        self._get_source_mask()
+        # Mask of shape npixels (maybe by nt) where not saturated, not faint,
+        # not contaminated etc
+        self._get_uncontaminated_pixel_mask()
 
-        mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(f)
-            .multiply(1 / flux_estimates)
-            .data
-        )
-        mean_f_err = (
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(fe / (f * np.log(10)))
-            .multiply(1 / flux_estimates)
-            .data
-        )
+        for iter in range(niters):
+            flux_estimates = self.source_flux_estimates[:, None]
 
-        phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
-        r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
-        mean_f_b = mean_f
+            f, fe = (self.flux[self.focus_mask]).mean(axis=0), (
+                (self.flux_err[self.focus_mask] ** 2).sum(axis=0) ** 0.5
+            ) / (self.nt)
 
-        # save them for later plotting
-        self.mean_f = mean_f
-        self.mean_f_b = mean_f_b
-        self.phi_b = phi_b
-        self.r_b = r_b
+            mean_f = np.log10(
+                self.uncontaminated_source_mask.astype(float)
+                .multiply(f)
+                .multiply(1 / flux_estimates)
+                .data
+            )
+            mean_f_err = (
+                self.uncontaminated_source_mask.astype(float)
+                .multiply(fe / (f * np.log(10)))
+                .multiply(1 / flux_estimates)
+                .data
+            )
 
-        # build a design matrix A with b-splines basis in radius and angle axis.
-        A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
-        prior_sigma = np.ones(A.shape[1]) * 100
-        prior_mu = np.zeros(A.shape[1])
-        nan_mask = np.isfinite(mean_f_b.ravel())
+            phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
+            r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
+            mean_f_b = mean_f
 
-        # we solve for A * psf_w = mean_f_b
-        psf_w = self._solve_linear_model(
-            A,
-            y=mean_f_b.ravel(),
-            #    y_err=mean_f_err.ravel(),
-            k=nan_mask,
-            prior_mu=prior_mu,
-            prior_sigma=prior_sigma,
-        )
+            # save them for later plotting
+            self.mean_f = mean_f
+            self.mean_f_b = mean_f_b
+            self.phi_b = phi_b
+            self.r_b = r_b
 
-        bad = sigma_clip(mean_f_b.ravel() - A.dot(psf_w), sigma=5).mask
+            # build a design matrix A with b-splines basis in radius and angle axis.
+            A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
+            prior_sigma = np.ones(A.shape[1]) * 10
+            prior_mu = np.zeros(A.shape[1]) - 10
 
-        psf_w = self._solve_linear_model(
-            A,
-            y=mean_f_b.ravel(),
-            #    y_err=mean_f_err.ravel(),
-            k=nan_mask & ~bad,
-            prior_mu=prior_mu,
-            prior_sigma=prior_sigma,
-        )
+            nan_mask = np.isfinite(mean_f_b.ravel())
 
-        self.psf_w = psf_w
+            # we solve for A * psf_w = mean_f_b
+            psf_w, psf_w_err = self._solve_linear_model(
+                A,
+                y=mean_f_b.ravel(),
+                #                y_err=mean_f_err.ravel(),
+                k=nan_mask,
+                prior_mu=prior_mu,
+                prior_sigma=prior_sigma,
+                errors=True,
+            )
 
-        # We then build the same design matrix for all pixels with flux
+            bad = sigma_clip(mean_f_b.ravel() - A.dot(psf_w), sigma=5).mask
+
+            psf_w, psf_w_err = self._solve_linear_model(
+                A,
+                y=mean_f_b.ravel(),
+                #                y_err=mean_f_err.ravel(),
+                k=nan_mask & ~bad,
+                prior_mu=prior_mu,
+                prior_sigma=prior_sigma,
+                errors=True,
+            )
+
+            self.psf_w = psf_w
+            self.psf_w_err = psf_w_err
+
+            # We then build the same design matrix for all pixels with flux
+            self._get_mean_model()
+
+            # Re-estimate source flux
+            # -----
+            prior_mu = self.source_flux_estimates
+            prior_sigma = (
+                np.ones(self.mean_model.shape[0]) * 10 * self.source_flux_estimates
+            )
+
+            f, fe = (self.flux).mean(axis=0), (
+                (self.flux_err ** 2).sum(axis=0) ** 0.5
+            ) / (self.nt)
+
+            X = self.mean_model.copy()
+            X = X.T
+
+            sigma_w_inv = X.T.dot(X.multiply(1 / fe[:, None] ** 2)).toarray()
+            sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+            B = X.T.dot((f / fe ** 2))
+            B += prior_mu / (prior_sigma ** 2)
+            ws = np.linalg.solve(sigma_w_inv, B)
+            werrs = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+
+            # -----
+
+            # Rebuild source mask
+            ok = np.abs(ws - self.source_flux_estimates) / werrs > 3
+            ok &= ((ws / self.source_flux_estimates) < 10) & (
+                (self.source_flux_estimates / ws) < 10
+            )
+            self.source_flux_estimates[ok] = ws[ok]
+            self.source_mask = (
+                self.mean_model.multiply(
+                    self.mean_model.T.dot(self.source_flux_estimates)
+                ).tocsr()
+                > flux_cut_off
+            )
+
+            # Recreate uncontaminated mask
+            self._get_uncontaminated_pixel_mask()
+
+            # Recreate mean model!
+            self._get_mean_model()
+
+        if plot:
+            return self.plot_shape_model()
+        return
+
+    def _get_mean_model(self):
         Ap = _make_A_wcs(
             self.source_mask.multiply(self.phi).data,
             self.source_mask.multiply(self.r).data,
@@ -883,15 +944,12 @@ class Machine(object):
 
         # And create a `mean_model` that has the psf model for all pixels with fluxes
         mean_model = sparse.csr_matrix(self.r.shape)
-        m = 10 ** Ap.dot(psf_w)
+        m = 10 ** Ap.dot(self.psf_w)
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
-        if plot:
-            return self.plot_shape_model()
-        return
 
-    def plot_shape_model(self):
+    def plot_shape_model(self, radius=20):
         """ Diagnostic plot of shape model..."""
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra.value),
@@ -902,12 +960,12 @@ class Machine(object):
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux.mean(axis=0))
-            .multiply(1 / self.source_flux_estimates)
+            .multiply(self.flux[self.focus_mask].mean(axis=0))
+            .multiply(1 / self.source_flux_estimates[:, None])
             .data
         )
 
-        fig, ax = plt.subplots(1, 4, figsize=(16, 3))
+        fig, ax = plt.subplots(1, 4, figsize=(17, 3))
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra.value),
             self.uncontaminated_source_mask.multiply(self.ddec.value),
@@ -918,24 +976,48 @@ class Machine(object):
         im = ax[0].scatter(
             dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
         )
-        ax[0].set(xlabel='$\delta x$ ["]', ylabel='$\delta y$ ["]', title="Data")
+        ax[0].set(
+            xlabel='$\delta x$ ["]',
+            ylabel='$\delta y$ ["]',
+            title="Data",
+            xlim=(-radius, radius),
+            ylim=(-radius, radius),
+        )
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
         im = ax[1].scatter(
             phi, r, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
         )
-        ax[1].set(xlabel="$\phi$ [$^\circ$]", ylabel='$r$ ["]', title="Data")
+        ax[1].set(
+            xlabel="$\phi$ [$^\circ$]",
+            ylabel='$r$ ["]',
+            title="Data",
+            ylim=(0, radius),
+            yticks=np.linspace(0, radius, 5, dtype=int),
+        )
 
         A = _make_A_wcs(phi, r)
         im = ax[2].scatter(
             phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
         )
-        ax[2].set(xlabel="$\phi$ [$^\circ$]", ylabel='$r$ ["]', title="Model")
+        ax[2].set(
+            xlabel="$\phi$ [$^\circ$]",
+            ylabel='$r$ ["]',
+            title="Model",
+            ylim=(0, radius),
+            yticks=np.linspace(0, radius, 5, dtype=int),
+        )
 
         im = ax[3].scatter(
             dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
         )
-        ax[3].set(xlabel='$\delta x$ ["]', ylabel='$\delta y$ ["]', title="Model")
+        ax[3].set(
+            xlabel='$\delta x$ ["]',
+            ylabel='$\delta y$ ["]',
+            title="Model",
+            xlim=(-radius, radius),
+            ylim=(-radius, radius),
+        )
 
         cbar = fig.colorbar(im, ax=ax, shrink=0.7, location="right")
         cbar.set_label("log$_{10}$ Normalized Flux")
@@ -943,6 +1025,13 @@ class Machine(object):
         return fig
 
     def fit_model(self, fit_va=False):
+        prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
+        prior_sigma = np.ones(self.mean_model.shape[0]) * 2 * self.source_flux_estimates
+
+        #        self.model = np.zeros(self.flux.shape) * np.nan
+
+        self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
+        self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
 
         if fit_va:
             if not hasattr(self, "velocity_aberration_w"):
@@ -957,19 +1046,9 @@ class Machine(object):
             dx = dx.data * u.deg.to(u.arcsecond)
             dy = dy.data * u.deg.to(u.arcsecond)
 
-            A_cp = _make_A_cartesian(dx, dy, n_knots=self._time_model_knots, radius=12)
+            A_cp = _make_A_cartesian(dx, dy, n_knots=self._time_model_knots, radius=8)
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
             m = sparse.csr_matrix(dx)
-
-            prior_mu = self.source_flux_estimates[:, 0]  # np.zeros(A.shape[1])
-            prior_sigma = (
-                np.ones(self.mean_model.shape[0])
-                * 10
-                * self.source_flux_estimates[:, 0]
-            )
-
-            self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
-            self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
 
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
@@ -1007,6 +1086,7 @@ class Machine(object):
                 B += prior_mu / (prior_sigma ** 2)
                 self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, B)
                 self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+            #                self.model[tdx] = X.dot(self.ws_va[tdx])
 
             nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
@@ -1015,15 +1095,6 @@ class Machine(object):
             self.werrs_va[:, nodata] *= np.nan
 
         else:
-            prior_mu = self.source_flux_estimates[:, 0]  # np.zeros(A.shape[1])
-            prior_sigma = (
-                np.ones(self.mean_model.shape[0])
-                * 10
-                * self.source_flux_estimates[:, 0]
-            )
-
-            self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
-            self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
 
             X = self.mean_model.copy()
             X = X.T
@@ -1039,12 +1110,19 @@ class Machine(object):
                 B += prior_mu / (prior_sigma ** 2)
                 self.ws[tdx] = np.linalg.solve(sigma_w_inv, B)
                 self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+            #                self.model[tdx] = X.dot(self.ws[tdx])
 
             nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
             self.werrs[:, nodata] *= np.nan
 
         return
+
+    def to_lightcurves():
+        raise NotImplementedError
+
+    def to_fits():
+        raise NotImplementedError
 
     #
     # def fit_model(self):
@@ -1175,100 +1253,6 @@ class Machine(object):
     def _plot_residual_scene():
         return
 
-    def _plot_psf_fit():
-        return
-
-    def _parse_TPFs(tpfs):
-        """
-        Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
-        per pixel
-
-        Parameters
-        ----------
-        tpfs : lightkurve TargetPixelFileCollection
-            Collection of Target Pixel files
-
-        Returns
-        -------
-        times : numpy.ndarray
-            Array with time values
-        flux : numpy.ndarray
-            Array with flux values per pixel
-        flux_err : numpy.ndarray
-            Array with flux errors per pixel
-        unw : numpy.ndarray
-            Array with TPF index for each pixel
-        """
-        cadences = np.array([tpf.cadenceno for tpf in tpfs])
-
-        # check if all TPFs has same cadences
-        if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
-            raise ValueError("All TPFs must have same time basis")
-        # extract times
-        times = np.asarray(tpfs[0].time.jd)
-
-        locs = [
-            np.mgrid[
-                tpf.column : tpf.column + tpf.shape[2], tpf.row : tpf.row + tpf.shape[1]
-            ].reshape(2, np.product(tpf.shape[1:]))
-            for tpf in tpfs
-        ]
-        locs = np.hstack(locs)
-        column, row = locs
-
-        # put fluxes into ntimes x npix shape
-        flux = np.hstack([np.hstack(tpf.flux.transpose([2, 0, 1])) for tpf in tpfs])
-        flux_err = np.hstack(
-            [np.hstack(tpf.flux_err.transpose([2, 0, 1])) for tpf in tpfs]
-        )
-        unw = np.hstack(
-            [
-                np.zeros((tpf.shape[0], tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
-                for idx, tpf in enumerate(tpfs)
-            ]
-        )
-        return times, flux, flux_err, column, row, unw
-
-    def _convert_to_wcs(tpfs):
-        """
-        Extract pairs of row, column coordinates per pixels and convert them into
-        World Cordinate System ra, dec.
-
-        Parameters
-        ----------
-        tpfs : lightkurve TargetPixelFileCollection
-            Collection of Target Pixel files
-
-        Returns
-        -------
-        locs : numpy.ndarray
-            2D array with pixel locations (columns, rows) from the TPFs
-        ra : numpy.ndarray
-            Array with right ascension values per pixel
-        dec : numpy.ndarray
-            Array with declination values per pixel
-        """
-        # calculate x,y grid of each pixel
-        locs = np.hstack(
-            [
-                np.mgrid[
-                    tpf.column : tpf.column + tpf.shape[2],
-                    tpf.row : tpf.row + tpf.shape[1],
-                ].reshape(2, np.product(tpf.shape[1:]))
-                for tpf in tpfs
-            ]
-        )
-
-        # convert pixel coord to ra, dec using TPF's solution
-        ra, dec = (
-            tpfs[0]
-            .wcs.wcs_pix2world(
-                np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T, 0.0
-            )
-            .T
-        )
-        return locs, ra, dec
-
     def _preprocess(
         flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5
     ):
@@ -1323,7 +1307,7 @@ class Machine(object):
         dec = dec[mask]
         flux = flux[:, mask]
         flux_err = flux_err[:, mask]
-        unw = unw[:, mask]
+        unw = unw[mask]
 
         return flux, flux_err, unw, locs, ra, dec, column, row
 
@@ -1342,6 +1326,8 @@ class Machine(object):
         epoch : float
             Epoch of obervation in Julian Days of ra, dec coordinates,
             will be used to propagate proper motions in Gaia.
+        dr : int
+            Which gaia data release to use, default is DR2
 
         Returns
         -------
@@ -1350,9 +1336,9 @@ class Machine(object):
         """
         # find the max circle per TPF that contain all pixel data to query Gaia
         ras, decs, rads = [], [], []
-        for l in np.unique(unw[0]):
-            ra1 = ra[unw[0] == l]
-            dec1 = dec[unw[0] == l]
+        for l in np.unique(unw):
+            ra1 = ra[unw == l]
+            dec1 = dec[unw == l]
             ras.append(ra1.mean())
             decs.append(dec1.mean())
             rads.append(
@@ -1397,11 +1383,140 @@ class Machine(object):
         if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
+        def _parse_TPFs(tpfs):
+            """
+            Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
+            per pixel
+
+            Parameters
+            ----------
+            tpfs : lightkurve TargetPixelFileCollection
+                Collection of Target Pixel files
+
+            Returns
+            -------
+            times : numpy.ndarray
+                Array with time values
+            flux : numpy.ndarray
+                Array with flux values per pixel
+            flux_err : numpy.ndarray
+                Array with flux errors per pixel
+            unw : numpy.ndarray
+                Array with TPF index for each pixel
+            """
+
+            time = tpfs[0].time.value
+
+            if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
+                qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
+                    tpfs[0].quality, lk.utils.KeplerQualityFlags.DEFAULT_BITMASK
+                )
+                qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (
+                    np.abs(tpfs[0].pos_corr2) < 5
+                )
+                dt = np.hstack([10, np.diff(time)])
+                focus_mask = ~np.in1d(
+                    np.arange(len(time)),
+                    np.hstack(
+                        [
+                            np.arange(t, t + int(1.5 / np.median(dt)))
+                            for t in np.where(dt > (np.median(dt) * 5))[0]
+                        ]
+                    ),
+                )
+                focus_mask = focus_mask[qual_mask]
+
+            elif isinstance(tpfs[0], lk.TessTargetPixelFile):
+                qual_mask = lk.utils.TessQualityFlags.create_quality_mask(
+                    tpfs[0].quality, lk.utils.TessQualityFlags.DEFAULT_BITMASK
+                )
+                qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (
+                    np.abs(tpfs[0].pos_corr2) < 5
+                )
+                focus_mask = np.ones(len(tpfs[0].time), bool)[qual_mask]
+
+            cadences = np.array([tpf.cadenceno[qual_mask] for tpf in tpfs])
+
+            # check if all TPFs has same cadences
+            if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
+                raise ValueError("All TPFs must have same time basis")
+            # extract times
+            times = np.asarray(tpfs[0].time.jd)[qual_mask]
+
+            locs = [
+                np.mgrid[
+                    tpf.column : tpf.column + tpf.shape[2],
+                    tpf.row : tpf.row + tpf.shape[1],
+                ].reshape(2, np.product(tpf.shape[1:]))
+                for tpf in tpfs
+            ]
+            locs = np.hstack(locs)
+            column, row = locs
+
+            # put fluxes into ntimes x npix shape
+            flux = np.hstack(
+                [np.hstack(tpf.flux[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
+            )
+            flux_err = np.hstack(
+                [
+                    np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1]))
+                    for tpf in tpfs
+                ]
+            )
+            unw = np.hstack(
+                [
+                    np.zeros((tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
+                    for idx, tpf in enumerate(tpfs)
+                ]
+            )
+            return times, flux, flux_err, column, row, unw, focus_mask
+
         # parse tpfs
-        times, flux, flux_err, column, row, unw = Machine._parse_TPFs(tpfs)
+        times, flux, flux_err, column, row, unw, focus_mask = _parse_TPFs(tpfs)
+
+        def wcs_from_tpfs(tpfs):
+            """
+            Extract pairs of row, column coordinates per pixels and convert them into
+            World Cordinate System ra, dec.
+
+            Parameters
+            ----------
+            tpfs : lightkurve TargetPixelFileCollection
+                Collection of Target Pixel files
+
+            Returns
+            -------
+            locs : numpy.ndarray
+                2D array with pixel locations (columns, rows) from the TPFs
+            ra : numpy.ndarray
+                Array with right ascension values per pixel
+            dec : numpy.ndarray
+                Array with declination values per pixel
+            """
+            # calculate x,y grid of each pixel
+            locs = np.hstack(
+                [
+                    np.mgrid[
+                        tpf.column : tpf.column + tpf.shape[2],
+                        tpf.row : tpf.row + tpf.shape[1],
+                    ].reshape(2, np.product(tpf.shape[1:]))
+                    for tpf in tpfs
+                ]
+            )
+
+            # convert pixel coord to ra, dec using TPF's solution
+            ra, dec = (
+                tpfs[0]
+                .wcs.wcs_pix2world(
+                    np.vstack([(locs[0] - tpfs[0].column), (locs[1] - tpfs[0].row)]).T,
+                    0.0,
+                )
+                .T
+            )
+            return locs, ra, dec
 
         # convert to RA Dec
-        locs, ra, dec = Machine._convert_to_wcs(tpfs)
+        locs, ra, dec = wcs_from_tpfs(tpfs)
 
         # preprocess arrays
         flux, flux_err, unw, locs, ra, dec, column, row = Machine._preprocess(
@@ -1412,8 +1527,8 @@ class Machine(object):
             ra, dec, unw, times[0], magnitude_limit, dr=dr
         )
 
-        # soruce list cleaning
-        #        sources, _ = Machine._clean_source_list(sources, ra, dec)
+        # source list cleaning
+        sources, _ = Machine._clean_source_list(sources, ra, dec)
 
         # return a Machine object
         return Machine(
@@ -1426,6 +1541,7 @@ class Machine(object):
             column=column,
             row=row,
             pix2obs=unw,
+            focus_mask=focus_mask,
         )
 
     def _clean_source_list(sources, ra, dec):
@@ -1454,28 +1570,29 @@ class Machine(object):
         # find sources on the image
         inside = np.zeros(len(sources), dtype=bool)
         # max distance in arcsec from image edge to source ra, dec
-        off = 3.0 / 3600
+        # 1.25 pixels
+        sep = 5 * u.arcsec.to(u.deg)
         for k in range(len(sources)):
-            raok = (sources["ra"][k] > ra - off) & (sources["ra"][k] < ra + off)
-            decok = (sources["dec"][k] > dec - off) & (sources["dec"][k] < dec + off)
+            raok = (sources["ra"][k] > ra - sep) & (sources["ra"][k] < ra + sep)
+            decok = (sources["dec"][k] > dec - sep) & (sources["dec"][k] < dec + sep)
             inside[k] = (raok & decok).any()
         del raok, decok
 
-        # find well separated sources
-        s_coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
-        midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
-        # remove sources closer than 6" = 1.5 pix
-        closest = mdist.arcsec < 2.0
-        blocs = np.vstack([midx[closest], np.where(closest)[0]])
-        bmags = np.vstack(
-            [
-                sources.phot_g_mean_mag[midx[closest]],
-                sources.phot_g_mean_mag[np.where(closest)[0]],
-            ]
-        )
-        faintest = [blocs[idx][s] for s, idx in enumerate(np.argmax(bmags, axis=0))]
-        unresolved = np.in1d(np.arange(len(sources)), faintest)
-        del s_coords, midx, mdist, closest, blocs, bmags
+        # # find well separated sources
+        # s_coords = SkyCoord(sources.ra, sources.dec, unit=("deg"))
+        # midx, mdist = match_coordinates_3d(s_coords, s_coords, nthneighbor=2)[:2]
+        # # remove sources closer than 6" = 1.5 pix
+        # closest = mdist.arcsec < 2.0
+        # blocs = np.vstack([midx[closest], np.where(closest)[0]])
+        # bmags = np.vstack(
+        #     [
+        #         sources.phot_g_mean_mag[midx[closest]],
+        #         sources.phot_g_mean_mag[np.where(closest)[0]],
+        #     ]
+        # )
+        # faintest = [blocs[idx][s] for s, idx in enumerate(np.argmax(bmags, axis=0))]
+        # unresolved = np.in1d(np.arange(len(sources)), faintest)
+        # del s_coords, midx, mdist, closest, blocs, bmags
 
         # Keep track of sources that we removed
         sources.loc[:, "clean_flag"] = 0
@@ -1488,13 +1605,3 @@ class Machine(object):
         sources = sources[clean].reset_index(drop=True)
 
         return sources, removed_sources
-
-
-"""
-Notes on user functionality
-
-machine.plot_tpf(4)
- machine.plot_source(13)
-# show new sources
- machine.show_fresh()
-"""
