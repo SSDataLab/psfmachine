@@ -161,7 +161,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         gd = pyia.GaiaData.from_query(
             f"""SELECT designation,
                     coord1(prop) AS ra, ra_error, coord2(prop) AS dec, dec_error, parallax,
-                    parallax_error,
+                    parallax_error, pmra, pmra_error, pmdec, pmdec_error, dr2_radial_velocity, dr2_radial_velocity_error,
                     ruwe, phot_g_n_obs, phot_g_mean_flux,
                     phot_g_mean_flux_error, phot_g_mean_mag,
                     phot_bp_n_obs, phot_bp_mean_flux, phot_bp_mean_flux_error, phot_bp_mean_mag, phot_rp_n_obs,
@@ -180,10 +180,11 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     return gd.data.to_pandas()
 
 
-def _make_A_wcs(phi, r, cut_r=6):
+def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15):
     # create the spline bases for radius and angle
-    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=15).T)
-    r_knots = np.linspace(1 ** 0.5, 18 ** 0.5, 12) ** 2
+    phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=n_phi_knots).T)
+    r_knots = np.linspace(rmin ** 0.5, rmax ** 0.5, n_r_knots) ** 2
+    cut_r_int = np.where(r_knots <= cut_r)[0].max()
     r_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
@@ -198,16 +199,16 @@ def _make_A_wcs(phi, r, cut_r=6):
         format="csr",
     )
     # find and remove the angle dependency for all basis for radius < 6
-    cut = np.arange(phi_spline.shape[1] * 0, phi_spline.shape[1] * cut_r)
+    cut = np.arange(0, phi_spline.shape[1] * cut_r_int)
     a = list(set(np.arange(X.shape[1])) - set(cut))
     X1 = sparse.hstack(
-        [X[:, a], r_spline[:, 1:cut_r], sparse.csr_matrix(np.ones(X.shape[0])).T],
+        [X[:, a], r_spline[:, 1:cut_r_int], sparse.csr_matrix(np.ones(X.shape[0])).T],
         format="csr",
     )
     return X1
 
 
-def _make_A_cartesian(x, y, cut_r=5, n_knots=10, radius=3.0):
+def _make_A_cartesian(x, y, n_knots=10, radius=3.0):
     x_knots = np.linspace(-radius, radius, n_knots)
     x_spline = sparse.csr_matrix(
         np.asarray(
@@ -254,7 +255,7 @@ def wrapped_spline(input_vector, order=2, nknots=10):
         Array of folded-spline basis
     """
 
-    if not ((input_vector > -np.pi) & (input_vector < np.pi)).all():
+    if not ((input_vector >= -np.pi) & (input_vector <= np.pi)).all():
         raise ValueError("Must be between -pi and pi")
     x = np.copy(input_vector)
     x1 = np.hstack([x, x + np.pi * 2])

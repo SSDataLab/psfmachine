@@ -14,7 +14,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip, sigma_clipped_stats
 
-from .utils import get_gaia_sources, _make_A_wcs, _make_A_cartesian
+from .utils import get_gaia_sources, _make_A_polar, _make_A_cartesian
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +111,13 @@ class Machine(object):
         row,
         limit_radius=24.0,
         pix2obs=None,
+        pos_corr1=None,
+        pos_corr2=None,
         focus_mask=None,
+        n_r_knots=10,
+        n_phi_knots=15,
+        rmin=1,
+        rmax=16,
     ):
         """
         Class constructor. This constructur will compute the basic atributes that will
@@ -174,6 +180,13 @@ class Machine(object):
         self.limit_flux = 1e4
         # Convert between pixel and the original observation
         self.pix2obs = pix2obs
+        self.pos_corr1 = pos_corr1
+        self.pos_corr2 = pos_corr2
+
+        self.n_r_knots = n_r_knots
+        self.n_phi_knots = n_phi_knots
+        self.rmin = rmin
+        self.rmax = rmax
 
         if focus_mask is None:
             # Cut out 1.5 days after every data gap
@@ -687,10 +700,14 @@ class Machine(object):
         prior_mu = np.zeros(A3.shape[1])
 
         for count in [0, 1, 2]:
-            sigma_w_inv = A3[k].T.dot(A3[k])
+            sigma_w_inv = A3[k].T.dot(
+                (A3.multiply(1 / flux_err_binned.ravel()[:, None] ** 2)).tocsr()[k]
+            )
             sigma_w_inv += np.diag(1 / prior_sigma ** 2)
             # Fit the flux - 1
-            B = A3[k].T.dot((flux_binned.ravel() - 1)[k])
+            B = A3[k].T.dot(
+                ((flux_binned.ravel() - 1) / flux_err_binned.ravel() ** 2)[k]
+            )
             B += prior_mu / (prior_sigma ** 2)
             velocity_aberration_w = np.linalg.solve(sigma_w_inv, B)
             res = flux_binned - A3.dot(velocity_aberration_w).reshape(flux_binned.shape)
@@ -843,6 +860,7 @@ class Machine(object):
                 .multiply(1 / flux_estimates)
                 .data
             )
+            mean_f_err.data = np.abs(mean_f_err.data)
 
             phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
             r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
@@ -855,7 +873,14 @@ class Machine(object):
             self.r_b = r_b
 
             # build a design matrix A with b-splines basis in radius and angle axis.
-            A = _make_A_wcs(phi_b.ravel(), r_b.ravel())
+            A = _make_A_polar(
+                phi_b.ravel(),
+                r_b.ravel(),
+                rmin=self.rmin,
+                rmax=self.rmax,
+                n_r_knots=self.n_r_knots,
+                n_phi_knots=self.n_phi_knots,
+            )
             prior_sigma = np.ones(A.shape[1]) * 10
             prior_mu = np.zeros(A.shape[1]) - 10
 
@@ -865,7 +890,7 @@ class Machine(object):
             psf_w, psf_w_err = self._solve_linear_model(
                 A,
                 y=mean_f_b.ravel(),
-                #                y_err=mean_f_err.ravel(),
+                y_err=mean_f_err.ravel(),
                 k=nan_mask,
                 prior_mu=prior_mu,
                 prior_sigma=prior_sigma,
@@ -877,7 +902,7 @@ class Machine(object):
             psf_w, psf_w_err = self._solve_linear_model(
                 A,
                 y=mean_f_b.ravel(),
-                #                y_err=mean_f_err.ravel(),
+                y_err=mean_f_err.ravel(),
                 k=nan_mask & ~bad,
                 prior_mu=prior_mu,
                 prior_sigma=prior_sigma,
@@ -937,26 +962,25 @@ class Machine(object):
         return
 
     def _get_mean_model(self):
-        Ap = _make_A_wcs(
+        Ap = _make_A_polar(
             self.source_mask.multiply(self.phi).data,
             self.source_mask.multiply(self.r).data,
+            rmin=self.rmin,
+            rmax=self.rmax,
+            n_r_knots=self.n_r_knots,
+            n_phi_knots=self.n_phi_knots,
         )
 
         # And create a `mean_model` that has the psf model for all pixels with fluxes
         mean_model = sparse.csr_matrix(self.r.shape)
         m = 10 ** Ap.dot(self.psf_w)
+        m[~np.isfinite(m)] = 0
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
     def plot_shape_model(self, radius=20):
         """ Diagnostic plot of shape model..."""
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
-        )
-        dx = dx.data * u.deg.to(u.arcsecond)
-        dy = dy.data * u.deg.to(u.arcsecond)
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
@@ -965,7 +989,6 @@ class Machine(object):
             .data
         )
 
-        fig, ax = plt.subplots(1, 4, figsize=(17, 3))
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra.value),
             self.uncontaminated_source_mask.multiply(self.ddec.value),
@@ -973,11 +996,11 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        im = ax[0].scatter(
-            dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
+        fig, ax = plt.subplots(2, 2, figsize=(8, 6.5))
+        im = ax[0, 0].scatter(
+            dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
         )
-        ax[0].set(
-            xlabel='$\delta x$ ["]',
+        ax[0, 0].set(
             ylabel='$\delta y$ ["]',
             title="Data",
             xlim=(-radius, radius),
@@ -985,22 +1008,28 @@ class Machine(object):
         )
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
-        im = ax[1].scatter(
-            phi, r, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=4, rasterized=True
+        im = ax[0, 1].scatter(
+            phi, r, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
         )
-        ax[1].set(
-            xlabel="$\phi$ [$^\circ$]",
+        ax[0, 1].set(
             ylabel='$r$ ["]',
             title="Data",
             ylim=(0, radius),
             yticks=np.linspace(0, radius, 5, dtype=int),
         )
 
-        A = _make_A_wcs(phi, r)
-        im = ax[2].scatter(
-            phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
+        A = _make_A_polar(
+            phi,
+            r,
+            rmin=self.rmin,
+            rmax=self.rmax,
+            n_r_knots=self.n_r_knots,
+            n_phi_knots=self.n_phi_knots,
         )
-        ax[2].set(
+        im = ax[1, 1].scatter(
+            phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
+        )
+        ax[1, 1].set(
             xlabel="$\phi$ [$^\circ$]",
             ylabel='$r$ ["]',
             title="Model",
@@ -1008,10 +1037,10 @@ class Machine(object):
             yticks=np.linspace(0, radius, 5, dtype=int),
         )
 
-        im = ax[3].scatter(
-            dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=4
+        im = ax[1, 0].scatter(
+            dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
         )
-        ax[3].set(
+        ax[1, 0].set(
             xlabel='$\delta x$ ["]',
             ylabel='$\delta y$ ["]',
             title="Model",
@@ -1028,7 +1057,7 @@ class Machine(object):
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = np.ones(self.mean_model.shape[0]) * 2 * self.source_flux_estimates
 
-        #        self.model = np.zeros(self.flux.shape) * np.nan
+        self.model_flux = np.zeros(self.flux.shape) * np.nan
 
         self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
         self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
@@ -1065,7 +1094,7 @@ class Machine(object):
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
                 B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
                 B += prior_mu / (prior_sigma ** 2)
-                self.ws[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
 
                 # Divide through by expected velocity aberration
@@ -1084,10 +1113,9 @@ class Machine(object):
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
                 B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
                 B += prior_mu / (prior_sigma ** 2)
-                self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
-            #                self.model[tdx] = X.dot(self.ws_va[tdx])
-
+                self.model_flux[tdx] = X.dot(self.ws_va[tdx])
             nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
             self.werrs[:, nodata] *= np.nan
@@ -1108,9 +1136,9 @@ class Machine(object):
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
                 B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
                 B += prior_mu / (prior_sigma ** 2)
-                self.ws[tdx] = np.linalg.solve(sigma_w_inv, B)
+                self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
-            #                self.model[tdx] = X.dot(self.ws[tdx])
+                self.model_flux[tdx] = X.dot(self.ws[tdx])
 
             nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
@@ -1202,7 +1230,7 @@ class Machine(object):
     #         np.linspace(0 ** 0.5, self.r_b.max() ** 0.5, 100) ** 2,
     #         np.linspace(-np.pi + 1e-5, np.pi - 1e-5, 100),
     #     )
-    #     A_test = _make_A_wcs(phi_test.ravel(), r_test.ravel())
+    #     A_test = _make_A_polar(phi_test.ravel(), r_test.ravel())
     #     model_test = A_test.dot(self.psf_w)
     #     model_test = model_test.reshape(phi_test.shape)
     #
@@ -1253,64 +1281,6 @@ class Machine(object):
     def _plot_residual_scene():
         return
 
-    def _preprocess(
-        flux, flux_err, unw, locs, ra, dec, column, row, tpfs, saturation_limit=1.5e5
-    ):
-        """
-        Clean pixels with nan values, bad cadences and removes duplicated pixels.
-        """
-
-        def _saturated_pixels_mask(flux, column, row, saturation_limit=1.5e5):
-            """Finds and removes saturated pixels, including bleed columns."""
-            # Which pixels are saturated
-            saturated = np.nanpercentile(flux, 99, axis=0)
-            saturated = np.where((saturated > saturation_limit).astype(float))[0]
-
-            # Find bad pixels, including allowence for a bleed column.
-            bad_pixels = np.vstack(
-                [
-                    np.hstack([column[saturated] + idx for idx in np.arange(-3, 3)]),
-                    np.hstack([row[saturated] for idx in np.arange(-3, 3)]),
-                ]
-            ).T
-            # Find unique row/column combinations
-            bad_pixels = bad_pixels[
-                np.unique(
-                    ["".join(s) for s in bad_pixels.astype(str)], return_index=True
-                )[1]
-            ]
-            # Build a mask of saturated pixels
-            m = np.zeros(len(column), bool)
-            for p in bad_pixels:
-                m |= (column == p[0]) & (row == p[1])
-            return m
-
-        flux = np.asarray(flux)
-        flux_err = np.asarray(flux_err)
-
-        # Finite pixels
-        not_nan = np.isfinite(flux).all(axis=0)
-        # Unique Pixels
-        _, unique_pix = np.unique(locs, axis=1, return_index=True)
-        unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
-        # No saturation and bleed columns
-        not_saturated = ~_saturated_pixels_mask(
-            flux, column, row, saturation_limit=saturation_limit
-        )
-
-        mask = not_nan & unique_pix & not_saturated
-
-        locs = locs[:, mask]
-        column = column[mask]
-        row = row[mask]
-        ra = ra[mask]
-        dec = dec[mask]
-        flux = flux[:, mask]
-        flux_err = flux_err[:, mask]
-        unw = unw[mask]
-
-        return flux, flux_err, unw, locs, ra, dec, column, row
-
     def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit, dr=2):
         """
         Calculate ra, dec coordinates and search radius to query Gaia catalog
@@ -1357,7 +1327,7 @@ class Machine(object):
         return sources
 
     @staticmethod
-    def from_TPFs(tpfs, magnitude_limit=18, dr=2):
+    def from_TPFs(tpfs, magnitude_limit=18, dr=2, **kwargs):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -1383,7 +1353,82 @@ class Machine(object):
         if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
-        def _parse_TPFs(tpfs):
+        # CH: all these internal functions should be put in another and from_tpfs should be in another helper module
+
+        def _preprocess(
+            flux,
+            flux_err,
+            pos_corr1,
+            pos_corr2,
+            unw,
+            locs,
+            ra,
+            dec,
+            column,
+            row,
+            tpfs,
+            saturation_limit=1.5e5,
+        ):
+            """
+            Clean pixels with nan values, bad cadences and removes duplicated pixels.
+            """
+
+            def _saturated_pixels_mask(flux, column, row, saturation_limit=1.5e5):
+                """Finds and removes saturated pixels, including bleed columns."""
+                # Which pixels are saturated
+                saturated = np.nanpercentile(flux, 99, axis=0)
+                saturated = np.where((saturated > saturation_limit).astype(float))[0]
+
+                # Find bad pixels, including allowence for a bleed column.
+                bad_pixels = np.vstack(
+                    [
+                        np.hstack(
+                            [column[saturated] + idx for idx in np.arange(-3, 3)]
+                        ),
+                        np.hstack([row[saturated] for idx in np.arange(-3, 3)]),
+                    ]
+                ).T
+                # Find unique row/column combinations
+                bad_pixels = bad_pixels[
+                    np.unique(
+                        ["".join(s) for s in bad_pixels.astype(str)], return_index=True
+                    )[1]
+                ]
+                # Build a mask of saturated pixels
+                m = np.zeros(len(column), bool)
+                for p in bad_pixels:
+                    m |= (column == p[0]) & (row == p[1])
+                return m
+
+            flux = np.asarray(flux)
+            flux_err = np.asarray(flux_err)
+
+            # Finite pixels
+            not_nan = np.isfinite(flux).all(axis=0)
+            # Unique Pixels
+            _, unique_pix = np.unique(locs, axis=1, return_index=True)
+            unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
+            # No saturation and bleed columns
+            not_saturated = ~_saturated_pixels_mask(
+                flux, column, row, saturation_limit=saturation_limit
+            )
+
+            mask = not_nan & unique_pix & not_saturated
+
+            locs = locs[:, mask]
+            column = column[mask]
+            row = row[mask]
+            ra = ra[mask]
+            dec = dec[mask]
+            flux = flux[:, mask]
+            flux_err = flux_err[:, mask]
+            pos_corr1 = pos_corr1[:, mask]
+            pos_corr2 = pos_corr2[:, mask]
+            unw = unw[mask]
+
+            return flux, flux_err, pos_corr1, pos_corr2, unw, locs, ra, dec, column, row
+
+        def _parse_TPFs(tpfs, **kwargs):
             """
             Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
             per pixel
@@ -1463,16 +1508,58 @@ class Machine(object):
                     for tpf in tpfs
                 ]
             )
+            pos_corr1 = np.hstack(
+                [
+                    np.hstack(
+                        (
+                            tpf.pos_corr1[qual_mask][:, None, None]
+                            * np.ones(tpf.flux.shape[1:])[None, :, :]
+                        ).transpose([2, 0, 1])
+                    )
+                    for tpf in tpfs
+                ]
+            )
+            pos_corr2 = np.hstack(
+                [
+                    np.hstack(
+                        (
+                            tpf.pos_corr2[qual_mask][:, None, None]
+                            * np.ones(tpf.flux.shape[1:])[None, :, :]
+                        ).transpose([2, 0, 1])
+                    )
+                    for tpf in tpfs
+                ]
+            )
             unw = np.hstack(
                 [
                     np.zeros((tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
                     for idx, tpf in enumerate(tpfs)
                 ]
             )
-            return times, flux, flux_err, column, row, unw, focus_mask
+            return (
+                times,
+                flux,
+                flux_err,
+                pos_corr1,
+                pos_corr2,
+                column,
+                row,
+                unw,
+                focus_mask,
+            )
 
         # parse tpfs
-        times, flux, flux_err, column, row, unw, focus_mask = _parse_TPFs(tpfs)
+        (
+            times,
+            flux,
+            flux_err,
+            pos_corr1,
+            pos_corr2,
+            column,
+            row,
+            unw,
+            focus_mask,
+        ) = _parse_TPFs(tpfs, **kwargs)
 
         def wcs_from_tpfs(tpfs):
             """
@@ -1519,8 +1606,19 @@ class Machine(object):
         locs, ra, dec = wcs_from_tpfs(tpfs)
 
         # preprocess arrays
-        flux, flux_err, unw, locs, ra, dec, column, row = Machine._preprocess(
-            flux, flux_err, unw, locs, ra, dec, column, row, tpfs
+        (
+            flux,
+            flux_err,
+            pos_corr1,
+            pos_corr2,
+            unw,
+            locs,
+            ra,
+            dec,
+            column,
+            row,
+        ) = _preprocess(
+            flux, flux_err, pos_corr1, pos_corr2, unw, locs, ra, dec, column, row, tpfs
         )
 
         sources = Machine._get_coord_and_query_gaia(
@@ -1542,6 +1640,9 @@ class Machine(object):
             row=row,
             pix2obs=unw,
             focus_mask=focus_mask,
+            pos_corr1=pos_corr1,
+            pos_corr2=pos_corr2,
+            **kwargs,
         )
 
     def _clean_source_list(sources, ra, dec):
