@@ -30,13 +30,16 @@ class TPFMachine(Machine):
         column,
         row,
         limit_radius=24.0,
+        time_mask=None,
         n_r_knots=10,
         n_phi_knots=15,
+        n_time_knots=10,
+        n_time_points=200,
         rmin=1,
         rmax=16,
         pix2obs=None,
-        pos_corr1=None,
-        pos_corr2=None,
+        #        pos_corr1=None,
+        #        pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
     ):
@@ -52,53 +55,68 @@ class TPFMachine(Machine):
             limit_radius=limit_radius,
             n_r_knots=n_r_knots,
             n_phi_knots=n_phi_knots,
+            n_time_knots=n_time_knots,
+            n_time_points=n_time_points,
             rmin=rmin,
             rmax=rmax,
         )
 
-        if focus_mask is None:
-            # Cut out 1.5 days after every data gap
-            dt = np.hstack([10, np.diff(time)])
-            self.time_mask = ~np.in1d(
-                np.arange(len(time)),
-                np.hstack(
-                    [
-                        np.arange(t, t + int(1.5 / np.median(dt)))
-                        for t in np.where(dt > (np.median(dt) * 5))[0]
-                    ]
-                ),
-            )
-        else:
+        # Cut out 1.5 days after every data gap
+        dt = np.hstack([10, np.diff(time)])
+        focus_mask = ~np.in1d(
+            np.arange(len(time)),
+            np.hstack(
+                [
+                    np.arange(t, t + int(1.5 / np.median(dt)))
+                    for t in np.where(dt > (np.median(dt) * 5))[0]
+                ]
+            ),
+        )
+        if time_mask is None:
             self.time_mask = focus_mask
+        else:
+            self.time_mask = time_mask & focus_mask
 
         self.pix2obs = pix2obs
-        self.pos_corr1 = pos_corr1
-        self.pos_corr2 = pos_corr2
+        #        self.pos_corr1 = pos_corr1
+        #        self.pos_corr2 = pos_corr2
         self.tpf_meta = tpf_meta
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def fit_lightcurves(self, plot=False, fit_va=True):
+    def fit_lightcurves(self, plot=False, fit_va=True, iter_negative=True):
+        """"""
+
         self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
+        if iter_negative:
+            negative_sources = np.where((self.ws_va < 0).all(axis=0))[0]
+            idx = 1
+            while len(negative_sources) > 0:
+                self.mean_model[negative_sources] *= 0
+                self.fit_model(fit_va=fit_va)
+                negative_sources = np.where((self.ws_va < 0).all(axis=0))[0]
+                idx += 1
+                if idx >= 3:
+                    break
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
             if s.kic is not None:
-                label, targetid = f"KIC {s.kic}", s.kic
+                label, targetid = f"KIC {int(s.kic)}", int(s.kic)
             else:
                 label, targetid = s.designation, int(s.designation.split(" ")[-1])
+            ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
             vals = [
                 "PSFMACHINE",
                 "PSF",
                 label,
                 targetid,
-                tpf.channel,
-                tpf.campaign,
-                tpf.quarter,
-                tpf.mission,
+                int(self.tpf_meta["channel"][ldx]),
+                int(self.tpf_meta["quarter"][ldx]),
+                "kepler",
                 s.ra,
                 s.dec,
                 s.pmra / 1000,
@@ -112,7 +130,6 @@ class TPFMachine(Machine):
                 "LABEL",
                 "TARGETID",
                 "CHANNEL",
-                "CAMPAIGN",
                 "QUARTER",
                 "MISSION",
                 "RA",
@@ -129,31 +146,38 @@ class TPFMachine(Machine):
             meta = {key: val for val, key in zip(vals, keys)}
             if fit_va:
                 flux, flux_err = (
-                    (self.ws_va[:, sdx]) * u.electron / u.second,
-                    self.werrs_va[:, sdx] * u.electron / u.second,
+                    (self.ws_va[:, idx]) * u.electron / u.second,
+                    self.werrs_va[:, idx] * u.electron / u.second,
                 )
             else:
                 flux, flux_err = (
-                    (self.ws[:, sdx]) * u.electron / u.second,
-                    self.werrs[:, sdx] * u.electron / u.second,
+                    (self.ws[:, idx]) * u.electron / u.second,
+                    self.werrs[:, idx] * u.electron / u.second,
                 )
-            lcs.append(
-                lk.KeplerLightCurve(
-                    time=(self.time) * u.d,
-                    flux=(self.ws_va[:, sdx]) * u.electron / u.second,
-                    flux_err=self.werrs_va[:, sdx] * u.electron / u.second,
-                    meta=meta,
-                    time_format="jd",
-                )
+            lc = lk.KeplerLightCurve(
+                time=(self.time) * u.d,
+                flux=flux,
+                flux_err=flux_err,
+                meta=meta,
+                time_format="jd",
             )
+            if fit_va:
+                lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
+                lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+            self.lcs.append(lc)
+            self.lcs = lk.LightCurveCollection(self.lcs)
         return
 
     def to_fits():
         """Save all the light curves to fits files..."""
         raise NotImplementedError
 
+    def lcs_in_tpf(self, tpf_number):
+        ldx = self.tpf_meta["sources"][tpf_number]
+        return lk.LightCurveCollection([self.lcs[l] for l in ldx])
+
     @staticmethod
-    def from_TPFs(tpfs, magnitude_limit=18, dr=2, **kwargs):
+    def from_TPFs(tpfs, magnitude_limit=18, dr=2, time_mask=None, **kwargs):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -189,6 +213,7 @@ class TPFMachine(Machine):
                     tpf.header["kepmag"],
                     tpf.targetid,
                     tpf.channel,
+                    tpf.quarter,
                     tpf.row,
                     tpf.column,
                 )
@@ -196,9 +221,11 @@ class TPFMachine(Machine):
             ]
         ).T
 
-        keys = ["ra", "dec", "kepmag", "kic", "channel", "row", "column"]
+        keys = ["ra", "dec", "kepmag", "kic", "channel", "quarter", "row", "column"]
         tpf_meta = {k: m for m, k in zip(meta, keys)}
 
+        if not np.all([isinstance(tpf, lk.KeplerTargetPixelFile) for tpf in tpfs]):
+            raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
         if len(np.unique(tpf_meta["channel"])) != 1:
             raise ValueError(f"TPFs span multiple channels.")
 
@@ -207,13 +234,17 @@ class TPFMachine(Machine):
             times,
             flux,
             flux_err,
-            pos_corr1,
-            pos_corr2,
+            #            pos_corr1,
+            #            pos_corr2,
             column,
             row,
             unw,
             focus_mask,
+            qual_mask,
         ) = _parse_TPFs(tpfs, **kwargs)
+
+        if time_mask is not None:
+            time_mask = np.copy(time_mask)[qual_mask]
 
         # convert to RA Dec
         locs, ra, dec = _wcs_from_tpfs(tpfs)
@@ -222,8 +253,8 @@ class TPFMachine(Machine):
         (
             flux,
             flux_err,
-            pos_corr1,
-            pos_corr2,
+            #            pos_corr1,
+            #            pos_corr2,
             unw,
             locs,
             ra,
@@ -231,30 +262,42 @@ class TPFMachine(Machine):
             column,
             row,
         ) = _preprocess(
-            flux, flux_err, pos_corr1, pos_corr2, unw, locs, ra, dec, column, row, tpfs
+            flux,
+            flux_err,
+            # pos_corr1, pos_corr2,
+            unw,
+            locs,
+            ra,
+            dec,
+            column,
+            row,
+            tpfs,
         )
 
-        sources = _get_coord_and_query_gaia(
-            ra, dec, unw, times[0], magnitude_limit, dr=dr
-        )
+        sources = _get_coord_and_query_gaia(tpfs, magnitude_limit, dr=dr)
 
-        # source list cleaning
-        sources, _ = _clean_source_list(sources, ra, dec)
+        def get_tpf2source():
+            tpf2source = []
+            for tpf in tpfs:
+                tpfra, tpfdec = tpf.get_coordinates(cadence=0)
+                dra = np.abs(tpfra.ravel() - np.asarray(sources.ra)[:, None])
+                ddec = np.abs(tpfdec.ravel() - np.asarray(sources.dec)[:, None])
+                tpf2source.append(
+                    np.where(
+                        (
+                            (dra < 4 * 3 * u.arcsecond.to(u.deg))
+                            & (ddec < 4 * 3 * u.arcsecond.to(u.deg))
+                        ).any(axis=1)
+                    )[0]
+                )
+            return tpf2source
 
-        tpf2source = []
-        for tpf in tpfs:
-            tpfra, tpfdec = tpf.get_coordinates(cadence=0)
-            dra = np.abs(tpfra.ravel() - np.asarray(sources.ra)[:, None])
-            ddec = np.abs(tpfdec.ravel() - np.asarray(sources.dec)[:, None])
-            tpf2source.append(
-                np.where(
-                    (
-                        (dra < 6 * u.arcsecond.to(u.deg))
-                        & (ddec < 6 * u.arcsecond.to(u.deg))
-                    ).any(axis=1)
-                )[0]
-            )
-        tpf_meta["sources"] = tpf2source
+        tpf2source = get_tpf2source()
+        sources = sources[
+            np.in1d(np.arange(len(sources)), np.hstack(tpf2source))
+        ].reset_index(drop=True)
+        #        sources, _ = _clean_source_list(sources, ra, dec)
+        tpf_meta["sources"] = get_tpf2source()
 
         idx, sep, _ = match_coordinates_sky(
             SkyCoord(tpf_meta["ra"], tpf_meta["dec"], unit="deg"),
@@ -278,9 +321,10 @@ class TPFMachine(Machine):
             row=row,
             pix2obs=unw,
             focus_mask=focus_mask,
-            pos_corr1=pos_corr1,
-            pos_corr2=pos_corr2,
+            #            pos_corr1=pos_corr1,
+            #            pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
+            time_mask=time_mask,
             **kwargs,
         )
 
@@ -311,7 +355,7 @@ def _parse_TPFs(tpfs, **kwargs):
 
     if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
         qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
-            tpfs[0].quality, lk.utils.KeplerQualityFlags.DEFAULT_BITMASK
+            tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
         )
         qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
         dt = np.hstack([10, np.diff(time)])
@@ -358,28 +402,29 @@ def _parse_TPFs(tpfs, **kwargs):
     flux_err = np.hstack(
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
-    pos_corr1 = np.hstack(
-        [
-            np.hstack(
-                (
-                    tpf.pos_corr1[qual_mask][:, None, None]
-                    * np.ones(tpf.flux.shape[1:])[None, :, :]
-                ).transpose([2, 0, 1])
-            )
-            for tpf in tpfs
-        ]
-    )
-    pos_corr2 = np.hstack(
-        [
-            np.hstack(
-                (
-                    tpf.pos_corr2[qual_mask][:, None, None]
-                    * np.ones(tpf.flux.shape[1:])[None, :, :]
-                ).transpose([2, 0, 1])
-            )
-            for tpf in tpfs
-        ]
-    )
+
+    # pos_corr1 = np.hstack(
+    #     [
+    #         np.hstack(
+    #             (
+    #                 tpf.pos_corr1[qual_mask][:, None, None]
+    #                 * np.ones(tpf.flux.shape[1:])[None, :, :]
+    #             ).transpose([2, 0, 1])
+    #         )
+    #         for tpf in tpfs
+    #     ]
+    # )
+    # pos_corr2 = np.hstack(
+    #     [
+    #         np.hstack(
+    #             (
+    #                 tpf.pos_corr2[qual_mask][:, None, None]
+    #                 * np.ones(tpf.flux.shape[1:])[None, :, :]
+    #             ).transpose([2, 0, 1])
+    #         )
+    #         for tpf in tpfs
+    #     ]
+    # )
     unw = np.hstack(
         [
             np.zeros((tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
@@ -390,20 +435,21 @@ def _parse_TPFs(tpfs, **kwargs):
         times,
         flux,
         flux_err,
-        pos_corr1,
-        pos_corr2,
+        #        pos_corr1,
+        #        pos_corr2,
         column,
         row,
         unw,
         focus_mask,
+        qual_mask,
     )
 
 
 def _preprocess(
     flux,
     flux_err,
-    pos_corr1,
-    pos_corr2,
+    #    pos_corr1,
+    #    pos_corr2,
     unw,
     locs,
     ra,
@@ -465,11 +511,11 @@ def _preprocess(
     dec = dec[mask]
     flux = flux[:, mask]
     flux_err = flux_err[:, mask]
-    pos_corr1 = pos_corr1[:, mask]
-    pos_corr2 = pos_corr2[:, mask]
+    #    pos_corr1 = pos_corr1[:, mask]
+    #    pos_corr2 = pos_corr2[:, mask]
     unw = unw[mask]
 
-    return flux, flux_err, pos_corr1, pos_corr2, unw, locs, ra, dec, column, row
+    return (flux, flux_err, unw, locs, ra, dec, column, row)  # pos_corr1, pos_corr2,
 
 
 def _wcs_from_tpfs(tpfs):
@@ -514,21 +560,14 @@ def _wcs_from_tpfs(tpfs):
     return locs, ra, dec
 
 
-def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit, dr=2):
+def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
     """
     Calculate ra, dec coordinates and search radius to query Gaia catalog
 
     Parameters
     ----------
-    ra : numpy.ndarray
-        Right ascension coordinate of pixels to do Gaia search
-    ra : numpy.ndarray
-        Declination coordinate of pixels to do Gaia search
-    unw : numpy.ndarray
-        TPF index of each pixel
-    epoch : float
-        Epoch of obervation in Julian Days of ra, dec coordinates,
-        will be used to propagate proper motions in Gaia.
+    tpfs:
+    magnitude_limit:
     dr : int
         Which gaia data release to use, default is DR2
 
@@ -537,24 +576,24 @@ def _get_coord_and_query_gaia(ra, dec, unw, epoch, magnitude_limit, dr=2):
     sources : pandas.DataFrame
         Catalog with query result
     """
+    if not isinstance(tpfs, lk.TargetPixelFileCollection):
+        raise ValueError("Please pass a `lk.TargetPixelFileCollection`")
+
     # find the max circle per TPF that contain all pixel data to query Gaia
-    ras, decs, rads = [], [], []
-    for l in np.unique(unw):
-        ra1 = ra[unw == l]
-        dec1 = dec[unw == l]
-        ras.append(ra1.mean())
-        decs.append(dec1.mean())
-        rads.append(
-            np.hypot(ra1 - ra1.mean(), dec1 - dec1.mean()).max()
-            + (u.arcsecond * 6).to(u.deg).value
-        )
+    ras1, decs1 = np.asarray(
+        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 2], 0)[0] for tpf in tpfs]
+    ).T
+    ras, decs = np.asarray(
+        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
+    ).T
+    rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
         tuple(ras),
         tuple(decs),
         tuple(rads),
         magnitude_limit=magnitude_limit,
-        epoch=Time(epoch, format="jd").jyear,
+        epoch=Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear,
         dr=dr,
     )
     return sources

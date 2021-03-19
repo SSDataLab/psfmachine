@@ -108,6 +108,8 @@ class Machine(object):
         time_mask=None,
         n_r_knots=10,
         n_phi_knots=15,
+        n_time_knots=10,
+        n_time_points=200,
         rmin=1,
         rmax=16,
     ):
@@ -172,6 +174,8 @@ class Machine(object):
         self.limit_flux = 1e4
         self.n_r_knots = n_r_knots
         self.n_phi_knots = n_phi_knots
+        self.n_time_knots = n_time_knots
+        self.n_time_points = n_time_points
         self.rmin = rmin
         self.rmax = rmax
 
@@ -558,16 +562,15 @@ class Machine(object):
 
         return ta, tm, fm_raw, fm, fem
 
-    def build_time_model(self, npoints=200, n_knots=10, plot=False):
+    def build_time_model(self, plot=False):
         (
             time_original,
             time_binned,
             flux_binned_raw,
             flux_binned,
             flux_err_binned,
-        ) = self._time_bin(npoints=npoints)
+        ) = self._time_bin(npoints=self.n_time_points)
 
-        self._time_model_knots = n_knots
         self._whitened_time = time_original
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra.value),
@@ -576,7 +579,7 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        A_c = _make_A_cartesian(dx, dy, n_knots=n_knots, radius=8)
+        A_c = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         A3 = sparse.hstack(
@@ -630,53 +633,85 @@ class Machine(object):
             k &= ~bad_targets
 
         self.velocity_aberration_w = velocity_aberration_w
+        self._time_masked = k
         if plot:
-            model = A3.dot(velocity_aberration_w).reshape(flux_binned.shape) + 1
-            fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
-            k1 = k.reshape(flux_binned.shape)[0]
-            k2 = k.reshape(flux_binned.shape)[-1]
-            im = ax[0, 0].scatter(
-                dx[k1],
-                dy[k1],
-                c=flux_binned[0][k1],
-                s=3,
-                vmin=0.5,
-                vmax=1.5,
-                cmap="coolwarm",
-            )
-            ax[0, 1].scatter(
-                dx[k2],
-                dy[k2],
-                c=flux_binned[-1][k2],
-                s=3,
-                vmin=0.5,
-                vmax=1.5,
-                cmap="coolwarm",
-            )
-            ax[1, 0].scatter(
-                dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.5, vmax=1.5, cmap="coolwarm"
-            )
-            ax[1, 1].scatter(
-                dx[k2],
-                dy[k2],
-                c=model[-1][k2],
-                s=3,
-                vmin=0.5,
-                vmax=1.5,
-                cmap="coolwarm",
-            )
-            ax[0, 0].set(title="Data First Cadence", ylabel="$\delta y$")
-            ax[0, 1].set(title="Data Last Cadence")
-            ax[1, 0].set(
-                title="Model First Cadence", ylabel="$\delta y$", xlabel="$\delta x$"
-            )
-            ax[1, 1].set(title="Model Last Cadence", xlabel="$\delta x$")
-            plt.subplots_adjust(hspace=0.3)
-
-            cbar = fig.colorbar(im, ax=ax, shrink=0.7)
-            cbar.set_label("Normalized Flux")
-            return fig
+            return self.plot_time_model()
         return
+
+    def plot_time_model(self):
+        (
+            time_original,
+            time_binned,
+            flux_binned_raw,
+            flux_binned,
+            flux_err_binned,
+        ) = self._time_bin(npoints=self.n_time_points)
+
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dra.value),
+            self.uncontaminated_source_mask.multiply(self.ddec.value),
+        )
+        dx = dx.data * u.deg.to(u.arcsecond)
+        dy = dy.data * u.deg.to(u.arcsecond)
+
+        A_c = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
+        A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
+        # Cartesian spline with time dependence
+        A3 = sparse.hstack(
+            [
+                A2,
+                A2.multiply(time_binned.ravel()[:, None]),
+                A2.multiply(time_binned.ravel()[:, None] ** 2),
+                A2.multiply(time_binned.ravel()[:, None] ** 3),
+            ],
+            format="csr",
+        )
+
+        model = A3.dot(self.velocity_aberration_w).reshape(flux_binned.shape) + 1
+        fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
+        k1 = self._time_masked.reshape(flux_binned.shape)[0]
+        k2 = self._time_masked.reshape(flux_binned.shape)[-1]
+        im = ax[0, 0].scatter(
+            dx[k1],
+            dy[k1],
+            c=flux_binned[0][k1],
+            s=3,
+            vmin=0.5,
+            vmax=1.5,
+            cmap="coolwarm",
+        )
+        ax[0, 1].scatter(
+            dx[k2],
+            dy[k2],
+            c=flux_binned[-1][k2],
+            s=3,
+            vmin=0.5,
+            vmax=1.5,
+            cmap="coolwarm",
+        )
+        ax[1, 0].scatter(
+            dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.5, vmax=1.5, cmap="coolwarm"
+        )
+        ax[1, 1].scatter(
+            dx[k2],
+            dy[k2],
+            c=model[-1][k2],
+            s=3,
+            vmin=0.5,
+            vmax=1.5,
+            cmap="coolwarm",
+        )
+        ax[0, 0].set(title="Data First Cadence", ylabel="$\delta y$")
+        ax[0, 1].set(title="Data Last Cadence")
+        ax[1, 0].set(
+            title="Model First Cadence", ylabel="$\delta y$", xlabel="$\delta x$"
+        )
+        ax[1, 1].set(title="Model Last Cadence", xlabel="$\delta x$")
+        plt.subplots_adjust(hspace=0.3)
+
+        cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+        cbar.set_label("Normalized Flux")
+        return fig
 
     def build_shape_model(self, plot=False, flux_cut_off=1):
         """
@@ -933,7 +968,11 @@ class Machine(object):
 
     def fit_model(self, fit_va=False):
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
-        prior_sigma = np.ones(self.mean_model.shape[0]) * 2 * self.source_flux_estimates
+        prior_sigma = (
+            np.ones(self.mean_model.shape[0])
+            * 5
+            * np.abs(self.source_flux_estimates) ** 0.5
+        )
 
         self.model_flux = np.zeros(self.flux.shape) * np.nan
 
@@ -953,7 +992,7 @@ class Machine(object):
             dx = dx.data * u.deg.to(u.arcsecond)
             dy = dy.data * u.deg.to(u.arcsecond)
 
-            A_cp = _make_A_cartesian(dx, dy, n_knots=self._time_model_knots, radius=8)
+            A_cp = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
             m = sparse.csr_matrix(dx)
 
@@ -994,7 +1033,7 @@ class Machine(object):
                 self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
                 self.model_flux[tdx] = X.dot(self.ws_va[tdx])
-            nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
+            nodata = np.asarray(self.mean_model.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
             self.werrs[:, nodata] *= np.nan
             self.ws_va[:, nodata] *= np.nan
@@ -1004,15 +1043,15 @@ class Machine(object):
 
             X = self.mean_model.copy()
             X = X.T
+            f = self.flux
+            fe = self.flux_err
 
             for tdx in tqdm(
                 range(self.nt), desc=f"Fitting {self.nsources} Sources (No VA)"
             ):
-                sigma_w_inv = X.T.dot(
-                    X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
-                ).toarray()
+                sigma_w_inv = X.T.dot(X.multiply(1 / fe[tdx][:, None] ** 2)).toarray()
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
-                B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
+                B = X.T.dot((f[tdx] / fe[tdx] ** 2))
                 B += prior_mu / (prior_sigma ** 2)
                 self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
