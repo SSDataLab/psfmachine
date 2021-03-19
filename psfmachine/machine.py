@@ -196,6 +196,13 @@ class Machine(object):
         self.dra = self.dra * (u.deg)
         self.ddec = self.ddec * (u.deg)
 
+        self.dx, self.dy = np.asarray(
+            [
+                [column - self.sources["column"][idx], row - self.sources["row"][idx]]
+                for idx in range(len(self.sources))
+            ]
+        ).transpose(1, 0, 2)
+
         # convertion to polar coordinates
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         self.phi = np.arctan2(self.ddec, self.dra)
@@ -960,6 +967,25 @@ class Machine(object):
 
         # soruce list cleaning
         sources, _ = Machine._clean_source_list(sources, ra, dec)
+
+        # add row, column location to Gaia list
+        source2tpf, source_row, source_col = [], [], []
+        for s in range(len(sources)):
+            coord_mask = (np.abs(ra - sources["ra"].iloc[s]) < 0.00222222) & (
+                np.abs(dec - sources["dec"].iloc[s]) < 0.00222222
+            )
+            which_tpf, idx_major = np.unique(unw[0, coord_mask], return_counts=True)
+            which_tpf = which_tpf[np.argmax(idx_major)]
+            sc, sr = tpfs[which_tpf].wcs.wcs_world2pix(
+                sources["ra"].iloc[s], sources["dec"].iloc[s], 0.0
+            )
+            source2tpf.append(which_tpf)
+            source_row.append(sr + tpfs[which_tpf].row)
+            source_col.append(sc + tpfs[which_tpf].column)
+
+        sources["column"] = source_col
+        sources["row"] = source_row
+        sources["tpf"] = source2tpf
 
         # return a Machine object
         return Machine(
