@@ -1033,6 +1033,7 @@ class Machine(object):
                 self.ws_va[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
                 self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
                 self.model_flux[tdx] = X.dot(self.ws_va[tdx])
+
             nodata = np.asarray(self.mean_model.sum(axis=1))[:, 0] == 0
             self.ws[:, nodata] *= np.nan
             self.werrs[:, nodata] *= np.nan

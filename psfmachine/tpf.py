@@ -21,6 +21,7 @@ class TPFMachine(Machine):
 
     def __init__(
         self,
+        tpfs,
         time,
         flux,
         flux_err,
@@ -60,6 +61,7 @@ class TPFMachine(Machine):
             rmin=rmin,
             rmax=rmax,
         )
+        self.tpfs = tpfs
 
         # Cut out 1.5 days after every data gap
         dt = np.hstack([10, np.diff(time)])
@@ -92,7 +94,8 @@ class TPFMachine(Machine):
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
-            negative_sources = np.where((self.ws_va < 0).all(axis=0))[0]
+            # More than 2% negative cadences
+            negative_sources = (self.ws_va < 0).sum(axis=0) > (0.02 * self.nt)
             idx = 1
             while len(negative_sources) > 0:
                 self.mean_model[negative_sources] *= 0
@@ -104,46 +107,52 @@ class TPFMachine(Machine):
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
-            if s.kic is not None:
-                label, targetid = f"KIC {int(s.kic)}", int(s.kic)
+            ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
+            mission = self.tpf_meta["mission"][ldx].lower()
+            if s.tpf_id is not None:
+                if mission == "kepler":
+                    label, targetid = f"KIC {int(s.tpf_id)}", int(s.tpf_id)
+                elif mission == "tess":
+                    label, targetid = f"TIC {int(s.tpf_id)}", int(s.tpf_id)
+                elif mission in ["k2", "ktwo"]:
+                    label, targetid = f"EPIC {int(s.tpf_id)}", int(s.tpf_id)
+                else:
+                    raise ValueError(f"can not parse mission `{mission}`")
             else:
                 label, targetid = s.designation, int(s.designation.split(" ")[-1])
-            ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
-            vals = [
-                "PSFMACHINE",
-                "PSF",
-                label,
-                targetid,
-                int(self.tpf_meta["channel"][ldx]),
-                int(self.tpf_meta["quarter"][ldx]),
-                "kepler",
-                s.ra,
-                s.dec,
-                s.pmra / 1000,
-                s.pmdec / 1000,
-                s.parallax,
-                s.phot_g_mean_mag,
+
+            meta = {
+                "ORIGIN": "PSFMACHINE",
+                "APERTURE": "PSF",
+                "LABEL": label,
+                "TARGETID": targetid,
+                "MISSION": mission,
+                "RA": s.ra,
+                "DEC": s.dec,
+                "PMRA": s.pmra / 1000,
+                "PMDEC": s.pmdec / 1000,
+                "PARALLAX": s.parallax,
+                "GMAG": s.phot_g_mean_mag,
+                "RPMAG": s.phot_rp_mean_mag,
+                "BPMAG": s.phot_bp_mean_mag,
+            }
+
+            attrs = [
+                "channel",
+                "module",
+                "ccd",
+                "camera",
+                "quarter",
+                "campaign",
+                "quarter",
+                "row",
+                "column",
+                "mission",
             ]
-            keys = [
-                "ORIGIN",
-                "APERTURE",
-                "LABEL",
-                "TARGETID",
-                "CHANNEL",
-                "QUARTER",
-                "MISSION",
-                "RA",
-                "DEC",
-                "PMRA",
-                "PMDEC",
-                "PARALLAX",
-                "GMAG",
-                "RPMAG",
-                "BPMAG",
-                "TEFF",
-                "RADIUS",
-            ]
-            meta = {key: val for val, key in zip(vals, keys)}
+            for attr in attrs:
+                if attr in self.tpf_meta.keys():
+                    meta[attr.upper()] = self.tpf_meta[attr][ldx]
+
             if fit_va:
                 flux, flux_err = (
                     (self.ws_va[:, idx]) * u.electron / u.second,
@@ -176,6 +185,65 @@ class TPFMachine(Machine):
         ldx = self.tpf_meta["sources"][tpf_number]
         return lk.LightCurveCollection([self.lcs[l] for l in ldx])
 
+    def plot_tpf(self, tdx):
+        tpf = self.tpfs[tdx]
+        ax_tpf = tpf.plot(scale="log")
+        sources = self.sources.loc[self.tpf_meta["sources"][tdx]]
+
+        img_extent = (
+            tpf.column - 0.5,
+            tpf.column + tpf.shape[2] - 0.5,
+            tpf.row - 0.5,
+            tpf.row + tpf.shape[1] - 0.5,
+        )
+
+        r, c = np.mgrid[: tpf.shape[1], : tpf.shape[2]]
+        r += tpf.row
+        c += tpf.column
+
+        kdx = 0
+        for sdx, s in sources.iterrows():
+            if hasattr(self, "lcs"):
+                lc = self.lcs_in_tpf(tdx)[kdx]
+                if not np.isfinite(lc.flux).all():
+                    kdx += 1
+                    continue
+
+                v = np.zeros(self.mean_model.shape[0])
+                v[sdx] = s.phot_g_mean_flux
+                m = self.mean_model.T.dot(v)
+                mod = np.zeros(tpf.shape[1:]) * np.nan
+                for jdx in range(r.shape[1]):
+                    for idx in range(r.shape[0]):
+                        l = np.where(
+                            (self.row == r[idx, jdx]) & (self.column == c[idx, jdx])
+                        )[0]
+                        if len(l) == 0:
+                            continue
+                        mod[idx, jdx] = m[l]
+                if np.nansum(mod) == 0:
+                    continue
+                fig = plt.subplots(figsize=(10, 3))
+                ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
+                lc.errorbar(ax=ax, c="k", lw=0.3, ls="-")
+                kdx += 1
+                ax = plt.subplot2grid((1, 4), (0, 3))
+                lk.utils.plot_image(mod, extent=img_extent, ax=ax)
+            col, row = tpf.wcs.all_world2pix([[s.ra, s.dec]], 0)[0]
+            if (
+                (col < -3)
+                | (col > (tpf.shape[2] + 3))
+                | (row < -3)
+                | (row > (tpf.shape[1] + 3))
+            ):
+                continue
+            ax_tpf.scatter(
+                col + tpf.column,
+                row + tpf.row,
+                facecolor="w",
+                edgecolor="k",
+            )
+
     @staticmethod
     def from_TPFs(tpfs, magnitude_limit=18, dr=2, time_mask=None, **kwargs):
         """
@@ -204,25 +272,34 @@ class TPFMachine(Machine):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
         # CH: all these internal functions should be put in another and from_tpfs should be in another helper module
+        attrs = [
+            "ra",
+            "dec",
+            "targetid",
+            "channel",
+            "module",
+            "ccd",
+            "camera",
+            "quarter",
+            "campaign",
+            "quarter",
+            "row",
+            "column",
+            "mission",
+        ]
+        attrs = [attr for attr in attrs if hasattr(tpfs[0], attr)]
 
         meta = np.asarray(
-            [
-                (
-                    tpf.ra,
-                    tpf.dec,
-                    tpf.header["kepmag"],
-                    tpf.targetid,
-                    tpf.channel,
-                    tpf.quarter,
-                    tpf.row,
-                    tpf.column,
-                )
-                for tpf in tpfs
-            ]
+            [tuple(getattr(tpf, attr) for attr in attrs) for tpf in tpfs]
         ).T
 
-        keys = ["ra", "dec", "kepmag", "kic", "channel", "quarter", "row", "column"]
-        tpf_meta = {k: m for m, k in zip(meta, keys)}
+        tpf_meta = {k: m for m, k in zip(meta, attrs)}
+        if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
+            tpf_meta["tpfmag"] = [tpf.header["kepmag"] for tpf in tpfs]
+        elif isinstance(tpfs[0], lk.TessTargetPixelFile):
+            tpf_meta["tpfmag"] = [tpf.header["tmag"] for tpf in tpfs]
+        else:
+            raise ValueError("TPFs not understood")
 
         if not np.all([isinstance(tpf, lk.KeplerTargetPixelFile) for tpf in tpfs]):
             raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
@@ -241,6 +318,7 @@ class TPFMachine(Machine):
             unw,
             focus_mask,
             qual_mask,
+            saturated_mask,
         ) = _parse_TPFs(tpfs, **kwargs)
 
         if time_mask is not None:
@@ -272,6 +350,7 @@ class TPFMachine(Machine):
             column,
             row,
             tpfs,
+            saturated_mask,
         )
 
         sources = _get_coord_and_query_gaia(tpfs, magnitude_limit, dr=dr)
@@ -304,13 +383,14 @@ class TPFMachine(Machine):
             SkyCoord(np.asarray(sources[["ra", "dec"]]), unit="deg"),
         )
         match = (sep < 1 * u.arcsec) & np.asarray(
-            np.abs(sources["phot_g_mean_mag"][idx] - tpf_meta["kepmag"]) < 0.25
+            np.abs(sources["phot_g_mean_mag"][idx] - tpf_meta["tpfmag"]) < 0.25
         )
-        sources["kic"] = None
-        sources.loc[idx[match], "kic"] = np.asarray(tpf_meta["kic"])[match]
+        sources["tpf_id"] = None
+        sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
 
         # return a Machine object
         return TPFMachine(
+            tpfs=tpfs,
             time=times,
             flux=flux,
             flux_err=flux_err,
@@ -403,6 +483,15 @@ def _parse_TPFs(tpfs, **kwargs):
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
 
+    sat_mask = []
+    for tpf in tpfs:
+        # Keplerish saturation limit
+        saturated = np.nanmax(tpf.flux, axis=0).value > 1.2e5
+        saturated = np.hstack(
+            (np.gradient(saturated.astype(float))[0] != 0) | saturated
+        )
+        sat_mask.append(np.hstack(saturated))
+    sat_mask = np.hstack(sat_mask)
     # pos_corr1 = np.hstack(
     #     [
     #         np.hstack(
@@ -442,6 +531,7 @@ def _parse_TPFs(tpfs, **kwargs):
         unw,
         focus_mask,
         qual_mask,
+        sat_mask,
     )
 
 
@@ -457,7 +547,7 @@ def _preprocess(
     column,
     row,
     tpfs,
-    saturation_limit=1.5e5,
+    saturated,
 ):
     """
     Clean pixels with nan values, bad cadences and removes duplicated pixels.
@@ -498,11 +588,8 @@ def _preprocess(
     _, unique_pix = np.unique(locs, axis=1, return_index=True)
     unique_pix = np.in1d(np.arange(len(ra)), unique_pix)
     # No saturation and bleed columns
-    not_saturated = ~_saturated_pixels_mask(
-        flux, column, row, saturation_limit=saturation_limit
-    )
 
-    mask = not_nan & unique_pix & not_saturated
+    mask = not_nan & unique_pix & ~saturated
 
     locs = locs[:, mask]
     column = column[mask]
@@ -580,8 +667,9 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
         raise ValueError("Please pass a `lk.TargetPixelFileCollection`")
 
     # find the max circle per TPF that contain all pixel data to query Gaia
+    # CH: Sometimes sources are missing from this...worth checking on
     ras1, decs1 = np.asarray(
-        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 2], 0)[0] for tpf in tpfs]
+        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 4], 0)[0] for tpf in tpfs]
     ).T
     ras, decs = np.asarray(
         [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
