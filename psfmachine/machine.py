@@ -110,6 +110,7 @@ class Machine(object):
         n_phi_knots=15,
         n_time_knots=10,
         n_time_points=200,
+        time_radius=8,
         rmin=1,
         rmax=16,
     ):
@@ -176,6 +177,7 @@ class Machine(object):
         self.n_phi_knots = n_phi_knots
         self.n_time_knots = n_time_knots
         self.n_time_points = n_time_points
+        self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
 
@@ -579,7 +581,9 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        A_c = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
+        A_c = _make_A_cartesian(
+            dx, dy, n_knots=self.n_time_knots, radius=self.time_radius
+        )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         A3 = sparse.hstack(
