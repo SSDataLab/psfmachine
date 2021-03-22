@@ -13,6 +13,7 @@ import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
+from matplotlib import patches
 
 from .utils import get_gaia_sources, _make_A_wcs, _make_A_edges
 
@@ -1060,6 +1061,72 @@ class Machine(object):
         sources = sources[clean].reset_index(drop=True)
 
         return sources, removed_sources
+
+    def plot_tpf(self, i, ax=None, mask=None):
+
+        plot_flux = self.flux[0, self.pix2obs[0] == i]
+        plot_row = self.row[self.pix2obs[0] == i]
+        plot_col = self.column[self.pix2obs[0] == i]
+
+        if ax is None:
+            fig, ax = plt.subplots(1)
+
+        ax.set_title("TPF: %i" % (i))
+        cax = ax.scatter(
+            plot_col,
+            plot_row,
+            c=plot_flux,
+            marker="s",
+            s=1000,
+            # norm=colors.SymLogNorm(linthresh=50, vmin=3, vmax=1000, base=10),
+        )
+        sources_here = self.sources[self.sources.tpf == i]
+        ax.scatter(
+            sources_here["column"],
+            sources_here["row"],
+            s=50,
+            facecolors="c",
+            marker="o",
+            edgecolors="r",
+        )
+        plt.colorbar(cax, ax=ax, label=r"Flux ($e^{-}s^{-1}$)")
+        ax.set_xlim(plot_col.min() - 1, plot_col.max() + 1)
+        ax.set_ylim(plot_row.min() - 1, plot_row.max() + 1)
+        ax.set_xlabel("Pixel Column")
+        ax.set_ylabel("Pixel Row")
+        ax.set_aspect("equal")
+
+        if mask is not None:
+            plot_mask = mask[self.pix2obs[0] == i]
+            for i in range(len(plot_mask)):
+                if plot_mask[i]:
+                    rect = patches.Rectangle(
+                        xy=(plot_col[i] - 0.5, plot_row[i] - 0.5),
+                        width=1,
+                        height=1,
+                        color="red",
+                        fill=False,
+                        hatch="//",
+                    )
+                    ax.add_patch(rect)
+
+        return ax
+
+    def plot_source(self, i, ax=None):
+        which_tpf = self.sources.loc[i, "tpf"]
+
+        ap_mask = self.aperture_mask[i]
+        axis = self.plot_tpf(which_tpf, ax=ax, mask=ap_mask)
+        axis.scatter(
+            self.sources.loc[i, "column"],
+            self.sources.loc[i, "row"],
+            s=70,
+            facecolors="r",
+            marker="o",
+            edgecolors="r",
+        )
+
+        return axis
 
 
 """
