@@ -6,7 +6,6 @@ import functools
 from scipy import sparse
 from patsy import dmatrix
 import pyia
-from tqdm import tqdm
 
 import astropy.units as u
 from astropy.time import Time

@@ -1,16 +1,12 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
 import numpy as np
-import pandas as pd
 import lightkurve as lk
-from scipy import sparse
-from astropy.coordinates import SkyCoord, match_coordinates_3d, match_coordinates_sky
+from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 import astropy.units as u
-from tqdm import tqdm
 import matplotlib.pyplot as plt
-from astropy.stats import sigma_clip, sigma_clipped_stats
 
-from .utils import get_gaia_sources, _make_A_polar, _make_A_cartesian
+from .utils import get_gaia_sources
 from .machine import Machine
 
 __all__ = ["TPFMachine"]
@@ -225,7 +221,7 @@ class TPFMachine(Machine):
                         mod[idx, jdx] = m[l]
                 if np.nansum(mod) == 0:
                     continue
-                fig = plt.subplots(figsize=(10, 3))
+                _ = plt.subplots(figsize=(10, 3))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
                 lc.errorbar(ax=ax, c="k", lw=0.3, ls="-")
                 kdx += 1
@@ -262,12 +258,12 @@ class TPFMachine(Machine):
 
         Parameters
         ----------
-        tpfs : lightkurve TargetPixelFileCollection
+        tpfs: lightkurve TargetPixelFileCollection
             Collection of Target Pixel files
 
         Returns
         -------
-        Machine : Machine object
+        Machine: Machine object
             A Machine class object built from TPFs.
         """
         if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
@@ -306,7 +302,7 @@ class TPFMachine(Machine):
         if not np.all([isinstance(tpf, lk.KeplerTargetPixelFile) for tpf in tpfs]):
             raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
         if len(np.unique(tpf_meta["channel"])) != 1:
-            raise ValueError(f"TPFs span multiple channels.")
+            raise ValueError("TPFs span multiple channels.")
 
         # parse tpfs
         (
@@ -418,18 +414,18 @@ def _parse_TPFs(tpfs, **kwargs):
 
     Parameters
     ----------
-    tpfs : lightkurve TargetPixelFileCollection
+    tpfs: lightkurve TargetPixelFileCollection
         Collection of Target Pixel files
 
     Returns
     -------
-    times : numpy.ndarray
+    times: numpy.ndarray
         Array with time values
-    flux : numpy.ndarray
+    flux: numpy.ndarray
         Array with flux values per pixel
-    flux_err : numpy.ndarray
+    flux_err: numpy.ndarray
         Array with flux errors per pixel
-    unw : numpy.ndarray
+    unw: numpy.ndarray
         Array with TPF index for each pixel
     """
 
@@ -614,16 +610,16 @@ def _wcs_from_tpfs(tpfs):
 
     Parameters
     ----------
-    tpfs : lightkurve TargetPixelFileCollection
+    tpfs: lightkurve TargetPixelFileCollection
         Collection of Target Pixel files
 
     Returns
     -------
-    locs : numpy.ndarray
+    locs: numpy.ndarray
         2D array with pixel locations (columns, rows) from the TPFs
-    ra : numpy.ndarray
+    ra: numpy.ndarray
         Array with right ascension values per pixel
-    dec : numpy.ndarray
+    dec: numpy.ndarray
         Array with declination values per pixel
     """
     # calculate x,y grid of each pixel
@@ -657,12 +653,12 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
     ----------
     tpfs:
     magnitude_limit:
-    dr : int
+    dr: int
         Which gaia data release to use, default is DR2
 
     Returns
     -------
-    sources : pandas.DataFrame
+    sources: pandas.DataFrame
         Catalog with query result
     """
     if not isinstance(tpfs, lk.TargetPixelFileCollection):
@@ -695,21 +691,21 @@ def _clean_source_list(sources, ra, dec):
 
     Parameters
     ----------
-    sources : Pandas Dataframe
+    sources: Pandas Dataframe
         Contains a list with cross-referenced Gaia results
         shape n sources x n Gaia features
-    ra      : numpy ndarray
+    ra: numpy ndarray
         RA pixel position averaged in time
         shape npixel
-    dec     : numpy ndarray
+    dec: numpy ndarray
         Dec pixel position averaged in time
         shape npixel
 
     Returns
     -------
-    sources : Pandas.DataFrame
+    sources: Pandas.DataFrame
         Catalog with clean sources
-    removed_sources : Pandas.DataFrame
+    removed_sources: Pandas.DataFrame
         Catalog with removed sources
     """
     # find sources on the image

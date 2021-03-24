@@ -3,20 +3,17 @@ Defines the main Machine object that fit a mean PRF model to sources
 """
 import numpy as np
 import pandas as pd
-import lightkurve as lk
 from scipy import sparse
-from astropy.coordinates import SkyCoord, match_coordinates_3d
-from astropy.time import Time
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from astropy.stats import sigma_clip, sigma_clipped_stats
+from astropy.stats import sigma_clip
 
-from .utils import get_gaia_sources, _make_A_polar, _make_A_cartesian
+from .utils import _make_A_polar, _make_A_cartesian
 
 __all__ = ["Machine"]
 
-# Machine Class
+
 class Machine(object):
     """
     Class for calculating fast PRF photometry on a collection of images and
@@ -30,33 +27,33 @@ class Machine(object):
 
     Attributes:
     ----------
-    nsources : int
+    nsources: int
         Number of sources to be extracted
-    nt : int
+    nt: int
         Number of onservations in the time series (aka number of cadences)
-    npixels : int
+    npixels: int
         Total number of pixels with flux measurements
-    source_flux_estimates : numpy.ndarray
+    source_flux_estimates: numpy.ndarray
         First estimation of pixel fluxes assuming values given by the sources catalog
         (e.g. Gaia phot_g_mean_flux)
-    dra : numpy.ndarray
+    dra: numpy.ndarray
         Distance in right ascension between pixel and source coordinates, units of
         degrees
-    ddec : numpy.ndarray
+    ddec: numpy.ndarray
         Distance in declination between pixel and source coordinates, units of
         degrees
-    r : numpy.ndarray
+    r: numpy.ndarray
         Radial distance between pixel and source coordinates (polar coordinates),
         in units of arcseconds
-    phi : numpy.ndarray
+    phi: numpy.ndarray
         Angle between pixel and source coordinates (polar coordinates),
         in units of radians
-    source_mask : scipy.sparce.csr_matrix
+    source_mask: scipy.sparce.csr_matrix
         Sparce mask matrix with pixels that contains flux from sources
-    uncontaminated_source_mask : scipy.sparce.csr_matrix
+    uncontaminated_source_mask: scipy.sparce.csr_matrix
         Sparce mask matrix with selected uncontaminated pixels per source to be used to
         build the PSF model
-    mean_model : scipy.sparce.csr_matrix
+    mean_model: scipy.sparce.csr_matrix
         Mean PSF model values per pixel used for PSF photometry
 
     """
@@ -94,40 +91,40 @@ class Machine(object):
 
         Parameters
         ----------
-        time : numpy.ndarray
+        time: numpy.ndarray
             Time values in JD
-        flux : numpy.ndarray
+        flux: numpy.ndarray
             Flux values at each pixels and times in units of electrons / sec
-        flux_err : numpy.ndarray
+        flux_err: numpy.ndarray
             Flux error values at each pixels and times in units of electrons / sec
-        ra : numpy.ndarray
+        ra: numpy.ndarray
             Right Ascension coordinate of each pixel
-        dec : numpy.ndarray
+        dec: numpy.ndarray
             Declination coordinate of each pixel
-        sources : pandas.DataFrame
+        sources: pandas.DataFrame
             DataFrame with source present in the images
-        column : np.ndarray
+        column: np.ndarray
             Data array containing the "columns" of the detector that each pixel is on.
-        row : np.ndarray
+        row: np.ndarray
             Data array containing the "columns" of the detector that each pixel is on.
-        limit_radius : numpy.ndarray
+        limit_radius: numpy.ndarray
             Radius limit in arcsecs to select stars to be used for PRF modeling
-        time_mask :  np.ndarray of booleans
+        time_mask:  np.ndarray of booleans
             A boolean array of shape time. Only values where this mask is `True`
             will be used to calculate the average image for fitting the PSF.
             Use this to e.g. select frames with low VA, or no focus change
-        n_r_knots : int
+        n_r_knots: int
             Number of radial knots in the spline model.
-        n_phi_knots : int
+        n_phi_knots: int
             Number of azimuthal knots in the spline model.
-        n_time_points : int
+        n_time_points: int
             Number of time points to bin by when fitting for velocity aberration.
-        time_radius : float
+        time_radius: float
             The radius around sources, out to which the velocity aberration model
             will be fit. (arcseconds)
-        rmin : float
+        rmin: float
             The minimum radius for the PRF model to be fit. (arcseconds)
-        rmax : float
+        rmax: float
             The maximum radius for the PRF model to be fit. (arcseconds)
         """
 
@@ -199,31 +196,31 @@ class Machine(object):
 
                 Parameters
                 ----------
-                A : numpy ndarray or scipy sparce csr matrix
+                A: numpy ndarray or scipy sparce csr matrix
                     Desging matrix with solution basis
                     shape n_observations x n_basis
-                y : numpy ndarray
+                y: numpy ndarray
                     Observations
                     shape n_observations
-                y_err : numpy ndarray, optional
+                y_err: numpy ndarray, optional
                     Observation errors
                     shape n_observations
-                prior_mu : float, optional
+                prior_mu: float, optional
                     Mean of Gaussian prior values for the weights (w)
-                prior_sigma : float, optional
+                prior_sigma: float, optional
                     Standard deviation of Gaussian prior values for the weights (w)
-                k : boolean, numpy ndarray, optional
+                k: boolean, numpy ndarray, optional
                     Mask that sets the observations to be used to solve the system
                     shape n_observations
-                errors : boolean
+                errors: boolean
                     Whether to return error estimates of the best fitting weights
 
                 Returns
                 -------
-                w : numpy ndarray
+                w: numpy ndarray
                     Array with the estimations for the weights
                     shape n_basis
-                werrs : numpy ndarray
+                werrs: numpy ndarray
                     Array with the error estimations for the weights, returned if `error`
         is True
                     shape n_basis
@@ -266,15 +263,15 @@ class Machine(object):
 
         Parameters
         ----------
-        upper_radius_limit : float
+        upper_radius_limit: float
             The radius limit at which we assume there is no flux from a source of any brightness (arcsec)
-        lower_radius_limit : float
+        lower_radius_limit: float
             The radius limit at which we assume there is flux from a source of any brightness (arcsec)
-        upper_flux_limit : float
+        upper_flux_limit: float
             The flux at which we assume as source is saturated
-        lower_flux_limit : float
+        lower_flux_limit: float
             The flux at which we assume a source is too faint to model
-        plot : bool
+        plot: bool
             Whether to show diagnostic plot. Default is False
         """
 
@@ -283,9 +280,9 @@ class Machine(object):
 
         # The average flux, which we assume is a good estimate of the whole stack of images
         mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
-        mean_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
-            axis=0
-        ) ** 0.5 / self.time_mask.sum()
+        # mean_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
+        #     axis=0
+        # ) ** 0.5 / self.time_mask.sum()
 
         # First we make a guess that each source has exactly the gaia flux
         source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
@@ -507,13 +504,13 @@ class Machine(object):
 
         Returns
         -------
-        time_original : np.ndarray
+        time_original: np.ndarray
             The time array of the data, whitened
-        time_binned : np.ndarray
+        time_binned: np.ndarray
             The binned time array
-        flux_binned_raw : np.ndarray
+        flux_binned_raw: np.ndarray
             The binned flux, raw
-        flux_binned : np.ndarray
+        flux_binned: np.ndarray
             The binned flux, whitened by the mean of the flux in time
         flux_err_binned:
             The binned flux error, whitened by the mean of the flux
@@ -722,12 +719,12 @@ class Machine(object):
             vmax=1.5,
             cmap="coolwarm",
         )
-        ax[0, 0].set(title="Data First Cadence", ylabel="$\delta y$")
+        ax[0, 0].set(title="Data First Cadence", ylabel=r"$\delta y$")
         ax[0, 1].set(title="Data Last Cadence")
         ax[1, 0].set(
-            title="Model First Cadence", ylabel="$\delta y$", xlabel="$\delta x$"
+            title="Model First Cadence", ylabel=r"$\delta y$", xlabel=r"$\delta x$"
         )
-        ax[1, 1].set(title="Model Last Cadence", xlabel="$\delta x$")
+        ax[1, 1].set(title="Model Last Cadence", xlabel=r"$\delta x$")
         plt.subplots_adjust(hspace=0.3)
 
         cbar = fig.colorbar(im, ax=ax, shrink=0.7)
@@ -908,7 +905,6 @@ class Machine(object):
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
-        l = np.argmax(self.mean_model.max(axis=1).toarray()[:, 0])
 
     def plot_shape_model(self, radius=20):
         """ Diagnostic plot of shape model..."""
@@ -932,7 +928,7 @@ class Machine(object):
             dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
         )
         ax[0, 0].set(
-            ylabel='$\delta y$ ["]',
+            ylabel=r'$\delta y$ ["]',
             title="Data",
             xlim=(-radius, radius),
             ylim=(-radius, radius),
@@ -961,8 +957,8 @@ class Machine(object):
             phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
         )
         ax[1, 1].set(
-            xlabel="$\phi$ [$^\circ$]",
-            ylabel='$r$ ["]',
+            xlabel=r"$\phi$ [$^\circ$]",
+            ylabel=r'$r$ ["]',
             title="Model",
             ylim=(0, radius),
             yticks=np.linspace(0, radius, 5, dtype=int),
@@ -972,8 +968,8 @@ class Machine(object):
             dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
         )
         ax[1, 0].set(
-            xlabel='$\delta x$ ["]',
-            ylabel='$\delta y$ ["]',
+            xlabel=r'$\delta x$ ["]',
+            ylabel=r'$\delta y$ ["]',
             title="Model",
             xlim=(-radius, radius),
             ylim=(-radius, radius),
@@ -1013,7 +1009,6 @@ class Machine(object):
 
             A_cp = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
-            m = sparse.csr_matrix(dx)
 
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
@@ -1042,7 +1037,6 @@ class Machine(object):
                 X.data *= A_cp3.multiply(t_mult).dot(self.velocity_aberration_w) + 1
                 X = X.T
 
-                k = np.isfinite(self.flux[tdx])
                 sigma_w_inv = X.T.dot(
                     X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
                 ).toarray()
