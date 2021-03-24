@@ -1,0 +1,6 @@
+[flake8]
+max-line-length = 127
+max-complexity = 14
+count = True
+show-source = True
+extend-ignore = E203, E741

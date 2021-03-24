@@ -1,0 +1,21 @@
+site_name: PSFMachine
+nav:
+    - Home: index.md
+    - Machine: machine.md
+    - TPFMachine : tpf.md
+theme:
+  name: "material"
+repo_url: https://github.com/SSDataLab/psfmachine
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          selection:
+            docstring_style: "numpy"
+          rendering:
+            show_source: false
+      custom_templates: templates
+      watch:
+        - src/my_package
