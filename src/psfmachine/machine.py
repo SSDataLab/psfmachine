@@ -25,6 +25,7 @@ class Machine(object):
     each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
     (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
+
     Attributes:
     ----------
     nsources: int
@@ -738,9 +739,8 @@ class Machine(object):
 
         Parameters
         ----------
-        sigma
-
-        flux_cut_off: the flux in COUNTS at which to stop evaluating the model!
+        flux_cut_off: float
+            the flux in COUNTS at which to stop evaluating the model!
         """
 
         # gaia estimate flux values per pixel to be used as flux priors

@@ -41,6 +41,11 @@ flake8 = "^3.8.1"
 black = "^20.8b1"
 exoplanet = "^0.4.4"
 ipywidgets = "^7.6.3"
+mkdocs = "^1.1.2"
+mkdocs-material = "^7.0.6"
+mkdocstrings = {version = "^0.15.0", extras = ["numpy-style"]}
+pytkdocs = {version = "^0.11.0", extras = ["numpy-style"]}
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
