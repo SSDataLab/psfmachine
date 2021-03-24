@@ -1,7 +1,10 @@
 """
 This contains a collection of functions to test the Machine API
 """
-
+import numpy as np
+import pandas as pd
+import pytest
+import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
 
 from psfmachine import Machine, TPFMachine
