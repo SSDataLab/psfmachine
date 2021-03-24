@@ -24,39 +24,6 @@ class Machine(object):
     This method solves a linear model to assuming Gaussian priors on the weight of
     each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
     (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
-
-
-    Attributes:
-    ----------
-    nsources: int
-        Number of sources to be extracted
-    nt: int
-        Number of onservations in the time series (aka number of cadences)
-    npixels: int
-        Total number of pixels with flux measurements
-    source_flux_estimates: numpy.ndarray
-        First estimation of pixel fluxes assuming values given by the sources catalog
-        (e.g. Gaia phot_g_mean_flux)
-    dra: numpy.ndarray
-        Distance in right ascension between pixel and source coordinates, units of
-        degrees
-    ddec: numpy.ndarray
-        Distance in declination between pixel and source coordinates, units of
-        degrees
-    r: numpy.ndarray
-        Radial distance between pixel and source coordinates (polar coordinates),
-        in units of arcseconds
-    phi: numpy.ndarray
-        Angle between pixel and source coordinates (polar coordinates),
-        in units of radians
-    source_mask: scipy.sparce.csr_matrix
-        Sparce mask matrix with pixels that contains flux from sources
-    uncontaminated_source_mask: scipy.sparce.csr_matrix
-        Sparce mask matrix with selected uncontaminated pixels per source to be used to
-        build the PSF model
-    mean_model: scipy.sparce.csr_matrix
-        Mean PSF model values per pixel used for PSF photometry
-
     """
 
     def __init__(
@@ -127,6 +94,37 @@ class Machine(object):
             The minimum radius for the PRF model to be fit. (arcseconds)
         rmax: float
             The maximum radius for the PRF model to be fit. (arcseconds)
+
+        Attributes
+        ----------
+        nsources: int
+            Number of sources to be extracted
+        nt: int
+            Number of onservations in the time series (aka number of cadences)
+        npixels: int
+            Total number of pixels with flux measurements
+        source_flux_estimates: numpy.ndarray
+            First estimation of pixel fluxes assuming values given by the sources catalog
+            (e.g. Gaia phot_g_mean_flux)
+        dra: numpy.ndarray
+            Distance in right ascension between pixel and source coordinates, units of
+            degrees
+        ddec: numpy.ndarray
+            Distance in declination between pixel and source coordinates, units of
+            degrees
+        r: numpy.ndarray
+            Radial distance between pixel and source coordinates (polar coordinates),
+            in units of arcseconds
+        phi: numpy.ndarray
+            Angle between pixel and source coordinates (polar coordinates),
+            in units of radians
+        source_mask: scipy.sparce.csr_matrix
+            Sparce mask matrix with pixels that contains flux from sources
+        uncontaminated_source_mask: scipy.sparce.csr_matrix
+            Sparce mask matrix with selected uncontaminated pixels per source to be used to
+            build the PSF model
+        mean_model: scipy.sparce.csr_matrix
+            Mean PSF model values per pixel used for PSF photometry
         """
 
         if not isinstance(sources, pd.DataFrame):
