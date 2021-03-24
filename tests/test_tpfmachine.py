@@ -2,18 +2,10 @@
 This contains a collection of functions to test the Machine API
 """
 
-import glob
-import os
-import sys
-import pytest
-import lightkurve as lk
-import numpy as np
-import pandas as pd
 from astropy.utils.data import get_pkg_data_filename
-from astropy.coordinates import SkyCoord, match_coordinates_3d
 
-from .. import Machine, TPFMachine
-from ..tpf import (
+from psfmachine import Machine, TPFMachine
+from psfmachine.tpf import (
     _parse_TPFs,
     _wcs_from_tpfs,
     _preprocess,
