@@ -1,7 +1,8 @@
 site_name: PSFMachine
 nav:
-    - Machine: machine.md
     - Home: index.md
+    - Machine: machine.md
+    - TPFMachine : tpf.md
 theme:
   name: "material"
 repo_url: https://github.com/SSDataLab/psfmachine
