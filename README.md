@@ -3,7 +3,7 @@
 **PRF photometry with Kepler**
 
 
-Fancier tests and documentation coming soon. Check out the [documentation](https://ssdatalab.github.io/psfmachine/tpf/).
+Fancier tests and documentation coming soon. Check out the [documentation](https://ssdatalab.github.io/psfmachine/).
 
 # Installation
 
