@@ -255,7 +255,7 @@ def wrapped_spline(input_vector, order=2, nknots=10):
         Array of folded-spline basis
     """
 
-    if not ((input_vector > -np.pi) & (input_vector < np.pi)).all():
+    if not ((input_vector >= -np.pi) & (input_vector <= np.pi)).all():
         raise ValueError("Must be between -pi and pi")
     x = np.copy(input_vector)
     x1 = np.hstack([x, x + np.pi * 2])

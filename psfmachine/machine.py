@@ -1,5 +1,5 @@
 """
-Defines the main Machine object that fit a mean PSF model to sources
+Defines the main Machine object that fit a mean PRF model to sources
 """
 import numpy as np
 import pandas as pd
@@ -19,41 +19,17 @@ __all__ = ["Machine"]
 # Machine Class
 class Machine(object):
     """
-    Class for calculating fast PSF photometry on a collection of images and
-    a list of in image sources. The moethod fits a common mean PSF model for
-    selected clean sources which is later fitted to al sources listed in `sources`.
+    Class for calculating fast PRF photometry on a collection of images and
+    a list of in image sources.
+
+    This method is discussed in detail in CITATION
+
     This method solves a linear model to assuming Gaussian priors on the weight of
     each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
     (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
-    This class is meant to be used with Kepler/K2 TPFs files, with a potential
-    for general use if the right arguments are provided.
-
-    The PSF model is build in polar coordinates.
-
-    Attributes
+    Attributes:
     ----------
-    sources : pandas.DataFrame
-        Catalog of sources in the images
-    source_flux_estimates : np.ndarray
-        nsources
-
-    time : numpy.ndarray
-        Time values in JD
-    flux : numpy.ndarray
-        Flux values at each pixels and times in units of electrons / sec
-    flux_err : numpy.ndarray
-        Flux error values at each pixels and times in units of electrons / sec
-    ra : numpy.ndarray
-        Right Ascension coordinate of each pixel
-    dec : numpy.ndarray
-        Declination coordinate of each pixel
-    sources : pandas.DataFram
-        Data Frame with source present in the images
-    limit_radius : numpy.ndarray
-        Radius limit in arcsecs to select stars to be used for PSF modeling
-    limit_flux : numpy.ndarray
-        Flux limit in electrons / second to select stars to be used for PSF modeling
     nsources : int
         Number of sources to be extracted
     nt : int
@@ -80,18 +56,9 @@ class Machine(object):
     uncontaminated_source_mask : scipy.sparce.csr_matrix
         Sparce mask matrix with selected uncontaminated pixels per source to be used to
         build the PSF model
-    ra_centroid : numpy.ndarray
-        Right ascension centroid values per source
-    dec_centroid : numpy.ndarray
-        Declination centroid values per source
     mean_model : scipy.sparce.csr_matrix
         Mean PSF model values per pixel used for PSF photometry
-    psf_flux : numpy.ndarray
-        PSF photometry for each source listed in `sources` as function of time in
-        units of electrons / s
-    psf_flux_err : numpy.ndarray
-        PSF photometry uncertainties for each source listed in `sources` as function
-        of time in units of electrons / s
+
     """
 
     def __init__(
@@ -115,48 +82,53 @@ class Machine(object):
         rmax=16,
     ):
         """
-        Class constructor. This constructur will compute the basic atributes that will
-        will be used by the object methods to perform PSF estimation and fitting.
+        Class for calculating fast PRF photometry on a collection of images and
+        a list of in image sources.
+
+        This method is discussed in detail in CITATION
+
+        This method solves a linear model to assuming Gaussian priors on the weight of
+        each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
+        (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+
 
         Parameters
         ----------
         time : numpy.ndarray
-            Time in JD
-            shape ntimes
+            Time values in JD
         flux : numpy.ndarray
-            Flux at each pixel at each time
-            shape ntimes x npixel
+            Flux values at each pixels and times in units of electrons / sec
         flux_err : numpy.ndarray
-            Flux error at each pixel at each time
-            shape ntimes x npixel
+            Flux error values at each pixels and times in units of electrons / sec
         ra : numpy.ndarray
-            RA pixel position averaged in time
-            shape npixel
+            Right Ascension coordinate of each pixel
         dec : numpy.ndarray
-            Dec pixel position averaged in time
-            shape npixel
+            Declination coordinate of each pixel
         sources : pandas.DataFrame
-            Catalog with soruces on the pixel data (e.g. Gaia catalog)
-            shape nsources x nfeatures
-        limit_radius : float
-            Radius limit in arcsecs to select stars to be used for PSF modeling
-
-        Exaples
-        -------
-        import lightkurve as lk
-        from psfmachine.psfmachine import Machine
-        # download a collection of 100 TPFs around the target star
-        tpfs = lk.search_targetpixelfile(target='KIC 11904151', radius=1000,
-                                         limit=100, cadence='long',
-                                         mission='Kepler', quarter=4).download_all()
-        # create a machine object from TPF collection
-        mac = Machine().from_tpfs(tpfs)
-        # build PSF model using selected stars
-        mac.build_model()
-        # fit PSF model to all sources listed in `sources`
-        mac.fit_model()
-        # access all sources light curves
-        mac.time, mac.psf_flux
+            DataFrame with source present in the images
+        column : np.ndarray
+            Data array containing the "columns" of the detector that each pixel is on.
+        row : np.ndarray
+            Data array containing the "columns" of the detector that each pixel is on.
+        limit_radius : numpy.ndarray
+            Radius limit in arcsecs to select stars to be used for PRF modeling
+        time_mask :  np.ndarray of booleans
+            A boolean array of shape time. Only values where this mask is `True`
+            will be used to calculate the average image for fitting the PSF.
+            Use this to e.g. select frames with low VA, or no focus change
+        n_r_knots : int
+            Number of radial knots in the spline model.
+        n_phi_knots : int
+            Number of azimuthal knots in the spline model.
+        n_time_points : int
+            Number of time points to bin by when fitting for velocity aberration.
+        time_radius : float
+            The radius around sources, out to which the velocity aberration model
+            will be fit. (arcseconds)
+        rmin : float
+            The minimum radius for the PRF model to be fit. (arcseconds)
+        rmax : float
+            The maximum radius for the PRF model to be fit. (arcseconds)
         """
 
         if not isinstance(sources, pd.DataFrame):
@@ -193,7 +165,7 @@ class Machine(object):
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
-                [ra - self.sources["ra"][idx], dec - self.sources["dec"][idx]]
+                [self.ra - self.sources["ra"][idx], self.dec - self.sources["dec"][idx]]
                 for idx in range(len(self.sources))
             ]
         ).transpose(1, 0, 2)
@@ -216,43 +188,45 @@ class Machine(object):
         A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None, errors=False
     ):
         """
-        Solves a linear model with design matrix A and observations y:
-            Aw = y
-        return the solutions w for the system assuming Gaussian priors.
-        Alternatively the observation errors, priors, and a boolean mask for the
-        observations (row axis) can be provided.
+                Solves a linear model with design matrix A and observations y:
+                    Aw = y
+                return the solutions w for the system assuming Gaussian priors.
+                Alternatively the observation errors, priors, and a boolean mask for the
+                observations (row axis) can be provided.
 
-        Adapted from Luger, Foreman-Mackey & Hogg, 2017
-        (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+                Adapted from Luger, Foreman-Mackey & Hogg, 2017
+                (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
-        Parameters
-        ----------
-        A : numpy ndarray or scipy sparce csr matrix
-            Desging matrix with solution basis
-            shape n_observations x n_basis
-        y : numpy ndarray
-            Observations
-            shape n_observations
-        y_err : numpy ndarray, optional
-            Observation errors
-            shape n_observations
-        prior_mu : float, optional
-            Mean of Gaussian prior values for the weights (w)
-        prior_sigma : float, optional
-            Standard deviation of Gaussian prior values for the weights (w)
-        k : boolean, numpy ndarray, optional
-            Mask that sets the observations to be used to solve the system
-            shape n_observations
+                Parameters
+                ----------
+                A : numpy ndarray or scipy sparce csr matrix
+                    Desging matrix with solution basis
+                    shape n_observations x n_basis
+                y : numpy ndarray
+                    Observations
+                    shape n_observations
+                y_err : numpy ndarray, optional
+                    Observation errors
+                    shape n_observations
+                prior_mu : float, optional
+                    Mean of Gaussian prior values for the weights (w)
+                prior_sigma : float, optional
+                    Standard deviation of Gaussian prior values for the weights (w)
+                k : boolean, numpy ndarray, optional
+                    Mask that sets the observations to be used to solve the system
+                    shape n_observations
+                errors : boolean
+                    Whether to return error estimates of the best fitting weights
 
-        Returns
-        -------
-        w : numpy ndarray
-            Array with the estimations for the weights
-            shape n_basis
-        werrs : numpy ndarray
-            Array with the error estimations for the weights, returned if y_err is
-            provided
-            shape n_basis
+                Returns
+                -------
+                w : numpy ndarray
+                    Array with the estimations for the weights
+                    shape n_basis
+                werrs : numpy ndarray
+                    Array with the error estimations for the weights, returned if `error`
+        is True
+                    shape n_basis
         """
         if k is None:
             k = np.ones(len(y), dtype=bool)
@@ -268,13 +242,7 @@ class Machine(object):
             sigma_w_inv += np.diag(1 / prior_sigma ** 2)
             B += prior_mu / prior_sigma ** 2
 
-        if type(sigma_w_inv) == sparse.csr_matrix:
-            sigma_w_inv = sigma_w_inv.toarray()
-
-        if type(sigma_w_inv) == sparse.csc_matrix:
-            sigma_w_inv = sigma_w_inv.toarray()
-
-        if type(sigma_w_inv) == np.matrix:
+        if isinstance(sigma_w_inv, (sparse.csr_matrix, sparse.csc_matrix, np.matrix)):
             sigma_w_inv = np.asarray(sigma_w_inv)
 
         w = np.linalg.solve(sigma_w_inv, B)
@@ -287,53 +255,84 @@ class Machine(object):
         self,
         upper_radius_limit=28,
         lower_radius_limit=4.5,
-        flux_cut_off=100,
-        flux_limit=1e6,
+        upper_flux_limit=1.2e6,
+        lower_flux_limit=100,
         plot=False,
     ):
+        """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
 
-        mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
+        Fits a simple polynomial model to the log of the pixel flux values, in radial dimension and source flux,
+        to find the optimum circular apertures for every source.
+
+        Parameters
+        ----------
+        upper_radius_limit : float
+            The radius limit at which we assume there is no flux from a source of any brightness (arcsec)
+        lower_radius_limit : float
+            The radius limit at which we assume there is flux from a source of any brightness (arcsec)
+        upper_flux_limit : float
+            The flux at which we assume as source is saturated
+        lower_flux_limit : float
+            The flux at which we assume a source is too faint to model
+        plot : bool
+            Whether to show diagnostic plot. Default is False
+        """
+
+        # We will use the radius a lot, this is for readibility
         r = self.r
+
+        # The average flux, which we assume is a good estimate of the whole stack of images
+        mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
+        mean_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
+            axis=0
+        ) ** 0.5 / self.time_mask.sum()
+
+        # First we make a guess that each source has exactly the gaia flux
         source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
             :, None
         ] * np.ones((self.nsources, self.npixels))
 
+        # Mask out sources that are above the flux limit, and pixels above the radius limit
         temp_mask = (r.value < upper_radius_limit) & (
-            source_flux_estimates < flux_limit
+            source_flux_estimates < upper_flux_limit
         )
         temp_mask &= temp_mask.sum(axis=0) == 1
 
+        # log of flux values
         f = np.log10((temp_mask.astype(float) * mean_flux))
+        #        weights = (
+        #            (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
+        #        ) * temp_mask
 
-        weights = (
-            (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
-        ) * temp_mask
-
+        # flux estimates
         mf = np.log10(source_flux_estimates[temp_mask])
 
         # Model is polynomial in r and log of the flux estimate.
+        # Here I'm using a 1st order polynomial, to ensure it's monatonic in each dimension
         A = np.vstack(
             [
                 r.value[temp_mask] ** 0,
                 r.value[temp_mask],
-                r.value[temp_mask] ** 2,
+                #                r.value[temp_mask] ** 2,
                 r.value[temp_mask] ** 0 * mf,
                 r.value[temp_mask] * mf,
-                r.value[temp_mask] ** 2 * mf,
-                r.value[temp_mask] ** 0 * mf ** 2,
-                r.value[temp_mask] * mf ** 2,
-                r.value[temp_mask] ** 2 * mf ** 2,
+                #                r.value[temp_mask] ** 2 * mf,
+                #                r.value[temp_mask] ** 0 * mf ** 2,
+                #                r.value[temp_mask] * mf ** 2,
+                #                r.value[temp_mask] ** 2 * mf ** 2,
             ]
         ).T
 
+        # Iteratively fit
         k = np.isfinite(f[temp_mask])
         for count in [0, 1, 2]:
-            sigma_w_inv = A[k].T.dot(A[k] / weights[temp_mask][k, None] ** 2)
-            B = A[k].T.dot(f[temp_mask][k] / weights[temp_mask][k] ** 2)
+            sigma_w_inv = A[k].T.dot(A[k])
+            B = A[k].T.dot(f[temp_mask][k])
             w = np.linalg.solve(sigma_w_inv, B)
             res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
             k &= ~sigma_clip(res, sigma=3).mask
 
+        # Now find the radius and source flux at which the model reaches the flux limit
         test_f = np.linspace(
             np.log10(source_flux_estimates.min()),
             np.log10(source_flux_estimates.max()),
@@ -347,13 +346,13 @@ class Machine(object):
                 [
                     test_r2.ravel() ** 0,
                     test_r2.ravel(),
-                    test_r2.ravel() ** 2,
+                    #                    test_r2.ravel() ** 2,
                     test_r2.ravel() ** 0 * test_f2.ravel(),
                     test_r2.ravel() * test_f2.ravel(),
-                    test_r2.ravel() ** 2 * test_f2.ravel(),
-                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
-                    test_r2.ravel() * test_f2.ravel() ** 2,
-                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
+                    #                    test_r2.ravel() ** 2 * test_f2.ravel(),
+                    #                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
+                    #                    test_r2.ravel() * test_f2.ravel() ** 2,
+                    #                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
                 ]
             )
             .T.dot(w)
@@ -362,12 +361,12 @@ class Machine(object):
 
         l = np.zeros(len(test_f)) * np.nan
         for idx in range(len(test_f)):
-            loc = np.where(10 ** test_val[idx] < flux_cut_off)[0]
+            loc = np.where(10 ** test_val[idx] < lower_flux_limit)[0]
             if len(loc) > 0:
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 2), np.log10(source_flux_estimates[:, 0])
+            np.polyfit(test_f[ok], l[ok], 1), np.log10(source_flux_estimates[:, 0])
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -376,10 +375,49 @@ class Machine(object):
             source_radius_limit < lower_radius_limit
         ] = lower_radius_limit
 
-        self.radius = source_radius_limit + 2
+        # Here we set the radius for each source. We add one pixel, to be generous
+        self.radius = source_radius_limit + 1
+
+        # This sparse mask is one where there is ANY number of sources in a pixel
         self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
 
+        self._get_uncontaminated_pixel_mask()
+
+        # Now we can update the r and phi estimates, allowing for a slight centroid offset
+
+        mean_f = np.log10(
+            self.uncontaminated_source_mask.astype(float)
+            .multiply(self.flux[self.time_mask].mean(axis=0))
+            .multiply(1 / self.source_flux_estimates[:, None])
+            .data
+        )
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dra.value),
+            self.uncontaminated_source_mask.multiply(self.ddec.value),
+        )
+        dx = dx.data
+        dy = dy.data
+
+        k = np.isfinite(mean_f)
+        ra_cent = np.average(dx[k], weights=mean_f[k])
+        dec_cent = np.average(dy[k], weights=mean_f[k])
+
+        self.dra, self.ddec = np.asarray(
+            [
+                [
+                    self.ra - self.sources["ra"][idx] - ra_cent,
+                    self.dec - self.sources["dec"][idx] - dec_cent,
+                ]
+                for idx in range(len(self.sources))
+            ]
+        ).transpose(1, 0, 2)
+        self.dra = self.dra * (u.deg)
+        self.ddec = self.ddec * (u.deg)
+        self.r = np.hypot(self.dra, self.ddec).to("arcsec")
+        self.phi = np.arctan2(self.ddec, self.dra)
+
         if plot:
+            # Make a nice diagnostic plot
             fig, ax = plt.subplots(1, 2, figsize=(8, 3), facecolor="white")
 
             ax[0].scatter(
@@ -399,10 +437,10 @@ class Machine(object):
                 test_r2,
                 10 ** test_val,
                 vmin=0,
-                vmax=flux_cut_off * 2,
+                vmax=lower_flux_limit * 2,
                 cmap="viridis",
             )
-            line = np.polyval(np.polyfit(test_f[ok], l[ok], 2), test_f)
+            line = np.polyval(np.polyfit(test_f[ok], l[ok], 1), test_f)
             line[line > upper_radius_limit] = upper_radius_limit
             line[line < lower_radius_limit] = lower_radius_limit
             ax[1].plot(test_f, line, color="r", label="Best Fit PSF Edge")
@@ -421,46 +459,23 @@ class Machine(object):
 
     def _get_uncontaminated_pixel_mask(self):
         """
-        creates a mask of shape npixels (maybe by nt) where not saturated, not faint,
-        and not contaminated. This mask is used to select pixels to build the PSF
-        model.
-
-        Pixel saturation defined by the limit where sensor response is linear,
-        ~1.5e5 -e/s.
-        Faint sources are filtered using the `sources` catalog, e.g.g
-        Gaia phot_g_mean_flux < 10^3.
-        Pixels with flux coming from multiple sources are flagged as contaminated.
-
-        A pixel mask per sources is created combined all previus three masks, this is a
-        sparce csr_matrix.
-
+        creates a mask of shape nsources x npixels where targets are not contaminated.
+        This mask is used to select pixels to build the PSF model.
         """
-        # find saturated pixels, the saturation cap per pixel is -e/s
-        sat_pixel_mask = np.max(self.flux, axis=0) > 1.5e5
 
-        # find pixels from faint Sources
-        faint_sources = np.log10(self.sources["phot_g_mean_flux"]).values < 3
+        # This could be a property, but it is a pain to calculate on the fly, perhaps with lru_cache
+        self.uncontaminated_source_mask = self.source_mask.multiply(
+            np.asarray(self.source_mask.sum(axis=0) == 1)[0]
+        ).tocsr()
 
-        # find pixels with flux from only one source
-        one_source_pix = self.source_mask.sum(axis=0) == 1
-
-        # combine non-saturated pixels and only-one-source pixels
-        good_pixels = sparse.csr_matrix(~sat_pixel_mask).multiply(one_source_pix)
-
-        # combine faint sources mask with good pixels
-        self.uncontaminated_source_mask = (
-            sparse.csr_matrix(~faint_sources[:, None])
-            .dot(good_pixels)
-            .multiply(self.source_mask)
-        )
-
-        # reduce to good pixels
-        self.uncontaminated_pixel_mask = sparse.csr_matrix(
-            self.uncontaminated_source_mask.sum(axis=0) > 0
-        )
+        # # reduce to good pixels
+        # self.uncontaminated_pixel_mask = sparse.csr_matrix(
+        #     self.uncontaminated_source_mask.sum(axis=0) > 0
+        # )
 
         return
 
+    # CH: We're not currently using this, but it might prove useful later so I will leave for now
     def _get_centroids(self):
         """
         Find the ra and dec centroid of the image, at each time.
@@ -483,26 +498,28 @@ class Machine(object):
         return
 
     def _time_bin(self, npoints=200):
-        """Bin the data down in time
+        """Bin the flux data down in time
 
         Parameters
         ----------
-
-        npoints: how many points in each time bin
+        npoints: int
+            How many points should be in each time bin
 
         Returns
         -------
-
-        time_original
-
-        time_binned
-
-        flux_binned_raw
-
-        flux_binned
-
-        flux_err_binned
+        time_original : np.ndarray
+            The time array of the data, whitened
+        time_binned : np.ndarray
+            The binned time array
+        flux_binned_raw : np.ndarray
+            The binned flux, raw
+        flux_binned : np.ndarray
+            The binned flux, whitened by the mean of the flux in time
+        flux_err_binned:
+            The binned flux error, whitened by the mean of the flux
         """
+
+        # Where there are break points in the data
         splits = np.append(
             np.append(0, np.where(np.diff(self.time) > 0.1)[0]), len(self.time)
         )
@@ -874,6 +891,7 @@ class Machine(object):
         return
 
     def _get_mean_model(self):
+        """Convenience function to make the scene model"""
         Ap = _make_A_polar(
             self.source_mask.multiply(self.phi).data,
             self.source_mask.multiply(self.r).data,
@@ -891,10 +909,6 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
         l = np.argmax(self.mean_model.max(axis=1).toarray()[:, 0])
-
-    #        plt.figure()
-    #        plt.plot(self.mean_model.max(axis=1).toarray()[:, 0] < 1)
-    #        plt.plot(self.mean_model.max(axis=1).toarray()[:, 0] < 10)
 
     def plot_shape_model(self, radius=20):
         """ Diagnostic plot of shape model..."""
@@ -971,6 +985,7 @@ class Machine(object):
         return fig
 
     def fit_model(self, fit_va=False):
+        """Finds the best fitting weights for every source, simultaneously"""
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
             np.ones(self.mean_model.shape[0])
@@ -1069,6 +1084,3 @@ class Machine(object):
             self.werrs[:, nodata] *= np.nan
 
         return
-
-    def plot_residual_scene():
-        raise NotImplementedError
