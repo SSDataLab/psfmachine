@@ -696,6 +696,7 @@ class Machine(object):
             vmin=0.5,
             vmax=1.5,
             cmap="coolwarm",
+            rasterized=True,
         )
         ax[0, 1].scatter(
             dx[k2],
@@ -705,9 +706,17 @@ class Machine(object):
             vmin=0.5,
             vmax=1.5,
             cmap="coolwarm",
+            rasterized=True,
         )
         ax[1, 0].scatter(
-            dx[k1], dy[k1], c=model[0][k1], s=3, vmin=0.5, vmax=1.5, cmap="coolwarm"
+            dx[k1],
+            dy[k1],
+            c=model[0][k1],
+            s=3,
+            vmin=0.5,
+            vmax=1.5,
+            cmap="coolwarm",
+            rasterized=True,
         )
         ax[1, 1].scatter(
             dx[k2],
@@ -717,6 +726,7 @@ class Machine(object):
             vmin=0.5,
             vmax=1.5,
             cmap="coolwarm",
+            rasterized=True,
         )
         ax[0, 0].set(title="Data First Cadence", ylabel=r"$\delta y$")
         ax[0, 1].set(title="Data Last Cadence")
@@ -952,7 +962,14 @@ class Machine(object):
             n_phi_knots=self.n_phi_knots,
         )
         im = ax[1, 1].scatter(
-            phi, r, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
+            phi,
+            r,
+            c=A.dot(self.psf_w),
+            cmap="viridis",
+            vmin=-3,
+            vmax=-1,
+            s=3,
+            rasterized=True,
         )
         ax[1, 1].set(
             xlabel=r"$\phi$ [$^\circ$]",
@@ -963,7 +980,14 @@ class Machine(object):
         )
 
         im = ax[1, 0].scatter(
-            dx, dy, c=A.dot(self.psf_w), cmap="viridis", vmin=-3, vmax=-1, s=3
+            dx,
+            dy,
+            c=A.dot(self.psf_w),
+            cmap="viridis",
+            vmin=-3,
+            vmax=-1,
+            s=3,
+            rasterized=True,
         )
         ax[1, 0].set(
             xlabel=r'$\delta x$ ["]',

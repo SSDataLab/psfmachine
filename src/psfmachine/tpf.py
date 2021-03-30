@@ -380,9 +380,16 @@ class TPFMachine(Machine):
             SkyCoord(tpf_meta["ra"], tpf_meta["dec"], unit="deg"),
             SkyCoord(np.asarray(sources[["ra", "dec"]]), unit="deg"),
         )
-        match = (sep < 1 * u.arcsec) & np.asarray(
-            np.abs(sources["phot_g_mean_mag"][idx] - tpf_meta["tpfmag"]) < 0.25
+        match = (sep < 1 * u.arcsec) & (
+            np.abs(
+                np.asarray(sources["phot_g_mean_mag"][idx])
+                - np.asarray(
+                    [t if t is not None else np.nan for t in tpf_meta["tpfmag"]]
+                )
+            )
+            < 0.25
         )
+
         sources["tpf_id"] = None
         sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
 
@@ -484,9 +491,9 @@ def _parse_TPFs(tpfs, **kwargs):
     sat_mask = []
     for tpf in tpfs:
         # Keplerish saturation limit
-        saturated = np.nanmax(tpf.flux, axis=0).value > 1.2e5
+        saturated = np.nanmax(tpf.flux, axis=0).T.value > 1.4e5
         saturated = np.hstack(
-            (np.gradient(saturated.astype(float))[0] != 0) | saturated
+            (np.gradient(saturated.astype(float))[1] != 0) | saturated
         )
         sat_mask.append(np.hstack(saturated))
     sat_mask = np.hstack(sat_mask)
