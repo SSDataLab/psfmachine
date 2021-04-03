@@ -294,7 +294,7 @@ class Machine(object):
         ] * np.ones((self.nsources, self.npixels))
 
         # Mask out sources that are above the flux limit, and pixels above the radius limit
-        source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.4 + 3
+        source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
         temp_mask = (r.value < source_rad[:, None]) & (
             source_flux_estimates < upper_flux_limit
         )
@@ -334,7 +334,6 @@ class Machine(object):
             w = np.linalg.solve(sigma_w_inv, B)
             res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
             k &= ~sigma_clip(res, sigma=3).mask
-        import pdb
 
         # Now find the radius and source flux at which the model reaches the flux limit
         test_f = np.linspace(
@@ -388,12 +387,6 @@ class Machine(object):
 
         # Now we can update the r and phi estimates, allowing for a slight centroid offset
 
-        mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux[self.time_mask].mean(axis=0))
-            .multiply(1 / self.source_flux_estimates[:, None])
-            .data
-        )
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra.value),
             self.uncontaminated_source_mask.multiply(self.ddec.value),
@@ -401,23 +394,29 @@ class Machine(object):
         dx = dx.data
         dy = dy.data
 
-        # k = np.isfinite(mean_f)
-        # ra_cent = np.average(dx[k], weights=mean_f[k])
-        # dec_cent = np.average(dy[k], weights=mean_f[k])
+        mean_f = np.log10(
+            self.uncontaminated_source_mask.astype(float)
+            .multiply(self.flux[self.time_mask].mean(axis=0))
+            .multiply(1 / self.source_flux_estimates[:, None])
+            .data
+        )
+        k = np.isfinite(mean_f)
+        ra_cent = np.average(dx[k], weights=mean_f[k])
+        dec_cent = np.average(dy[k], weights=mean_f[k])
 
-        # self.dra, self.ddec = np.asarray(
-        #     [
-        #         [
-        #             self.ra - self.sources["ra"][idx] - ra_cent,
-        #             self.dec - self.sources["dec"][idx] - dec_cent,
-        #         ]
-        #         for idx in range(len(self.sources))
-        #     ]
-        # ).transpose(1, 0, 2)
-        # self.dra = self.dra * (u.deg)
-        # self.ddec = self.ddec * (u.deg)
-        # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        # self.phi = np.arctan2(self.ddec, self.dra)
+        self.dra, self.ddec = np.asarray(
+            [
+                [
+                    self.ra - self.sources["ra"][idx] - ra_cent,
+                    self.dec - self.sources["dec"][idx] - dec_cent,
+                ]
+                for idx in range(len(self.sources))
+            ]
+        ).transpose(1, 0, 2)
+        self.dra = self.dra * (u.deg)
+        self.ddec = self.ddec * (u.deg)
+        self.r = np.hypot(self.dra, self.ddec).to("arcsec")
+        self.phi = np.arctan2(self.ddec, self.dra)
 
         if plot:
             k = np.isfinite(f[temp_mask])
