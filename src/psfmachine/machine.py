@@ -249,9 +249,9 @@ class Machine(object):
 
     def _get_source_mask(
         self,
-        upper_radius_limit=28,
+        upper_radius_limit=28.0,
         lower_radius_limit=4.5,
-        upper_flux_limit=1.2e6,
+        upper_flux_limit=2e5,
         lower_flux_limit=100,
         plot=False,
     ):
@@ -274,6 +274,11 @@ class Machine(object):
             Whether to show diagnostic plot. Default is False
         """
 
+        if not hasattr(self, "source_flux_estimates"):
+            # gaia estimate flux values per pixel to be used as flux priors
+            self.source_flux_estimates = np.copy(
+                np.asarray(self.sources.phot_g_mean_flux)
+            )
         # We will use the radius a lot, this is for readibility
         r = self.r
 
@@ -289,10 +294,12 @@ class Machine(object):
         ] * np.ones((self.nsources, self.npixels))
 
         # Mask out sources that are above the flux limit, and pixels above the radius limit
-        temp_mask = (r.value < upper_radius_limit) & (
+        source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.4 + 3
+        temp_mask = (r.value < source_rad[:, None]) & (
             source_flux_estimates < upper_flux_limit
         )
         temp_mask &= temp_mask.sum(axis=0) == 1
+        #        temp_mask &= temp_mask.sum(axis=1)[:, None] == 1
 
         # log of flux values
         f = np.log10((temp_mask.astype(float) * mean_flux))
@@ -327,6 +334,7 @@ class Machine(object):
             w = np.linalg.solve(sigma_w_inv, B)
             res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
             k &= ~sigma_clip(res, sigma=3).mask
+        import pdb
 
         # Now find the radius and source flux at which the model reaches the flux limit
         test_f = np.linspace(
@@ -354,7 +362,6 @@ class Machine(object):
             .T.dot(w)
             .reshape(test_r2.shape)
         )
-
         l = np.zeros(len(test_f)) * np.nan
         for idx in range(len(test_f)):
             loc = np.where(10 ** test_val[idx] < lower_flux_limit)[0]
@@ -371,8 +378,8 @@ class Machine(object):
             source_radius_limit < lower_radius_limit
         ] = lower_radius_limit
 
-        # Here we set the radius for each source. We add one pixel, to be generous
-        self.radius = source_radius_limit + 1
+        # Here we set the radius for each source. We add two pixels, to be generous
+        self.radius = source_radius_limit + 2
 
         # This sparse mask is one where there is ANY number of sources in a pixel
         self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
@@ -394,25 +401,26 @@ class Machine(object):
         dx = dx.data
         dy = dy.data
 
-        k = np.isfinite(mean_f)
-        ra_cent = np.average(dx[k], weights=mean_f[k])
-        dec_cent = np.average(dy[k], weights=mean_f[k])
+        # k = np.isfinite(mean_f)
+        # ra_cent = np.average(dx[k], weights=mean_f[k])
+        # dec_cent = np.average(dy[k], weights=mean_f[k])
 
-        self.dra, self.ddec = np.asarray(
-            [
-                [
-                    self.ra - self.sources["ra"][idx] - ra_cent,
-                    self.dec - self.sources["dec"][idx] - dec_cent,
-                ]
-                for idx in range(len(self.sources))
-            ]
-        ).transpose(1, 0, 2)
-        self.dra = self.dra * (u.deg)
-        self.ddec = self.ddec * (u.deg)
-        self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        self.phi = np.arctan2(self.ddec, self.dra)
+        # self.dra, self.ddec = np.asarray(
+        #     [
+        #         [
+        #             self.ra - self.sources["ra"][idx] - ra_cent,
+        #             self.dec - self.sources["dec"][idx] - dec_cent,
+        #         ]
+        #         for idx in range(len(self.sources))
+        #     ]
+        # ).transpose(1, 0, 2)
+        # self.dra = self.dra * (u.deg)
+        # self.ddec = self.ddec * (u.deg)
+        # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
+        # self.phi = np.arctan2(self.ddec, self.dra)
 
         if plot:
+            k = np.isfinite(f[temp_mask])
             # Make a nice diagnostic plot
             fig, ax = plt.subplots(1, 2, figsize=(8, 3), facecolor="white")
 

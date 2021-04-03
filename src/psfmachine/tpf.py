@@ -680,6 +680,7 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
         [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
     ).T
     rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
         tuple(ras),
@@ -689,6 +690,16 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
         epoch=Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear,
         dr=dr,
     )
+
+    ras, decs = [], []
+    for tpf in tpfs:
+        r, d = np.hstack(tpf.get_coordinates(0)).T.reshape(
+            [2, np.product(tpf.shape[1:])]
+        )
+        ras.append(r)
+        decs.append(d)
+    ras, decs = np.hstack(ras), np.hstack(decs)
+    sources, removed_sources = _clean_source_list(sources, ras, decs)
     return sources
 
 
@@ -718,8 +729,8 @@ def _clean_source_list(sources, ra, dec):
     # find sources on the image
     inside = np.zeros(len(sources), dtype=bool)
     # max distance in arcsec from image edge to source ra, dec
-    # 1.25 pixels
-    sep = 5 * u.arcsec.to(u.deg)
+    # 4 pixels
+    sep = 4 * 4 * u.arcsec.to(u.deg)
     for k in range(len(sources)):
         raok = (sources["ra"][k] > ra - sep) & (sources["ra"][k] < ra + sep)
         decok = (sources["dec"][k] > dec - sep) & (sources["dec"][k] < dec + sep)

@@ -188,10 +188,11 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(r), "knots": r_knots},
+                {"x": list(np.hstack([r, rmin, rmax])), "knots": r_knots},
             )
         )
-    )
+    )[:-2]
+
     # build full desing matrix
     X = sparse.hstack(
         [phi_spline.multiply(r_spline[:, idx]) for idx in range(r_spline.shape[1])],
