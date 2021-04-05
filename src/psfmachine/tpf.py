@@ -380,9 +380,16 @@ class TPFMachine(Machine):
             SkyCoord(tpf_meta["ra"], tpf_meta["dec"], unit="deg"),
             SkyCoord(np.asarray(sources[["ra", "dec"]]), unit="deg"),
         )
-        match = (sep < 1 * u.arcsec) & np.asarray(
-            np.abs(sources["phot_g_mean_mag"][idx] - tpf_meta["tpfmag"]) < 0.25
+        match = (sep < 1 * u.arcsec) & (
+            np.abs(
+                np.asarray(sources["phot_g_mean_mag"][idx])
+                - np.asarray(
+                    [t if t is not None else np.nan for t in tpf_meta["tpfmag"]]
+                )
+            )
+            < 0.25
         )
+
         sources["tpf_id"] = None
         sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
 
@@ -484,9 +491,9 @@ def _parse_TPFs(tpfs, **kwargs):
     sat_mask = []
     for tpf in tpfs:
         # Keplerish saturation limit
-        saturated = np.nanmax(tpf.flux, axis=0).value > 1.2e5
+        saturated = np.nanmax(tpf.flux, axis=0).T.value > 1.4e5
         saturated = np.hstack(
-            (np.gradient(saturated.astype(float))[0] != 0) | saturated
+            (np.gradient(saturated.astype(float))[1] != 0) | saturated
         )
         sat_mask.append(np.hstack(saturated))
     sat_mask = np.hstack(sat_mask)
@@ -673,6 +680,7 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
         [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
     ).T
     rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
         tuple(ras),
@@ -682,6 +690,16 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
         epoch=Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear,
         dr=dr,
     )
+
+    ras, decs = [], []
+    for tpf in tpfs:
+        r, d = np.hstack(tpf.get_coordinates(0)).T.reshape(
+            [2, np.product(tpf.shape[1:])]
+        )
+        ras.append(r)
+        decs.append(d)
+    ras, decs = np.hstack(ras), np.hstack(decs)
+    sources, removed_sources = _clean_source_list(sources, ras, decs)
     return sources
 
 
@@ -711,8 +729,8 @@ def _clean_source_list(sources, ra, dec):
     # find sources on the image
     inside = np.zeros(len(sources), dtype=bool)
     # max distance in arcsec from image edge to source ra, dec
-    # 1.25 pixels
-    sep = 5 * u.arcsec.to(u.deg)
+    # 4 pixels
+    sep = 4 * 4 * u.arcsec.to(u.deg)
     for k in range(len(sources)):
         raok = (sources["ra"][k] > ra - sep) & (sources["ra"][k] < ra + sep)
         decok = (sources["dec"][k] > dec - sep) & (sources["dec"][k] < dec + sep)

@@ -2,12 +2,12 @@
 name = "psfmachine"
 version = "0.1.0"
 description = "Tool to perform fast PSF photometry of primary and background targets from Kepler/K2 Target Pixel Files"
-authors = ["Jorge Martinez-Palomera <jorgemarpa@ug.uchile.cl>",
-           "Christina Hedges"]
+authors = ["Christina Hedges <christina.l.hedges@nasa.gov>",
+          "Jorge Martinez-Palomera <jorgemarpa@ug.uchile.cl>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/jorgemarpa/psfmachine"
-repository = "https://github.com/jorgemarpa/psfmachine"
+homepage = "https://ssdatalab.github.io/psfmachine/"
+repository = "https://github.com/ssdatalab/psfmachine"
 keywords = ["NASA, Kepler, Astronomy"]
 classifiers = [
     "Intended Audience :: Science/Research",
