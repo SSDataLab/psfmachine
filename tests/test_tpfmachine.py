@@ -79,7 +79,7 @@ def test_parse_TPFs():
 
     assert isinstance(sources, pd.DataFrame)
     assert set(["ra", "dec", "phot_g_mean_mag"]).issubset(sources.columns)
-    assert sources.shape == (16, 27)
+    assert sources.shape == (21, 27)
 
 
 @pytest.mark.remote_data

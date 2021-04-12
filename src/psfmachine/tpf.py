@@ -679,7 +679,7 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
     ras, decs = np.asarray(
         [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
     ).T
-    rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+    rads = np.hypot(ras - ras1, decs - decs1)
 
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
