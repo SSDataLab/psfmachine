@@ -220,6 +220,7 @@ class TPFMachine(Machine):
                             continue
                         mod[idx, jdx] = m[l]
                 if np.nansum(mod) == 0:
+                    kdx += 1
                     continue
                 _ = plt.subplots(figsize=(10, 3))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
