@@ -220,6 +220,7 @@ class TPFMachine(Machine):
                             continue
                         mod[idx, jdx] = m[l]
                 if np.nansum(mod) == 0:
+                    kdx += 1
                     continue
                 _ = plt.subplots(figsize=(10, 3))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
@@ -705,7 +706,7 @@ def _get_coord_and_query_gaia(
                 for tpf in tpfs
             ]
         ).T
-        rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+        rads = np.hypot(ras - ras1, decs - decs1)
     elif (ra is not None) & (dec is not None) & (rad is not None):
         ras, decs, rads = ra, dec, rad
     else:
