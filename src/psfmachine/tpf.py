@@ -243,7 +243,16 @@ class TPFMachine(Machine):
             )
 
     @staticmethod
-    def from_TPFs(tpfs, magnitude_limit=18, dr=2, time_mask=None, **kwargs):
+    def from_TPFs(
+        tpfs,
+        magnitude_limit=18,
+        dr=2,
+        time_mask=None,
+        query_ra=None,
+        query_dec=None,
+        query_rad=None,
+        **kwargs,
+    ):
         """
         Convert TPF input into Machine object:
             * Parse TPFs to extract time, flux, clux erros, and bookkeeping of
@@ -351,7 +360,9 @@ class TPFMachine(Machine):
             saturated_mask,
         )
 
-        sources = _get_coord_and_query_gaia(tpfs, magnitude_limit, dr=dr)
+        sources = _get_coord_and_query_gaia(
+            tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
+        )
 
         def get_tpf2source():
             tpf2source = []
@@ -652,7 +663,9 @@ def _wcs_from_tpfs(tpfs):
     return locs, ra, dec
 
 
-def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
+def _get_coord_and_query_gaia(
+    tpfs, magnitude_limit=18, dr=3, ra=None, dec=None, rad=None
+):
     """
     Calculate ra, dec coordinates and search radius to query Gaia catalog
 
@@ -662,6 +675,12 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
     magnitude_limit:
     dr: int
         Which gaia data release to use, default is DR2
+    ra : float or list of floats
+        RAs to do gaia query
+    dec : float or list of floats
+        Decs to do gaia query
+    rad : float or list of floats
+        Radius to do gaia query
 
     Returns
     -------
@@ -673,13 +692,24 @@ def _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3):
 
     # find the max circle per TPF that contain all pixel data to query Gaia
     # CH: Sometimes sources are missing from this...worth checking on
-    ras1, decs1 = np.asarray(
-        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 4], 0)[0] for tpf in tpfs]
-    ).T
-    ras, decs = np.asarray(
-        [tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0] for tpf in tpfs]
-    ).T
-    rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+    if (ra is None) & (dec is None) & (rad is None):
+        ras1, decs1 = np.asarray(
+            [
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 4], 0)[0]
+                for tpf in tpfs
+            ]
+        ).T
+        ras, decs = np.asarray(
+            [
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0]
+                for tpf in tpfs
+            ]
+        ).T
+        rads = np.hypot(ras, decs) - np.hypot(ras1, decs1)
+    elif (ra is not None) & (dec is not None) & (rad is not None):
+        ras, decs, rads = ra, dec, rad
+    else:
+        raise ValueError("Please set all or None of `ra`, `dec`, `rad`")
 
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
