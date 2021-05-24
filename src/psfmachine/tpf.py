@@ -86,7 +86,28 @@ class TPFMachine(Machine):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
     def fit_lightcurves(self, plot=False, fit_va=True, iter_negative=True):
-        """"""
+        """
+        Fit the sources inside the TPFs passed to `TPFMachine`.
+
+        Parameters
+        ----------
+        plot : bool
+            Whether or not to show some diagnostic plots. These can be helpful
+            for a user to see if the PRF and time dependent models are being calculated correctly.
+        fit_va : bool
+            Whether or not to fit Velocity Aberration (which implicitly will try to fit
+            other kinds of time variability). This will try to fit the "long term"
+            trends in the dataset. If True, this will take slightly longer to fit.
+            If you are interested in short term phenomena, like transits, you may
+            find you do not need this to be set to True. If you have the time, it
+            is recommended to run it.
+        iter_negative : bool
+            When fitting light curves, it isn't possible to force the flux to be positive.
+            As such, when we find there are light curves that deviate into negative
+            flux values, we can clip these targets out of the analysis and rerun the model.
+            If iter_negative is True, PSFmachine will run up to 3 times, clipping out
+            any negative targets each round.
+        """
 
         self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
@@ -180,10 +201,29 @@ class TPFMachine(Machine):
         raise NotImplementedError
 
     def lcs_in_tpf(self, tpf_number):
+        """Returns the light curves from a given TPF as a lightkurve.LightCurveCollection.
+
+        Parameters
+        ----------
+        tpf_number: int
+            Index of the TPF
+        """
         ldx = self.tpf_meta["sources"][tpf_number]
         return lk.LightCurveCollection([self.lcs[l] for l in ldx])
 
     def plot_tpf(self, tdx):
+        """
+        Make a diagnostic plot of a given TPF in the stack
+
+        If you passed a stack of TPFs, this function will show an image of that
+        TPF, and all the light curves inside it, alongside a diagnostic of which
+        source the light curve belongs to.
+
+        Parameters
+        ----------
+        tdx : int
+            Index of the TPF to plot
+        """
         tpf = self.tpfs[tdx]
         ax_tpf = tpf.plot(scale="log")
         sources = self.sources.loc[self.tpf_meta["sources"][tdx]]
