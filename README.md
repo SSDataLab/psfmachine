@@ -2,9 +2,9 @@
 
 *PRF photometry with Kepler*
 
-<a href="https://github.com/ssdatalab/psfmachine/actions/workflows/tests.yml">
-      <img src="https://github.com/ssdatalab/psfmachine/actions/workflows/tests.yml/badge.svg" alt="Test status"/>
-</a>
+<a href="https://github.com/ssdatalab/psfmachine/workflows/tests.yml">
+      <img src="https://github.com/ssdatalab/psfmachine/workflows/pytest/badge.svg" alt="Test status"/>
+</a> <a href="https://pypi.python.org/pypi/tess-ephem"><img src="https://img.shields.io/pypi/v/tess-ephem", alt="pypi status"></a>
 
 Check out the [documentation](https://ssdatalab.github.io/psfmachine/).
 Check out the [paper](#)

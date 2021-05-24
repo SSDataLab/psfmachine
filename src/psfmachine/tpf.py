@@ -197,7 +197,7 @@ class TPFMachine(Machine):
         return
 
     def to_fits():
-        """Save all the light curves to fits files..."""
+        """Save all the light curves to fits files."""
         raise NotImplementedError
 
     def lcs_in_tpf(self, tpf_number):
