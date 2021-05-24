@@ -7,9 +7,6 @@ from scipy import sparse
 from patsy import dmatrix
 import pyia
 
-import astropy.units as u
-from astropy.time import Time
-
 
 @functools.lru_cache()
 def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
