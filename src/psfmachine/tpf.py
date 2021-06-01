@@ -85,7 +85,48 @@ class TPFMachine(Machine):
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def fit_lightcurves(self, plot=False, fit_va=True, iter_negative=True):
+    def load_shape_model(self):
+        """
+        Loads a PRF shape model from files, based on FFI models.
+        """
+
+        # Needs to find the appropriate FFI model from database.
+
+        # Needs to set all the relevant matrices
+        # Machine needs to end up in the same state as if I had just run
+        # self.build_shape_model
+        raise NotImplementedError
+
+    def save_shape_model(self, output=None):
+        """Saves the weights of a PRF fit to a file
+
+        Parameters
+        ----------
+        output : str, None
+            Output file name. If None, one will be generated.
+        """
+        raise NotImplementedError
+
+    def _build_apertures(self):
+        """Uses shape model to build apertures for each source in each TPF"""
+        raise NotImplementedError
+
+    def get_SAP_lightcurves(self):
+        """Builds apertures, and extracts light curves from TPFs"""
+
+        # Build SAP photometry
+
+        # List of SAP light curves
+        self.sap_lcs = []
+
+        # Some of the old PSF get_lightcurves function should be reused or augmented
+        # to either build ONE light curve with both PSF photometry and SAP photometry,
+        # or create an analogous light curve with SAP flux.
+        raise NotImplementedError
+
+    def get_PRF_lightcurves(
+        self, plot=False, fit_va=True, iter_negative=True, recalculate_prf_shape=False
+    ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
 
@@ -108,9 +149,12 @@ class TPFMachine(Machine):
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
         """
-
-        self.build_shape_model(plot=plot)
+        if recalculate_prf_shape:
+            self.build_shape_model(plot=plot)
+        else:
+            self.load_shape_model()
         self.build_time_model(plot=plot)
+
         self.fit_model(fit_va=fit_va)
         if iter_negative:
             # More than 2% negative cadences
@@ -124,6 +168,7 @@ class TPFMachine(Machine):
                 if idx >= 3:
                     break
 
+        # This should be a helper function so SAP light curves can be added here.
         self.lcs = []
         for idx, s in self.sources.iterrows():
             ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]

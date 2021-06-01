@@ -86,3 +86,20 @@ def test_parse_TPFs():
 def test_from_TPFs():
     c = TPFMachine.from_TPFs(tpfs)
     assert isinstance(c, Machine)
+
+
+# Test some use cases:
+@pytest.mark.remote_data
+def test_use_cases():
+    c = TPFMachine.from_TPFs(tpfs[0])
+    # Not sure about this API
+    c.get_SAP_lightcurves()
+    assert isinstance(c.sap_lcs, lk.LightCurve)
+
+    # I want to be able to get a PRF light curve from a single TPF
+    # Because I want the PRF model to be loaded from FFIs
+    c.get_PRF_lightcurves()
+    assert isinstance(c.lcs, lk.LightCurve)
+
+    # I think I want a single set of lcs...where the default extention is
+    # prf photometry, but SAP photometry (at different apers) are in another extension too...?

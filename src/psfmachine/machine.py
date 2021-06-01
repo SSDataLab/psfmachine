@@ -922,7 +922,7 @@ class Machine(object):
         self.mean_model = mean_model
 
     def plot_shape_model(self, radius=20):
-        """ Diagnostic plot of shape model..."""
+        """Diagnostic plot of shape model..."""
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
