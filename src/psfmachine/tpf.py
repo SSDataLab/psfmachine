@@ -349,7 +349,7 @@ class TPFMachine(Machine):
                 "Quarter %i and channel %i has no PRF model data" % (quarter, channel)
             )
 
-    def _evaluate_PSF(self):
+    def _evaluate_PRF(self):
         """
         Function to evaluate the PRF model in a grid of data. THe function returns
         a the prediction of the model as normalized flux. The model is evaluated in
@@ -395,7 +395,7 @@ class TPFMachine(Machine):
         self.prf_eval = sparse.csr_matrix(r.shape)
         m = 10 ** dm.dot(self.prf_ws)
         self.prf_eval[limit_mask] = m
-        self.prf_eval.eliminate_zeros()
+        self.prf_eval.eliminate_zeros()  # this should be mean_model so it can be use insted of PRF from TPFs
 
     def _create_aperture_mask(self, percentile=50):
         """
