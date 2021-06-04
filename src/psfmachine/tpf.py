@@ -1,13 +1,19 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
+import os
 import numpy as np
+import pandas as pd
 import lightkurve as lk
+from scipy import sparse
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 import astropy.units as u
 import matplotlib.pyplot as plt
+from matplotlib import patches
 
-from .utils import get_gaia_sources
+from .utils import get_gaia_sources, _make_A_polar
 from .machine import Machine
+
+from . import PACKAGEDIR
 
 __all__ = ["TPFMachine"]
 
@@ -282,6 +288,141 @@ class TPFMachine(Machine):
                 facecolor="w",
                 edgecolor="k",
             )
+        return ax_tpf
+
+    def plot_tpf_apertures(self, tdx, ax=None):
+
+        if ax is None:
+            fig, ax = plt.subplots(1, figsize=(5, 5))
+
+        tpf = self.tpfs[tdx]
+        ax_tpf = tpf.plot(scale="log", ax=ax)
+        sources = self.sources.loc[self.tpf_meta["sources"][tdx]]
+
+        pix_coord = tpf.wcs.all_world2pix(sources.loc[:, ["ra", "dec"]].values, 0)
+        col, row = pix_coord[:, 0], pix_coord[:, 1]
+        ax_tpf.scatter(
+            col + tpf.column,
+            row + tpf.row,
+            facecolor="w",
+            edgecolor="k",
+        )
+        hatches = ["//", "\\", "||", "--", "+", "x", "o", "O", ".", "*"]
+        if hasattr(self, "prf_aperture_mask"):
+            pix_of_tpf_loc = np.where(self.pix2obs == tdx)[0]
+            for i, sdx in enumerate(self.tpf_meta["sources"][tdx]):
+                for ip in pix_of_tpf_loc:
+                    if self.prf_aperture_mask[sdx][ip]:
+                        rect = patches.Rectangle(
+                            xy=(self.column[ip] - 0.5, self.row[ip] - 0.5),
+                            width=1,
+                            height=1,
+                            color="red",
+                            fill=False,
+                            hatch=hatches[i],
+                        )
+                        ax_tpf.add_patch(rect)
+
+        return ax_tpf
+
+    def _load_prf_model(self):
+        """
+        Function to load PRF models computed from Kepler's FFIs.
+        """
+        channel = self.tpf_meta["channel"][0]
+        quarter = self.tpf_meta["quarter"][0]
+        file_name = "%s/data/ffi_prf_models_v0.1.0.csv" % (PACKAGEDIR)
+        if not os.path.isfile(file_name):
+            raise FileNotFoundError("No PSF files: ", file_name)
+
+        try:
+            tab = pd.read_csv(file_name, index_col=0, header=[0, 1])
+            self.prf_n_r_knots = int(tab.loc[channel, (str(quarter), "n_r_knots")])
+            self.prf_n_phi_knots = int(tab.loc[channel, (str(quarter), "n_phi_knots")])
+            self.prf_rmin = int(tab.loc[channel, (str(quarter), "rmin")])
+            self.prf_rmax = int(tab.loc[channel, (str(quarter), "rmax")])
+            self.prf_ws = tab.loc[channel, str(quarter)].iloc[4:].values
+            del tab
+
+        except KeyError:
+            raise IOError(
+                "Quarter %i and channel %i has no PRF model data" % (quarter, channel)
+            )
+
+    def _evaluate_PSF(self):
+        """
+        Function to evaluate the PRF model in a grid of data. THe function returns
+        a the prediction of the model as normalized flux. The model is evaluated in
+        pixels up to r < 7 from the location of the source.
+
+        Parameters
+        ----------
+        dx : numpy.ndarray
+            Distance between pixels (row direction) and source coordinates.
+        dx : numpy.ndarray
+            Distance between pixels (column direction) and source coordinates.
+
+        Returns
+        -------
+        source_model: scipy.sparse.csr_matrix
+            Normalized fluxvalues of the PRF model evaluation in the dx, dy grid
+        """
+        r = self.r.value / 4
+        phi = self.phi.value
+        limit_mask = r <= np.ceil(self.prf_rmax)
+
+        phi[phi >= np.pi] = np.pi - 1e-6
+
+        try:
+            dm = _make_A_polar(
+                phi[limit_mask].ravel(),
+                r[limit_mask].ravel(),
+                rmin=self.prf_rmin,
+                rmax=self.prf_rmax,
+                n_r_knots=self.prf_n_r_knots,
+                n_phi_knots=self.prf_n_phi_knots,
+            )
+        except ValueError:
+            dm = _make_A_polar(
+                phi[limit_mask].ravel(),
+                r[limit_mask].ravel(),
+                rmin=np.percentile(r[limit_mask].ravel(), 1),
+                rmax=np.percentile(r[limit_mask].ravel(), 99),
+                n_r_knots=self.prf_n_r_knots,
+                n_phi_knots=self.prf_n_phi_knots,
+            )
+
+        self.prf_eval = sparse.csr_matrix(r.shape)
+        m = 10 ** dm.dot(self.prf_ws)
+        self.prf_eval[limit_mask] = m
+        self.prf_eval.eliminate_zeros()
+
+    def _create_aperture_mask(self, percentile=50):
+        """
+        Function to create the aperture mask of a given source for a given aperture
+        size. This function can compute aperutre mask for one or all sources available
+        in the psf_models
+
+        Parameters
+        ----------
+        percentile : float
+            Percentile value that defines the isophote from the distribution of values
+            in the psf model of the source
+
+        Returns
+        -------
+        """
+        prf_eval = self.prf_eval.toarray()
+        cut = np.nanpercentile(
+            np.where(prf_eval == 0, np.nan, prf_eval),
+            percentile,
+            axis=1,
+        )
+        self.prf_aperture_mask = np.array(prf_eval > cut[::, None])
+        self.FLFRCSAP = compute_FLFRCSAP(self.prf_eval, self.prf_aperture_mask)
+        self.CROWDSAP = compute_CROWDSAP(self.prf_eval, self.prf_aperture_mask)
+
+        # self.
 
     @staticmethod
     def from_TPFs(
@@ -343,9 +484,9 @@ class TPFMachine(Machine):
 
         tpf_meta = {k: m for m, k in zip(meta, attrs)}
         if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.header["kepmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["kepmag"] for tpf in tpfs]
         elif isinstance(tpfs[0], lk.TessTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.header["tmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["tmag"] for tpf in tpfs]
         else:
             raise ValueError("TPFs not understood")
 
@@ -819,3 +960,51 @@ def _clean_source_list(sources, ra, dec):
     sources = sources[clean].reset_index(drop=True)
 
     return sources, removed_sources
+
+
+def compute_FLFRCSAP(psf_models, aperture_mask):
+    """
+    Compute fraction of target flux enclosed in the optimal aperture to total flux
+    for a given source (flux completeness).
+    Parameters
+    ----------
+    psf_models: numpy.ndarray
+        Array with the PSF model for the target source. It has shape of
+        [n_sources, n_pixels].
+    aperture_mask: numpy.ndarray
+        Array of boolean indicating the aperture for the target source. It has shape of
+        [n_sources, n_pixels].
+
+    Returns
+    -------
+    FLFRCSAP: numpy.ndarray
+        Completeness metric
+    """
+    return np.array(
+        psf_models.multiply(aperture_mask.astype(float)).sum(axis=1)
+        / psf_models.sum(axis=1)
+    ).ravel()
+
+
+def compute_CROWDSAP(psf_models, aperture_mask):
+    """
+    Compute the ratio of target flux relative to flux from all sources within
+    the photometric aperture (i.e. 1 - Crowdeness).
+    Parameters
+    ----------
+    psf_models: numpy.ndarray
+        Array with the PSF models for all targets in the cutout. It has shape
+        [n_sources, n_pixels].
+    aperture_mask: numpy.ndarray
+        Array of boolean indicating the aperture for the target source. It has shape of
+        [n_sources, n_pixels].
+
+    Returns
+    -------
+    CROWDSAP: numpy.ndarray
+        Crowdeness metric
+    """
+    ratio = psf_models.multiply(1 / psf_models.sum(axis=0)).tocsr()
+    return np.array(
+        ratio.multiply(aperture_mask.astype(float)).sum(axis=1)
+    ).ravel() / aperture_mask.sum(axis=1)
