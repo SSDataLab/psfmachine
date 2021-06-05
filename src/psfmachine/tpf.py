@@ -91,7 +91,9 @@ class TPFMachine(Machine):
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def fit_lightcurves(self, plot=False, fit_va=True, iter_negative=True):
+    def fit_lightcurves(
+        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=True
+    ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
 
@@ -114,8 +116,11 @@ class TPFMachine(Machine):
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
         """
-
-        self.build_shape_model(plot=plot)
+        # use PRF model from FFI or create one with TPF data
+        if load_shape_model:
+            self.load_shape_model(plot=plot)
+        else:
+            self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
@@ -289,7 +294,7 @@ class TPFMachine(Machine):
                 edgecolor="k",
             )
 
-    def load_shape_model(self):
+    def load_shape_model(self, plot=False):
         """
         Loads a PRF shape model from files, based on FFI models.
         """
@@ -344,6 +349,10 @@ class TPFMachine(Machine):
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
+
+        if plot:
+            return self.plot_shape_model()
+        return
 
     def save_shape_model(self, output=None):
         """Saves the weights of a PRF fit to a file
