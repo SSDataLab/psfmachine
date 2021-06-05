@@ -294,7 +294,7 @@ class TPFMachine(Machine):
                 edgecolor="k",
             )
 
-    def load_shape_model(self, plot=False):
+    def load_shape_model(self, plot=False, input=None):
         """
         Loads a PRF shape model from files, based on FFI models.
         """
@@ -302,12 +302,16 @@ class TPFMachine(Machine):
         # load model hyperparams from file
         channel = self.tpf_meta["channel"][0]
         quarter = self.tpf_meta["quarter"][0]
-        file_name = "%s/data/ffi_prf_models_v0.1.0.csv" % (PACKAGEDIR)
-        if not os.path.isfile(file_name):
-            raise FileNotFoundError("No PSF files: ", file_name)
+        # use FFI models
+        if input is None:
+            input = "%s/data/ffi_prf_models_v0.1.0.csv" % (PACKAGEDIR)
+
+        # check if file exists
+        if not os.path.isfile(input):
+            raise FileNotFoundError("No PSF files: ", input)
 
         try:
-            tab = pd.read_csv(file_name, index_col=0, header=[0, 1])
+            tab = pd.read_csv(input, index_col=0, header=[0, 1])
             self.n_r_knots = int(tab.loc[channel, (str(quarter), "n_r_knots")])
             self.n_phi_knots = int(tab.loc[channel, (str(quarter), "n_phi_knots")])
             self.rmin = int(tab.loc[channel, (str(quarter), "rmin")])
@@ -315,24 +319,22 @@ class TPFMachine(Machine):
             self.psf_w = tab.loc[channel, str(quarter)].iloc[4:].values
             # self.psf_w_err = tab.loc[channel, str(quarter)].iloc[4:].values
             del tab
-
+        # if channel or quarter data is not in file, then a KeyError is raised
         except KeyError:
             raise IOError(
                 "Quarter %i and channel %i has no PRF model data" % (quarter, channel)
             )
 
-        # Mask of shape nsources x number of pixels, one where flux from a
-        # source exists
+        # create source mask and uncontaminated pixel mask
         self._get_source_mask()
-        # Mask of shape npixels (maybe by nt) where not saturated, not faint,
-        # not contaminated etc
         self._get_uncontaminated_pixel_mask()
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
         # work in arcseconds
         self._get_mean_model()
-        # for now I will insert `_get_mean_model()` here with arcsec2pix hardocoded
-        # have to revisit this!
+        # for now I will insert the content of `_get_mean_model()` here with
+        # arcsec2pix hardocoded for the radius have to revisit this!
+        # the reconstructed model does not look right.
         Ap = _make_A_polar(
             self.source_mask.multiply(self.phi).data,
             self.source_mask.multiply(self.r).data / 4.0,
@@ -361,6 +363,7 @@ class TPFMachine(Machine):
         output : str, None
             Output file name. If None, one will be generated.
         """
+        # asign a file name
         if output is None:
             output = "%s/data/shape_model_ch%02i_q%02i.csv" % (
                 PACKAGEDIR,
@@ -368,10 +371,23 @@ class TPFMachine(Machine):
                 self.tpf_meta["quarter"][0],
             )
 
+        # create data structure (DataFrame) to save the model params
         arr_to_save = np.array(
             [self.n_r_knots, self.n_phi_knots, self.rmin, self.rmax]
             + self.psf_w.tolist()
         )
+        df_dict = {
+            self.tpf_meta["quarter"][0]: pd.DataFrame(
+                np.atleast_2d(arr_to_save),
+                index=[self.tpf_meta["channel"][0]],
+                columns=["n_r_knots", "n_phi_knots", "rmin", "rmax"]
+                + ["w%02i" % i for i in range(1, 1 + len(self.psf_w))],
+            )
+        }
+        df = pd.concat(df_dict, axis=1, keys=df_dict.keys())
+        df.to_csv(output)
+
+        return
 
     @staticmethod
     def from_TPFs(
