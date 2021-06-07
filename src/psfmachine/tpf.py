@@ -335,6 +335,52 @@ class TPFMachine(Machine):
         # work in arcseconds
         self._get_mean_model()
 
+        # Re-estimate source flux
+        # -----
+        prior_mu = self.source_flux_estimates
+        prior_sigma = (
+            np.ones(self.mean_model.shape[0]) * 10 * self.source_flux_estimates
+        )
+
+        f, fe = (self.flux).mean(axis=0), ((self.flux_err ** 2).sum(axis=0) ** 0.5) / (
+            self.nt
+        )
+
+        X = self.mean_model.copy()
+        X = X.T
+
+        sigma_w_inv = X.T.dot(X.multiply(1 / fe[:, None] ** 2)).toarray()
+        sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+        B = X.T.dot((f / fe ** 2))
+        B += prior_mu / (prior_sigma ** 2)
+        ws = np.linalg.solve(sigma_w_inv, B)
+        werrs = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+
+        # -----
+
+        # Rebuild source mask
+        ok = np.abs(ws - self.source_flux_estimates) / werrs > 3
+        ok &= ((ws / self.source_flux_estimates) < 10) & (
+            (self.source_flux_estimates / ws) < 10
+        )
+        ok &= ws > 10
+        ok &= werrs > 0
+
+        self.source_flux_estimates[ok] = ws[ok]
+
+        self.source_mask = (
+            self.mean_model.multiply(
+                self.mean_model.T.dot(self.source_flux_estimates)
+            ).tocsr()
+            > 1
+        )
+
+        # Recreate uncontaminated mask
+        self._get_uncontaminated_pixel_mask()
+
+        # Recreate mean model!
+        self._get_mean_model()
+
         if plot:
             return self.plot_shape_model()
         return
