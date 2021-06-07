@@ -148,6 +148,7 @@ class Machine(object):
         self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
+        self.cut_r = 6
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -813,6 +814,7 @@ class Machine(object):
             r_b.ravel(),
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
@@ -909,6 +911,7 @@ class Machine(object):
             self.source_mask.multiply(self.r).data,
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
@@ -965,6 +968,7 @@ class Machine(object):
             r,
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
