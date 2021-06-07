@@ -314,8 +314,10 @@ class TPFMachine(Machine):
             tab = pd.read_csv(input, index_col=0, header=[0, 1])
             self.n_r_knots = int(tab.loc[channel, (str(quarter), "n_r_knots")])
             self.n_phi_knots = int(tab.loc[channel, (str(quarter), "n_phi_knots")])
-            self.rmin = int(tab.loc[channel, (str(quarter), "rmin")])
-            self.rmax = int(tab.loc[channel, (str(quarter), "rmax")])
+            # *4 to convert from pixel to arcseconds
+            self.rmin = int(tab.loc[channel, (str(quarter), "rmin")] * 4)
+            self.rmax = int(tab.loc[channel, (str(quarter), "rmax")] * 4)
+            self.cut_r = int(6 * 4)
             self.psf_w = tab.loc[channel, str(quarter)].iloc[4:].values
             # self.psf_w_err = tab.loc[channel, str(quarter)].iloc[4:].values
             del tab
@@ -332,25 +334,6 @@ class TPFMachine(Machine):
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
         # work in arcseconds
         self._get_mean_model()
-        # for now I will insert the content of `_get_mean_model()` here with
-        # arcsec2pix hardocoded for the radius have to revisit this!
-        # the reconstructed model does not look right.
-        Ap = _make_A_polar(
-            self.source_mask.multiply(self.phi).data,
-            self.source_mask.multiply(self.r).data / 4.0,
-            rmin=self.rmin,
-            rmax=self.rmax,
-            n_r_knots=self.n_r_knots,
-            n_phi_knots=self.n_phi_knots,
-        )
-
-        # And create a `mean_model` that has the psf model for all pixels with fluxes
-        mean_model = sparse.csr_matrix(self.r.shape)
-        m = 10 ** Ap.dot(self.psf_w)
-        m[~np.isfinite(m)] = 0
-        mean_model[self.source_mask] = m
-        mean_model.eliminate_zeros()
-        self.mean_model = mean_model
 
         if plot:
             return self.plot_shape_model()
