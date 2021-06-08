@@ -314,10 +314,9 @@ class TPFMachine(Machine):
             tab = pd.read_csv(input, index_col=0, header=[0, 1])
             self.n_r_knots = int(tab.loc[channel, (str(quarter), "n_r_knots")])
             self.n_phi_knots = int(tab.loc[channel, (str(quarter), "n_phi_knots")])
-            # *4 to convert from pixel to arcseconds
-            self.rmin = int(tab.loc[channel, (str(quarter), "rmin")] * 4)
-            self.rmax = int(tab.loc[channel, (str(quarter), "rmax")] * 4)
-            self.cut_r = int(6 * 4)
+            self.rmin = int(tab.loc[channel, (str(quarter), "rmin")])
+            self.rmax = int(tab.loc[channel, (str(quarter), "rmax")])
+            self.cut_r = int(6)
             self.psf_w = tab.loc[channel, str(quarter)].iloc[4:].values
             # self.psf_w_err = tab.loc[channel, str(quarter)].iloc[4:].values
             del tab
@@ -326,6 +325,11 @@ class TPFMachine(Machine):
             raise IOError(
                 "Quarter %i and channel %i has no PRF model data" % (quarter, channel)
             )
+        # PRF shapes from FFI need pix 2 arcsec convertion
+        if input.split("/")[-1][:16] == "ffi_prf_models_v":
+            self.rmin *= 4
+            self.rmax *= 4
+            self.cut_r *= 4
 
         # create source mask and uncontaminated pixel mask
         self._get_source_mask()
@@ -394,8 +398,7 @@ class TPFMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "%s/data/shape_model_ch%02i_q%02i.csv" % (
-                PACKAGEDIR,
+            output = "./shape_model_ch%02i_q%02i.csv" % (
                 self.tpf_meta["channel"][0],
                 self.tpf_meta["quarter"][0],
             )
