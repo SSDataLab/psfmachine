@@ -92,24 +92,27 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
 
 def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
     """
-    Find the centers and radius of the query when the sky area is large. This function
-    divides the data into `ngrid` tiles and compute the ra, dec coordinates for each
-    tile as well as its radius.
+    Find the centers and radius of tiled queries when the sky area is large.
+    This function divides the data into `ngrid` tiles and compute the ra, dec
+    coordinates for each tile as well as its radius.
+    This is meant to be used with dense data, e.g. FFI or cluster fields, and it is not
+    optimized for sparse data, e.g. TPF stacks. For the latter use
+    `psfmachine.tpf._get_coord_and_query_gaia()`.
 
     Parameters
     ----------
     ra : numpy.ndarray
-        Data array with values of Right Ascension. Arrays can be 2D image or flatten.
+        Data array with values of Right Ascension. Array can be 2D image or flatten.
     dec : numpy.ndarray
-        Data array with values of Declination. Arrays can be 2D image or flatten.
+        Data array with values of Declination. Array can be 2D image or flatten.
     ngrid : tuple
         Tuple with number of bins in each axis. Default is (5, 5).
     magnitude_limit : int
-        Limiting magnitued for query
+        Limiting magnitude for query
     epoch : float
         Year of the observation (Julian year) used for proper motion correction.
     dr : int
-        Gaia Data Release to be used, DR2 or EDR3.
+        Gaia Data Release to be used, DR2 or EDR3. Default is EDR3.
 
     Returns
     -------
@@ -132,12 +135,16 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
             )
             if not _in.any():
                 continue
-            # get the center coord of the query and radius
+            # get the center coord of the query and radius 6th decimal (10 miliarcsec)
+            # to avoid not catching get_gaia_sources() due to floating point error.
             ra_in = ra[_in]
             dec_in = dec[_in]
-            ra_q = ra_in.mean()
-            dec_q = dec_in.mean()
-            rad_q = np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600
+            # we use 50th percentile to get the centers and avoid 360-0 boundary
+            ra_q = np.round(np.percentile(ra_in, 50), decimals=6)
+            dec_q = np.round(np.percentile(dec_in, 50), decimals=6)
+            rad_q = np.round(
+                np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600, decimals=6
+            )
             # query gaia with ra, dec, rad, epoch
             result = get_gaia_sources(
                 tuple([ra_q]),

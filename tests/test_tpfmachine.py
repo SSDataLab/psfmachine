@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
+from astropy.time import Time
 
 from psfmachine import Machine, TPFMachine
 from psfmachine.tpf import (
@@ -14,6 +15,8 @@ from psfmachine.tpf import (
     _preprocess,
     _get_coord_and_query_gaia,
 )
+
+from psfmachine.utils import do_tiled_query
 
 tpfs = []
 for idx in range(10):
@@ -86,3 +89,73 @@ def test_parse_TPFs():
 def test_from_TPFs():
     c = TPFMachine.from_TPFs(tpfs)
     assert isinstance(c, Machine)
+
+
+def test_do_tiled_query():
+    # unit test for TPF stack
+    # test that the tiled query get the same results as the original psfmachine query
+    epoch = Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear
+    sources_org = _get_coord_and_query_gaia(tpfs, magnitude_limit=18, dr=3)
+    _, ra, dec = _wcs_from_tpfs(tpfs)
+    sources_tiled = do_tiled_query(
+        ra,
+        dec,
+        ngrid=(2, 2),
+        magnitude_limit=18,
+        dr=3,
+        epoch=epoch,
+    )
+    assert isinstance(sources_tiled, pd.DataFrame)
+    assert set(["ra", "dec", "phot_g_mean_mag"]).issubset(sources_tiled.columns)
+    assert sources_tiled.shape == (83, 11)
+    # check that the tiled query contain all sources from the non-tiled query.
+    # tiled query is always bigger that the other.
+    assert set(sources_org.designation).issubset(sources_tiled.designation)
+
+    # test for FFI like data ch=4 q=12
+    # create a ra, dec grid similar to the FFI data. Here for convinience, I use the
+    # wcs solution from the TPF to conv the pixel grid to radec.
+    row = np.arange(1024)
+    column = np.arange(1100)
+    row_grid, column_grid = np.meshgrid(row, column)
+    ra, dec = (
+        tpfs[0]
+        .wcs.wcs_pix2world(
+            np.vstack([column_grid.ravel(), row_grid.ravel()]).T,
+            0.0,
+        )
+        .T
+    )
+
+    ffi_sources = do_tiled_query(
+        ra,
+        dec,
+        ngrid=(5, 5),
+        magnitude_limit=18,
+        dr=3,
+        epoch=epoch,
+    )
+    assert ffi_sources.shape == (15822, 11)
+
+    # Unit test for 360->0 deg boundary. we use a smaller sky patch now.
+    row = np.arange(100)
+    column = np.arange(100)
+    column_grid, row_grid = np.meshgrid(column, row)
+    # I subtract pix position to move the grid into the 360->0 ra boundary
+    column_grid -= 44200
+    ra, dec = (
+        tpfs[0]
+        .wcs.wcs_pix2world(
+            np.vstack([column_grid.ravel(), row_grid.ravel()]).T,
+            0.0,
+        )
+        .T
+    )
+    # check that ra values are in the boundary
+    assert not ((ra < 359) & (ra > 1)).all()
+    boundary_sources = do_tiled_query(
+        ra, dec, ngrid=(2, 2), magnitude_limit=18, epoch=epoch, dr=3
+    )
+    assert boundary_sources.shape == (299, 11)
+    # check that no result objects are outside the boundary for ra
+    assert not ((boundary_sources.ra < 359) & (boundary_sources.ra > 1)).all()
