@@ -90,9 +90,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     return gd.data.to_pandas()
 
 
-def do_tiled_query(
-    ra_grid, dec_grid, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3
-):
+def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
     """
     Find the centers and radius of the query when the sky area is large. This function
     divides the data into `ngrid` tiles and compute the ra, dec coordinates for each
@@ -100,10 +98,10 @@ def do_tiled_query(
 
     Parameters
     ----------
-    ra_grid : numpy.ndarray
-        Data array with values of Right Ascension.
-    dec_grid : numpy.ndarray
-        Data array with values of Declination.
+    ra : numpy.ndarray
+        Data array with values of Right Ascension. Arrays can be 2D image or flatten.
+    dec : numpy.ndarray
+        Data array with values of Declination. Arrays can be 2D image or flatten.
     ngrid : tuple
         Tuple with number of bins in each axis. Default is (5, 5).
     magnitude_limit : int
@@ -119,24 +117,24 @@ def do_tiled_query(
         Pandas DatFrame with number of result sources (rows) and Gaia columns
     """
     # find edges of the bins
-    ra_edges = np.histogram_bin_edges(ra_grid, ngrid[0])
-    dec_edges = np.histogram_bin_edges(dec_grid, ngrid[1])
+    ra_edges = np.histogram_bin_edges(ra, ngrid[0])
+    dec_edges = np.histogram_bin_edges(dec, ngrid[1])
     sources = []
     # iterate over 2d bins
     for ix in range(1, len(ra_edges)):
         for jd in range(1, len(dec_edges)):
             # check if image data fall in the bin
             _in = (
-                (ra_edges[ix - 1] <= ra_grid)
-                & (ra_grid <= ra_edges[ix])
-                & (dec_edges[jd - 1] <= dec_grid)
-                & (dec_grid <= dec_edges[jd])
+                (ra_edges[ix - 1] <= ra)
+                & (ra <= ra_edges[ix])
+                & (dec_edges[jd - 1] <= dec)
+                & (dec <= dec_edges[jd])
             )
             if not _in.any():
                 continue
             # get the center coord of the query and radius
-            ra_in = ra_grid[_in]
-            dec_in = dec_grid[_in]
+            ra_in = ra[_in]
+            dec_in = dec[_in]
             ra_q = ra_in.mean()
             dec_q = dec_in.mean()
             rad_q = np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600
