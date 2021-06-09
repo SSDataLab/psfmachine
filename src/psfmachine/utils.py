@@ -121,14 +121,14 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
     dec_edges = np.histogram_bin_edges(dec, ngrid[1])
     sources = []
     # iterate over 2d bins
-    for ix in range(1, len(ra_edges)):
-        for jd in range(1, len(dec_edges)):
+    for idx in range(1, len(ra_edges)):
+        for jdx in range(1, len(dec_edges)):
             # check if image data fall in the bin
             _in = (
-                (ra_edges[ix - 1] <= ra)
-                & (ra <= ra_edges[ix])
-                & (dec_edges[jd - 1] <= dec)
-                & (dec <= dec_edges[jd])
+                (ra_edges[idx - 1] <= ra)
+                & (ra <= ra_edges[idx])
+                & (dec_edges[jdx - 1] <= dec)
+                & (dec <= dec_edges[jdx])
             )
             if not _in.any():
                 continue
@@ -138,13 +138,7 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
             ra_q = ra_in.mean()
             dec_q = dec_in.mean()
             rad_q = np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600
-            # print(
-            #     "Will do small queries query with this (ra, dec, radius, epoch): ",
-            #     ra_q,
-            #     dec_q,
-            #     rad_q,
-            #     epoch,
-            # )
+            # query gaia with ra, dec, rad, epoch
             result = get_gaia_sources(
                 tuple([ra_q]),
                 tuple([dec_q]),
