@@ -91,6 +91,7 @@ def test_from_TPFs():
     assert isinstance(c, Machine)
 
 
+@pytest.mark.remote_data
 def test_do_tiled_query():
     # unit test for TPF stack
     # test that the tiled query get the same results as the original psfmachine query
@@ -109,7 +110,7 @@ def test_do_tiled_query():
     assert set(["ra", "dec", "phot_g_mean_mag"]).issubset(sources_tiled.columns)
     assert sources_tiled.shape == (83, 11)
     # check that the tiled query contain all sources from the non-tiled query.
-    # tiled query is always bigger that the other.
+    # tiled query is always bigger that the other for TPF stacks.
     assert set(sources_org.designation).issubset(sources_tiled.designation)
 
     # test for FFI like data ch=4 q=12
@@ -154,7 +155,7 @@ def test_do_tiled_query():
     # check that ra values are in the boundary
     assert not ((ra < 359) & (ra > 1)).all()
     boundary_sources = do_tiled_query(
-        ra, dec, ngrid=(2, 2), magnitude_limit=18, epoch=epoch, dr=3
+        ra, dec, ngrid=(2, 2), magnitude_limit=16, epoch=epoch, dr=3
     )
     assert boundary_sources.shape == (299, 11)
     # check that no result objects are outside the boundary for ra
