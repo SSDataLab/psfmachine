@@ -113,31 +113,6 @@ def test_do_tiled_query():
     # tiled query is always bigger that the other for TPF stacks.
     assert set(sources_org.designation).issubset(sources_tiled.designation)
 
-    # test for FFI like data ch=4 q=12
-    # create a ra, dec grid similar to the FFI data. Here for convinience, I use the
-    # wcs solution from the TPF to conv the pixel grid to radec.
-    row = np.arange(1024)
-    column = np.arange(1100)
-    row_grid, column_grid = np.meshgrid(row, column)
-    ra, dec = (
-        tpfs[0]
-        .wcs.wcs_pix2world(
-            np.vstack([column_grid.ravel(), row_grid.ravel()]).T,
-            0.0,
-        )
-        .T
-    )
-
-    ffi_sources = do_tiled_query(
-        ra,
-        dec,
-        ngrid=(5, 5),
-        magnitude_limit=18,
-        dr=3,
-        epoch=epoch,
-    )
-    assert ffi_sources.shape == (15822, 11)
-
     # Unit test for 360->0 deg boundary. we use a smaller sky patch now.
     row = np.arange(100)
     column = np.arange(100)
@@ -157,6 +132,6 @@ def test_do_tiled_query():
     boundary_sources = do_tiled_query(
         ra, dec, ngrid=(2, 2), magnitude_limit=16, epoch=epoch, dr=3
     )
-    assert boundary_sources.shape == (299, 11)
+    assert boundary_sources.shape == (85, 11)
     # check that no result objects are outside the boundary for ra
     assert not ((boundary_sources.ra < 359) & (boundary_sources.ra > 1)).all()
