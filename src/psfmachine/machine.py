@@ -852,13 +852,13 @@ class Machine(object):
         # We then build the same design matrix for all pixels with flux
         self._get_mean_model()
         # remove background pixels and recreate mean model
-        self._remove_background_data(flux_cut_off=flux_cut_off)
+        self._remove_background_pixels(flux_cut_off=flux_cut_off)
 
         if plot:
             return self.plot_shape_model()
         return
 
-    def _remove_background_data(self, flux_cut_off=1):
+    def _remove_background_pixels(self, flux_cut_off=1):
 
         # Re-estimate source flux
         # -----
