@@ -360,7 +360,7 @@ class TPFMachine(Machine):
         # work in arcseconds
         self._get_mean_model()
         # remove background pixels and recreate mean model
-        self._remove_background_data()
+        self._remove_background_pixels()
 
         if plot:
             return self.plot_shape_model()
