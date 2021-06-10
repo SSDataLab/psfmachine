@@ -158,6 +158,22 @@ class Machine(object):
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
 
+        # have to find where the non sparse implementation starts to break due to
+        # the number of sources and pixels. For now we'll use 1000 sources and 10k pix.
+        if self.nsources < 1000 and self.npixels < 10000:
+            self._create_delta_arrays()
+        else:
+            self._create_delta_sparse_arrays()
+
+    @property
+    def shape(self):
+        return (self.nsources, self.nt, self.npixels)
+
+    def __repr__(self):
+        return f"Machine (N sources, N times, N pixels): {self.shape}"
+
+    def _create_delta_arrays(self):
+        """Creates dra, ddec, r and phi arrays as numpy.ndarrays"""
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
@@ -172,12 +188,60 @@ class Machine(object):
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         self.phi = np.arctan2(self.ddec, self.dra)
 
-    @property
-    def shape(self):
-        return (self.nsources, self.nt, self.npixels)
+    def _create_delta_sparse_arrays(self, dist_lim=40):
+        """
+        Creates dra, ddec, r and phi arrays as sparse arrays to be used for dense data,
+        e.g. Kepler FFIs or cluster fields. Assuming that there is no flux information
+        further than `dist_lim` for a given source, we only keep pixels within the
+        `dist_lim`.
+        dra, ddec, ra, and phi are unitless because they are `sparse.csr_matrix`. But
+        keep same scale as '_create_delta_arrays()'.
+        dra and ddec in deg. r in arcseconds and phi in rads
 
-    def __repr__(self):
-        return f"Machine (N sources, N times, N pixels): {self.shape}"
+        Parameters
+        ----------
+        dist_lim : float
+            Distance limit (in arcsecds) at which pixels are keep.
+        """
+        dist_lim /= 3600
+        # iterate over sources to only keep pixels within dist_lim
+        dra, ddec, sparse_mask = [], [], []
+        for i in range(len(self.sources)):
+            dra_aux = self.ra - self.sources["ra"].iloc[i]
+            ddec_aux = self.dec - self.sources["dec"].iloc[i]
+            box_mask = sparse.csr_matrix(
+                (np.abs(dra_aux) <= dist_lim) & (np.abs(ddec_aux) <= dist_lim)
+            )
+            dra.append(box_mask.multiply(dra_aux))
+            ddec.append(box_mask.multiply(ddec_aux))
+            sparse_mask.append(box_mask)
+
+        del dra_aux, ddec_aux, box_mask
+        # we stack dra, ddec of each object to create a [nsources, npixels] matrix
+        self.dra = sparse.vstack(dra, "csr")
+        self.ddec = sparse.vstack(ddec, "csr")
+        sparse_mask = sparse.vstack(sparse_mask, "csr")
+        sparse_mask.eliminate_zeros()
+
+        # convertion to polar coordinates. We can't apply np.hypot or np.arctan2 to
+        # sparse arrays. We keep track of non-zero index, do math in numpy space,
+        # then rebuild r, phi as sparse.
+        nnz_inds = sparse_mask.nonzero()
+        # convert radial dist to arcseconds
+        r_vals = np.hypot(self.dra.data, self.ddec.data) * 3600
+        phi_vals = np.arctan2(self.ddec.data, self.dra.data)
+        self.r = sparse.csr_matrix(
+            (r_vals, (nnz_inds[0], nnz_inds[1])),
+            shape=sparse_mask.shape,
+            dtype=float,
+        )
+        self.phi = sparse.csr_matrix(
+            (phi_vals, (nnz_inds[0], nnz_inds[1])),
+            shape=sparse_mask.shape,
+            dtype=float,
+        )
+        del r_vals, phi_vals, nnz_inds
+        return
 
     @staticmethod
     def _solve_linear_model(
