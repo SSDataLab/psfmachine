@@ -382,7 +382,7 @@ class TPFMachine(Machine):
 
         # create data structure (DataFrame) to save the model params
         table = fits.BinTableHDU.from_columns(
-            [fits.Column(name="psf_w", array=self.psf_w, format="E")]
+            [fits.Column(name="psf_w", array=self.psf_w, format="D")]
         )
         # include metadata and descriptions
         table.header["object"] = ("PRF shape", "PRF shape parameters")
