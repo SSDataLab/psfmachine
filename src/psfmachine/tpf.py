@@ -1,17 +1,18 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
 import os
 import numpy as np
-import pandas as pd
 import lightkurve as lk
 from scipy import sparse
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
+from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
 from matplotlib import patches
 
 from .utils import get_gaia_sources, _make_A_polar
 from .machine import Machine
+from .version import __version__
 
 from . import PACKAGEDIR
 
@@ -294,46 +295,66 @@ class TPFMachine(Machine):
                 edgecolor="k",
             )
 
-    def load_shape_model(self, plot=False, input=None):
+    def load_shape_model(self, input=None, plot=False):
         """
-        Loads a PRF shape model from files, based on FFI models.
+        Loads a PRF shape model from a FITs file.
+        Not implemented: By default this function will load PRF shapes computed from
+        FFI data (Kepler, K2, or TESS).
+
+        Parameters
+        ----------
+        input : string
+            Name of the file containing the shape parameters and weights. The file
+            has to be FITS format.
+        plot : boolean
+            Plot or not the mean model.
         """
+        # By default we will load PRF model from FFI when this are ok.
+        # for now this function only works when a file is provided
+        if input is None:
+            raise NotImplementedError(
+                "Loading default model not implemented. Please provide input file."
+            )
+        # check if file exists and is the right format
+        if not os.path.isfile(input):
+            raise FileNotFoundError("No shape file: %s" % input)
+        if not input.endswith(".fits"):
+            # should use a custom exception for wrong file format
+            raise ValueError("File format not suported. Please provide a FITS file.")
 
         # create source mask and uncontaminated pixel mask
         self._get_source_mask()
         self._get_uncontaminated_pixel_mask()
 
-        # load model hyperparams from file
-        channel = self.tpf_meta["channel"][0]
-        quarter = self.tpf_meta["quarter"][0]
-        # use FFI models
-        if input is None:
-            input = "%s/data/ffi_prf_models_v0.1.0.csv" % (PACKAGEDIR)
-
-        # check if file exists
-        if not os.path.isfile(input):
-            raise FileNotFoundError("No PSF files: ", input)
-
-        try:
-            tab = pd.read_csv(input, index_col=0, header=[0, 1])
-            self.n_r_knots = int(tab.loc[channel, (str(quarter), "n_r_knots")])
-            self.n_phi_knots = int(tab.loc[channel, (str(quarter), "n_phi_knots")])
-            self.rmin = int(tab.loc[channel, (str(quarter), "rmin")])
-            self.rmax = int(tab.loc[channel, (str(quarter), "rmax")])
-            self.cut_r = int(6)
-            self.psf_w = tab.loc[channel, str(quarter)].iloc[4:].values
-            # self.psf_w_err = tab.loc[channel, str(quarter)].iloc[4:].values
-            del tab
-        # if channel or quarter data is not in file, then a KeyError is raised
-        except KeyError:
-            raise IOError(
-                "Quarter %i and channel %i has no PRF model data" % (quarter, channel)
+        # open file
+        hdu = fits.open(input)
+        # check if shape parameters are for correct mission, quarter, and channel
+        if hdu[1].header["mission"] != self.tpf_meta["mission"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for mission '%s',"
+                % (hdu[1].header["mission"])
+                + " it should be '%s.''" % (self.tpf_meta["mission"][0])
             )
-        # PRF shapes from FFI need pix 2 arcsec convertion
-        if input.split("/")[-1][:16] == "ffi_prf_models_v":
-            self.rmin *= 4
-            self.rmax *= 4
-            self.cut_r *= 4
+        if hdu[1].header["quarter"] != self.tpf_meta["quarter"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for quarter %i,"
+                % (hdu[1].header["quarter"])
+                + " it should be %i." % (self.tpf_meta["quarter"][0])
+            )
+        if hdu[1].header["channel"] != self.tpf_meta["channel"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for channel %i,"
+                % (hdu[1].header["channel"])
+                + " it should be %i." % (self.tpf_meta["channel"][0])
+            )
+        # load model hyperparameters and weights
+        self.n_r_knots = hdu[1].header["n_rknots"]
+        self.n_phi_knots = hdu[1].header["n_pknots"]
+        self.rmin = hdu[1].header["rmin"]
+        self.rmax = hdu[1].header["rmax"]
+        self.cut_r = hdu[1].header["cut_r"]
+        self.psf_w = hdu[1].data["psf_w"]
+        del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
         # work in arcseconds
@@ -354,26 +375,46 @@ class TPFMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "./shape_model_ch%02i_q%02i.csv" % (
+            output = "./shape_model_ch%02i_q%02i.fits" % (
                 self.tpf_meta["channel"][0],
                 self.tpf_meta["quarter"][0],
             )
 
         # create data structure (DataFrame) to save the model params
-        arr_to_save = np.array(
-            [self.n_r_knots, self.n_phi_knots, self.rmin, self.rmax]
-            + self.psf_w.tolist()
+        table = fits.BinTableHDU.from_columns(
+            [fits.Column(name="psf_w", array=self.psf_w, format="E")]
         )
-        df_dict = {
-            self.tpf_meta["quarter"][0]: pd.DataFrame(
-                np.atleast_2d(arr_to_save),
-                index=[self.tpf_meta["channel"][0]],
-                columns=["n_r_knots", "n_phi_knots", "rmin", "rmax"]
-                + ["w%02i" % i for i in range(1, 1 + len(self.psf_w))],
-            )
-        }
-        df = pd.concat(df_dict, axis=1, keys=df_dict.keys())
-        df.to_csv(output)
+        # include metadata and descriptions
+        table.header["object"] = ("PRF shape", "PRF shape parameters")
+        table.header["datatype"] = ("TPF stack", "Type of data used to fit shape model")
+        table.header["origin"] = ("PSFmachine.TPFMachine", "Software of origin")
+        table.header["version"] = (__version__, "Software version")
+        table.header["mission"] = (self.tpf_meta["mission"][0], "Mission name")
+        table.header["quarter"] = (
+            self.tpf_meta["quarter"][0],
+            "Quarter of observations",
+        )
+        table.header["channel"] = (self.tpf_meta["channel"][0], "Channel output")
+        table.header["n_rknots"] = (
+            self.n_r_knots,
+            "Number of knots for spline basis in radial axis",
+        )
+        table.header["n_pknots"] = (
+            self.n_phi_knots,
+            "Number of knots for spline basis in angle axis",
+        )
+        table.header["rmin"] = (self.rmin, "Minimum value for knot spacing")
+        table.header["rmax"] = (self.rmax, "Maximum value for knot spacing")
+        table.header["cut_r"] = (
+            self.cut_r,
+            "Radial distance to remove angle dependency",
+        )
+        table.header["spln_deg"] = (3, "Degree of the spline basis")
+        table.header["inc_inte"] = (
+            True,
+            "Include or not interception for spline basis",
+        )
+        table.writeto(output, checksum=True, overwrite=True)
 
         return
 
