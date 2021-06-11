@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
+from astropy.time import Time
 
 from psfmachine import Machine, TPFMachine
 from psfmachine.tpf import (
@@ -14,7 +15,10 @@ from psfmachine.tpf import (
     _wcs_from_tpfs,
     _preprocess,
     _get_coord_and_query_gaia,
+    _clean_source_list,
 )
+
+from psfmachine.utils import do_tiled_query
 
 tpfs = []
 for idx in range(10):

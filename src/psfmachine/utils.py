@@ -1,6 +1,7 @@
 """ Collection of utility functions"""
 
 import numpy as np
+import pandas as pd
 import functools
 
 from scipy import sparse
@@ -87,6 +88,79 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     else:
         raise ValueError("Please pass a valid data release")
     return gd.data.to_pandas()
+
+
+def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
+    """
+    Find the centers and radius of tiled queries when the sky area is large.
+    This function divides the data into `ngrid` tiles and compute the ra, dec
+    coordinates for each tile as well as its radius.
+    This is meant to be used with dense data, e.g. FFI or cluster fields, and it is not
+    optimized for sparse data, e.g. TPF stacks. For the latter use
+    `psfmachine.tpf._get_coord_and_query_gaia()`.
+
+    Parameters
+    ----------
+    ra : numpy.ndarray
+        Data array with values of Right Ascension. Array can be 2D image or flatten.
+    dec : numpy.ndarray
+        Data array with values of Declination. Array can be 2D image or flatten.
+    ngrid : tuple
+        Tuple with number of bins in each axis. Default is (5, 5).
+    magnitude_limit : int
+        Limiting magnitude for query
+    epoch : float
+        Year of the observation (Julian year) used for proper motion correction.
+    dr : int
+        Gaia Data Release to be used, DR2 or EDR3. Default is EDR3.
+
+    Returns
+    -------
+    sources : pandas.DatFrame
+        Pandas DatFrame with number of result sources (rows) and Gaia columns
+    """
+    # find edges of the bins
+    ra_edges = np.histogram_bin_edges(ra, ngrid[0])
+    dec_edges = np.histogram_bin_edges(dec, ngrid[1])
+    sources = []
+    # iterate over 2d bins
+    for idx in range(1, len(ra_edges)):
+        for jdx in range(1, len(dec_edges)):
+            # check if image data fall in the bin
+            _in = (
+                (ra_edges[idx - 1] <= ra)
+                & (ra <= ra_edges[idx])
+                & (dec_edges[jdx - 1] <= dec)
+                & (dec <= dec_edges[jdx])
+            )
+            if not _in.any():
+                continue
+            # get the center coord of the query and radius to 7th decimal precision
+            # (3 miliarcsec) to avoid not catching get_gaia_sources() due to
+            # floating point error.
+            ra_in = ra[_in]
+            dec_in = dec[_in]
+            # we use 50th percentile to get the centers and avoid 360-0 boundary
+            ra_q = np.round(np.percentile(ra_in, 50), decimals=7)
+            dec_q = np.round(np.percentile(dec_in, 50), decimals=7)
+            # HARDCODED: +10/3600 to add a 10 arcsec to search radius, this is to get
+            # sources off sensor up to 10" distance from sensor border.
+            rad_q = np.round(
+                np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600, decimals=7
+            )
+            # query gaia with ra, dec, rad, epoch
+            result = get_gaia_sources(
+                tuple([ra_q]),
+                tuple([dec_q]),
+                tuple([rad_q]),
+                magnitude_limit=magnitude_limit,
+                epoch=epoch,
+                dr=dr,
+            )
+            sources.append(result)
+    #  concat results and remove duplicated sources
+    sources = pd.concat(sources, axis=0).drop_duplicates(subset=["designation"])
+    return sources.reset_index(drop=True)
 
 
 def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15):
