@@ -45,6 +45,7 @@ class Machine(object):
         time_radius=8,
         rmin=1,
         rmax=16,
+        cut_r=6,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -148,7 +149,7 @@ class Machine(object):
         self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
-        self.cut_r = 6
+        self.cut_r = cut_r
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
