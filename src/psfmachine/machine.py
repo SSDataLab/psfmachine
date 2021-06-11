@@ -352,8 +352,6 @@ class Machine(object):
         # We will use the radius a lot, this is for readibility
         if isinstance(self.r, u.quantity.Quantity):
             r = self.r.value
-        elif isinstance(self.r, sparse.csr_matrix):
-            r = self.r.data
         else:
             r = self.r
 
@@ -372,23 +370,39 @@ class Machine(object):
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
         # temp_mask for the sparse r case should also be a sparse matrix. Then its
         # applied to r, mean_flux, and source_flux_estimates.
-        temp_mask = (r < source_rad[:, None]) & (
-            source_flux_estimates < upper_flux_limit
-        )
-        temp_mask &= temp_mask.sum(axis=0) == 1
+        if not isinstance(r, sparse.csr_matrix):
+            temp_mask = (r < source_rad[:, None]) & (
+                source_flux_estimates < upper_flux_limit
+            )
+            temp_mask &= temp_mask.sum(axis=0) == 1
 
-        # apply temp_mask to r
-        r_temp_mask = r[temp_mask]
+            # apply temp_mask to r
+            r_temp_mask = r[temp_mask]
 
-        # log of flux values
-        f = np.log10((temp_mask.astype(float) * mean_flux))
-        f_temp_mask = f[temp_mask]
-        # weights = (
-        #     (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
-        # ) * temp_mask
+            # log of flux values
+            f = np.log10((temp_mask.astype(float) * mean_flux))
+            f_temp_mask = f[temp_mask]
+            # weights = (
+            #     (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
+            # ) * temp_mask
 
-        # flux estimates
-        mf = np.log10(source_flux_estimates[temp_mask])
+            # flux estimates
+            mf = np.log10(source_flux_estimates[temp_mask])
+        else:
+            temp_mask = sparse_lessthan(r, source_rad)
+            temp_mask = temp_mask.multiply(
+                (source_flux_estimates < upper_flux_limit)
+            ).tocsr()
+            temp_mask = temp_mask.multiply(temp_mask.sum(axis=0) == 1).tocsr()
+            temp_mask.eliminate_zeros()
+
+            f = np.log10(temp_mask.astype(float).multiply(mean_flux).data)
+            k = np.isfinite(f)
+            f_temp_mask = f[k]
+            r_temp_mask = temp_mask.astype(float).multiply(r).data[k]
+            mf = np.log10(
+                temp_mask.astype(float).multiply(source_flux_estimates).data[k]
+            )
 
         # Model is polynomial in r and log of the flux estimate.
         # Here I'm using a 1st order polynomial, to ensure it's monatonic in each dimension
@@ -461,19 +475,13 @@ class Machine(object):
         self.radius = source_radius_limit + 2
 
         # This sparse mask is one where there is ANY number of sources in a pixel
-        if isinstance(self.r, u.quantity.Quantity):
+        if not isinstance(self.r, sparse.csr_matrix):
             self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
-        elif isinstance(self.r, sparse.csr_matrix):
+        else:
             # for a sparse matrix doing < self.radius is not efficient, evenmore, it
             # considers all zero values in the sparse matrix and set them to True.
             # this is a workaround to this problem.
-            nonz_idx = r.nonzero()
-            rad_mask = r.data < self.radius
-            self.source_mask = sparse.csr_matrix(
-                (self.r.data[rad_mask], (nonz_idx[0][rad_mask], nonz_idx[1][rad_mask])),
-                shape=self.r.shape,
-            ).astype(bool)
-            del nonz_idx, rad_mask
+            self.source_mask = sparse_lessthan(r, self.radius)
 
         self._get_uncontaminated_pixel_mask()
 
@@ -486,12 +494,22 @@ class Machine(object):
         dx = dx.data
         dy = dy.data
 
-        mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux[self.time_mask].mean(axis=0))
-            .multiply(1 / self.source_flux_estimates[:, None])
-            .data
-        )
+        if not isinstance(self.r, sparse.csr_matrix):
+            mean_f = np.log10(
+                self.uncontaminated_source_mask.astype(float)
+                .multiply(self.flux[self.time_mask].mean(axis=0))
+                .multiply(1 / self.source_flux_estimates[:, None])
+                .data
+            )
+        else:
+            mean_f = (
+                self.uncontaminated_source_mask.astype(float)
+                .multiply(self.flux[self.time_mask].mean(axis=0))
+                .multiply(1 / self.source_flux_estimates[:, None])
+            )
+            mean_f.eliminate_zeros()
+            mean_f = np.log10(mean_f.data)
+
         k = np.isfinite(mean_f)
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
@@ -1204,3 +1222,17 @@ class Machine(object):
             self.werrs[:, nodata] *= np.nan
 
         return
+
+
+def sparse_lessthan(arr, limit):
+    nonz_idx = arr.nonzero()
+    # apply condition for each row
+    mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
+    # flatten mask
+    mask = [x for sub in mask for x in sub]
+    # reconstruct sparse array
+    temp_mask = sparse.csr_matrix(
+        (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
+        shape=arr.shape,
+    ).astype(bool)
+    return temp_mask
