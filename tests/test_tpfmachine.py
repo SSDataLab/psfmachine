@@ -94,7 +94,7 @@ def test_load_save_shape_model():
     # the 10 TPFs in ./data/tpf_test* are not enough to fit a model, singular matrix
     # error.
     tpfs_k16 = lk.search_targetpixelfile(
-        "Kepler-16", mission="Kepler", quarter=12, radius=100, limit=20, cadence="long"
+        "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
     ).download_all(quality_bitmask=None)
     # instantiate a machine object
     machine = TPFMachine.from_TPFs(tpfs_k16)
