@@ -375,7 +375,7 @@ class TPFMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "./shape_model_ch%02i_q%02i.fits" % (
+            output = "./kepler_shape_model_ch%02i_q%02i.fits" % (
                 self.tpf_meta["channel"][0],
                 self.tpf_meta["quarter"][0],
             )
