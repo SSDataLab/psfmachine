@@ -14,6 +14,7 @@ from psfmachine.tpf import (
     _wcs_from_tpfs,
     _preprocess,
     _get_coord_and_query_gaia,
+    _clean_source_list,
 )
 
 from psfmachine.utils import do_tiled_query
@@ -108,10 +109,23 @@ def test_do_tiled_query():
     )
     assert isinstance(sources_tiled, pd.DataFrame)
     assert set(["ra", "dec", "phot_g_mean_mag"]).issubset(sources_tiled.columns)
-    assert sources_tiled.shape == (83, 11)
     # check that the tiled query contain all sources from the non-tiled query.
     # tiled query is always bigger that the other for TPF stacks.
     assert set(sources_org.designation).issubset(sources_tiled.designation)
+
+    # get ra,dec values for pixels then clean source list
+    ras, decs = [], []
+    for tpf in tpfs:
+        r, d = np.hstack(tpf.get_coordinates(0)).T.reshape(
+            [2, np.product(tpf.shape[1:])]
+        )
+        ras.append(r)
+        decs.append(d)
+    ras, decs = np.hstack(ras), np.hstack(decs)
+    sources_tiled, _ = _clean_source_list(sources_tiled, ras, decs)
+    # clean source lists must match between query versions
+    assert sources_tiled.shape == sources_org.shape
+    assert set(sources_org.designation) == set(sources_tiled.designation)
 
     # Unit test for 360->0 deg boundary. we use a smaller sky patch now.
     row = np.arange(100)
