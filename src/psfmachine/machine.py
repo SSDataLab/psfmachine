@@ -324,6 +324,7 @@ class Machine(object):
         upper_flux_limit=2e5,
         lower_flux_limit=100,
         plot=False,
+        do_sparse=False,
     ):
         """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
 
@@ -494,21 +495,13 @@ class Machine(object):
         dx = dx.data
         dy = dy.data
 
-        if not isinstance(self.r, sparse.csr_matrix):
-            mean_f = np.log10(
-                self.uncontaminated_source_mask.astype(float)
-                .multiply(self.flux[self.time_mask].mean(axis=0))
-                .multiply(1 / self.source_flux_estimates[:, None])
-                .data
-            )
-        else:
-            mean_f = (
-                self.uncontaminated_source_mask.astype(float)
-                .multiply(self.flux[self.time_mask].mean(axis=0))
-                .multiply(1 / self.source_flux_estimates[:, None])
-            )
-            mean_f.eliminate_zeros()
-            mean_f = np.log10(mean_f.data)
+        # if not isinstance(self.r, sparse.csr_matrix):
+        mean_f = np.log10(
+            self.uncontaminated_source_mask.astype(float)
+            .multiply(self.flux[self.time_mask].mean(axis=0))
+            .multiply(1 / self.source_flux_estimates[:, None])
+            .data
+        )
 
         k = np.isfinite(mean_f)
         ra_cent = np.average(dx[k], weights=mean_f[k])
@@ -529,7 +522,8 @@ class Machine(object):
         # self.ddec = self.ddec * (u.deg)
         # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         # self.phi = np.arctan2(self.ddec, self.dra)
-        if self.nsources < 1000 and self.npixels < 10000:
+        # if self.nsources < 1000 and self.npixels < 10000:
+        if not do_sparse:
             self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
         else:
             # do this again for a dense field (e.g. FFI) is inefficient, is it worth
@@ -585,6 +579,8 @@ class Machine(object):
         self.uncontaminated_source_mask = self.source_mask.multiply(
             np.asarray(self.source_mask.sum(axis=0) == 1)[0]
         ).tocsr()
+        # have to remove leaked zeros
+        self.uncontaminated_source_mask.eliminate_zeros()
 
         # # reduce to good pixels
         # self.uncontaminated_pixel_mask = sparse.csr_matrix(
@@ -709,9 +705,10 @@ class Machine(object):
         ) = self._time_bin(npoints=self.n_time_points)
 
         self._whitened_time = time_original
+        # not necessary to take value from Quantity to do .multiply()
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
@@ -786,9 +783,10 @@ class Machine(object):
             flux_err_binned,
         ) = self._time_bin(npoints=self.n_time_points)
 
+        # not necessary to take value from Quantity to do .multiply()
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
@@ -878,7 +876,7 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask()
+        self._get_source_mask(do_sparse=True)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -912,8 +910,9 @@ class Machine(object):
         )
         mean_f_err.data = np.abs(mean_f_err.data)
 
-        phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
-        r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
+        # take value from Quantity is not necessary
+        phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
+        r_b = self.uncontaminated_source_mask.multiply(self.r).data
         mean_f_b = mean_f
 
         # save them for later plotting
@@ -1047,8 +1046,8 @@ class Machine(object):
         )
 
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
