@@ -143,8 +143,8 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
             # we use 50th percentile to get the centers and avoid 360-0 boundary
             ra_q = np.round(np.percentile(ra_in, 50), decimals=7)
             dec_q = np.round(np.percentile(dec_in, 50), decimals=7)
-            # +10/3600 to add a 10 arcsec to search radius, this is to get sources
-            # off sensor up to 10" distance from sensor border.
+            # HARDCODED: +10/3600 to add a 10 arcsec to search radius, this is to get
+            # sources off sensor up to 10" distance from sensor border.
             rad_q = np.round(
                 np.hypot(ra_in - ra_q, dec_in - dec_q).max() + 10 / 3600, decimals=7
             )
@@ -160,7 +160,7 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
             sources.append(result)
     #  concat results and remove duplicated sources
     sources = pd.concat(sources, axis=0).drop_duplicates(subset=["designation"])
-    return sources
+    return sources.reset_index(drop=True)
 
 
 def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15):
