@@ -773,9 +773,10 @@ class Machine(object):
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
 
-        f, fe = (self.flux[self.time_mask]).mean(axis=0), (
-            (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
-        ) / (self.nt)
+        f = (self.flux[self.time_mask]).mean(axis=0)
+        # f, fe = (self.flux[self.time_mask]).mean(axis=0), (
+        #     (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
+        # ) / (self.nt)
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)

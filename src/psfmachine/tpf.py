@@ -7,7 +7,6 @@ from astropy.time import Time
 from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
-from matplotlib import patches
 
 from .utils import get_gaia_sources
 from .machine import Machine
