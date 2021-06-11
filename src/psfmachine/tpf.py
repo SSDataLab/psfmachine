@@ -2,7 +2,6 @@
 import os
 import numpy as np
 import lightkurve as lk
-from scipy import sparse
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.io import fits
@@ -10,11 +9,10 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 from matplotlib import patches
 
-from .utils import get_gaia_sources, _make_A_polar
+from .utils import get_gaia_sources
 from .machine import Machine
 from .version import __version__
 
-from . import PACKAGEDIR
 
 __all__ = ["TPFMachine"]
 
@@ -93,7 +91,7 @@ class TPFMachine(Machine):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
     def fit_lightcurves(
-        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=True
+        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=False
     ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
@@ -360,7 +358,7 @@ class TPFMachine(Machine):
         # work in arcseconds
         self._get_mean_model()
         # remove background pixels and recreate mean model
-        self._remove_background_pixels()
+        self._update_source_mask_remove_bkg_pixels()
 
         if plot:
             return self.plot_shape_model()
@@ -375,7 +373,8 @@ class TPFMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "./kepler_shape_model_ch%02i_q%02i.fits" % (
+            output = "./%s_shape_model_ch%02i_q%02i.fits" % (
+                self.tpf_meta["mission"][0],
                 self.tpf_meta["channel"][0],
                 self.tpf_meta["quarter"][0],
             )
@@ -409,11 +408,9 @@ class TPFMachine(Machine):
             self.cut_r,
             "Radial distance to remove angle dependency",
         )
+        # spline degree is hardcoded in `_make_A_polar` implementation.
         table.header["spln_deg"] = (3, "Degree of the spline basis")
-        table.header["inc_inte"] = (
-            True,
-            "Include or not interception for spline basis",
-        )
+
         table.writeto(output, checksum=True, overwrite=True)
 
         return

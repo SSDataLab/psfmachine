@@ -853,13 +853,27 @@ class Machine(object):
         # We then build the same design matrix for all pixels with flux
         self._get_mean_model()
         # remove background pixels and recreate mean model
-        self._remove_background_pixels(flux_cut_off=flux_cut_off)
+        self._update_source_mask_remove_bkg_pixels(flux_cut_off=flux_cut_off)
 
         if plot:
             return self.plot_shape_model()
         return
 
-    def _remove_background_pixels(self, flux_cut_off=1):
+    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1):
+        """
+        Update the `source_mask` to remove pixels that do not contribuite to the PRF
+        shape.
+        First, re-estimate the source flux usign the precomputed `mean_model`.
+        This re-estimation is used to remove sources with bad prediction and update
+        the `source_mask` by removing background pixels that do not contribuite to
+        the PRF shape.
+        Pixels with normalized flux > `flux_cut_off` are kept.
+
+        Parameters
+        ----------
+        flux_cut_off : float
+            Lower limit for the normalized flux predicted from the mean model.
+        """
 
         # Re-estimate source flux
         # -----
