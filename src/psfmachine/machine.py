@@ -45,6 +45,7 @@ class Machine(object):
         time_radius=8,
         rmin=1,
         rmax=16,
+        do_sparse=False,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -157,10 +158,12 @@ class Machine(object):
         self.nsources = len(self.sources)
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
+        self.do_sparse = do_sparse
 
         # have to find where the non sparse implementation starts to break due to
         # the number of sources and pixels. For now we'll use 1000 sources and 10k pix.
-        if self.nsources < 1000 and self.npixels < 10000:
+        # if self.nsources < 1000 and self.npixels < 10000:
+        if not self.do_sparse:
             self._create_delta_arrays()
         else:
             self._create_delta_sparse_arrays()
@@ -324,7 +327,6 @@ class Machine(object):
         upper_flux_limit=2e5,
         lower_flux_limit=100,
         plot=False,
-        do_sparse=False,
     ):
         """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
 
@@ -522,8 +524,9 @@ class Machine(object):
         # self.ddec = self.ddec * (u.deg)
         # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         # self.phi = np.arctan2(self.ddec, self.dra)
+
         # if self.nsources < 1000 and self.npixels < 10000:
-        if not do_sparse:
+        if not self.do_sparse:
             self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
         else:
             # do this again for a dense field (e.g. FFI) is inefficient, is it worth
@@ -876,7 +879,7 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask(do_sparse=True)
+        self._get_source_mask()
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -1143,9 +1146,10 @@ class Machine(object):
                     "Please use `build_time_model` before fitting with velocity aberration."
                 )
 
+            # not necessary to take value from Quantity to do .multiply()
             dx, dy = (
-                self.source_mask.multiply(self.dra.value),
-                self.source_mask.multiply(self.ddec.value),
+                self.source_mask.multiply(self.dra),
+                self.source_mask.multiply(self.ddec),
             )
             dx = dx.data * u.deg.to(u.arcsecond)
             dy = dy.data * u.deg.to(u.arcsecond)
