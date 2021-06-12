@@ -154,12 +154,6 @@ def test_do_tiled_query():
 
 @pytest.mark.remote_data
 def test_load_save_shape_model():
-    # load sufficient TPFs to build a shape model
-    # the 10 TPFs in ./data/tpf_test* are not enough to fit a model, singular matrix
-    # error.
-    # tpfs_k16 = lk.search_targetpixelfile(
-    #     "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
-    # ).download_all(quality_bitmask=None)
     # instantiate a machine object
     machine = TPFMachine.from_TPFs(tpfs)
     # build a shape model from TPF data
