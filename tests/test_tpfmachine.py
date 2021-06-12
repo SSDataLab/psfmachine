@@ -40,14 +40,14 @@ def test_parse_TPFs():
         sat_mask,
     ) = _parse_TPFs(tpfs)
 
-    assert times.shape == (10,)
-    assert flux.shape == (10, 345)
-    assert flux_err.shape == (10, 345)
+    assert times.shape == (500,)
+    assert flux.shape == (500, 345)
+    assert flux_err.shape == (500, 345)
     assert unw.shape == (345,)
     assert column.shape == (345,)
     assert row.shape == (345,)
-    assert focus_mask.shape == (10,)
-    assert qual_mask.shape == (10,)
+    assert focus_mask.shape == (500,)
+    assert qual_mask.shape == (500,)
     assert sat_mask.shape == (345,)
 
     locs, ra, dec = _wcs_from_tpfs(tpfs)
@@ -77,8 +77,8 @@ def test_parse_TPFs():
     assert locs.shape == (2, 285)
     assert ra.shape == (285,)
     assert dec.shape == (285,)
-    assert flux.shape == (10, 285)
-    assert flux_err.shape == (10, 285)
+    assert flux.shape == (500, 285)
+    assert flux_err.shape == (500, 285)
 
     sources = _get_coord_and_query_gaia(tpfs)
 
@@ -157,11 +157,11 @@ def test_load_save_shape_model():
     # load sufficient TPFs to build a shape model
     # the 10 TPFs in ./data/tpf_test* are not enough to fit a model, singular matrix
     # error.
-    tpfs_k16 = lk.search_targetpixelfile(
-        "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
-    ).download_all(quality_bitmask=None)
+    # tpfs_k16 = lk.search_targetpixelfile(
+    #     "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
+    # ).download_all(quality_bitmask=None)
     # instantiate a machine object
-    machine = TPFMachine.from_TPFs(tpfs_k16)
+    machine = TPFMachine.from_TPFs(tpfs)
     # build a shape model from TPF data
     machine.build_shape_model(plot=False)
     # save object state
@@ -173,7 +173,7 @@ def test_load_save_shape_model():
     machine.save_shape_model(output=file_name)
 
     # instantiate a new machine object with same data but load shape model from disk
-    machine = TPFMachine.from_TPFs(tpfs_k16)
+    machine = TPFMachine.from_TPFs(tpfs)
     machine.load_shape_model(plot=False, input=file_name)
     new_state = machine.__dict__
 
@@ -185,3 +185,5 @@ def test_load_save_shape_model():
     assert org_state["cut_r"] == new_state["cut_r"]
     assert (org_state["psf_w"] == new_state["psf_w"]).all()
     assert ((org_state["mean_model"] == new_state["mean_model"]).data).all()
+    # remove shape model from disk
+    os.remove(file_name)
