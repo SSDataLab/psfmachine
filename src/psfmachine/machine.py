@@ -45,6 +45,7 @@ class Machine(object):
         time_radius=8,
         rmin=1,
         rmax=16,
+        cut_r=6,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -148,6 +149,7 @@ class Machine(object):
         self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
+        self.cut_r = cut_r
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -771,9 +773,10 @@ class Machine(object):
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
 
-        f, fe = (self.flux[self.time_mask]).mean(axis=0), (
-            (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
-        ) / (self.nt)
+        f = (self.flux[self.time_mask]).mean(axis=0)
+        # f, fe = (self.flux[self.time_mask]).mean(axis=0), (
+        #     (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
+        # ) / (self.nt)
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
@@ -813,6 +816,7 @@ class Machine(object):
             r_b.ravel(),
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
@@ -849,6 +853,28 @@ class Machine(object):
 
         # We then build the same design matrix for all pixels with flux
         self._get_mean_model()
+        # remove background pixels and recreate mean model
+        self._update_source_mask_remove_bkg_pixels(flux_cut_off=flux_cut_off)
+
+        if plot:
+            return self.plot_shape_model()
+        return
+
+    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1):
+        """
+        Update the `source_mask` to remove pixels that do not contribuite to the PRF
+        shape.
+        First, re-estimate the source flux usign the precomputed `mean_model`.
+        This re-estimation is used to remove sources with bad prediction and update
+        the `source_mask` by removing background pixels that do not contribuite to
+        the PRF shape.
+        Pixels with normalized flux > `flux_cut_off` are kept.
+
+        Parameters
+        ----------
+        flux_cut_off : float
+            Lower limit for the normalized flux predicted from the mean model.
+        """
 
         # Re-estimate source flux
         # -----
@@ -898,9 +924,6 @@ class Machine(object):
 
         # Recreate mean model!
         self._get_mean_model()
-        if plot:
-            return self.plot_shape_model()
-        return
 
     def _get_mean_model(self):
         """Convenience function to make the scene model"""
@@ -909,6 +932,7 @@ class Machine(object):
             self.source_mask.multiply(self.r).data,
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
@@ -965,6 +989,7 @@ class Machine(object):
             r,
             rmin=self.rmin,
             rmax=self.rmax,
+            cut_r=self.cut_r,
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )

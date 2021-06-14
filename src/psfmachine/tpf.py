@@ -1,13 +1,17 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
+import os
 import numpy as np
 import lightkurve as lk
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
+from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
 
 from .utils import get_gaia_sources
 from .machine import Machine
+from .version import __version__
+
 
 __all__ = ["TPFMachine"]
 
@@ -85,7 +89,9 @@ class TPFMachine(Machine):
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def fit_lightcurves(self, plot=False, fit_va=True, iter_negative=True):
+    def fit_lightcurves(
+        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=False
+    ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
 
@@ -108,8 +114,11 @@ class TPFMachine(Machine):
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
         """
-
-        self.build_shape_model(plot=plot)
+        # use PRF model from FFI or create one with TPF data
+        if load_shape_model:
+            self.load_shape_model(plot=plot)
+        else:
+            self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
@@ -283,6 +292,128 @@ class TPFMachine(Machine):
                 edgecolor="k",
             )
 
+    def load_shape_model(self, input=None, plot=False):
+        """
+        Loads a PRF shape model from a FITs file.
+        Not implemented: By default this function will load PRF shapes computed from
+        FFI data (Kepler, K2, or TESS).
+
+        Parameters
+        ----------
+        input : string
+            Name of the file containing the shape parameters and weights. The file
+            has to be FITS format.
+        plot : boolean
+            Plot or not the mean model.
+        """
+        # By default we will load PRF model from FFI when this are ok.
+        # for now this function only works when a file is provided
+        if input is None:
+            raise NotImplementedError(
+                "Loading default model not implemented. Please provide input file."
+            )
+        # check if file exists and is the right format
+        if not os.path.isfile(input):
+            raise FileNotFoundError("No shape file: %s" % input)
+        if not input.endswith(".fits"):
+            # should use a custom exception for wrong file format
+            raise ValueError("File format not suported. Please provide a FITS file.")
+
+        # create source mask and uncontaminated pixel mask
+        self._get_source_mask()
+        self._get_uncontaminated_pixel_mask()
+
+        # open file
+        hdu = fits.open(input)
+        # check if shape parameters are for correct mission, quarter, and channel
+        if hdu[1].header["mission"] != self.tpf_meta["mission"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for mission '%s',"
+                % (hdu[1].header["mission"])
+                + " it should be '%s.''" % (self.tpf_meta["mission"][0])
+            )
+        if hdu[1].header["quarter"] != self.tpf_meta["quarter"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for quarter %i,"
+                % (hdu[1].header["quarter"])
+                + " it should be %i." % (self.tpf_meta["quarter"][0])
+            )
+        if hdu[1].header["channel"] != self.tpf_meta["channel"][0]:
+            raise ValueError(
+                "Wrong shape model: file is for channel %i,"
+                % (hdu[1].header["channel"])
+                + " it should be %i." % (self.tpf_meta["channel"][0])
+            )
+        # load model hyperparameters and weights
+        self.n_r_knots = hdu[1].header["n_rknots"]
+        self.n_phi_knots = hdu[1].header["n_pknots"]
+        self.rmin = hdu[1].header["rmin"]
+        self.rmax = hdu[1].header["rmax"]
+        self.cut_r = hdu[1].header["cut_r"]
+        self.psf_w = hdu[1].data["psf_w"]
+        del hdu
+
+        # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
+        # work in arcseconds
+        self._get_mean_model()
+        # remove background pixels and recreate mean model
+        self._update_source_mask_remove_bkg_pixels()
+
+        if plot:
+            return self.plot_shape_model()
+        return
+
+    def save_shape_model(self, output=None):
+        """Saves the weights of a PRF fit to a file
+        Parameters
+        ----------
+        output : str, None
+            Output file name. If None, one will be generated.
+        """
+        # asign a file name
+        if output is None:
+            output = "./%s_shape_model_ch%02i_q%02i.fits" % (
+                self.tpf_meta["mission"][0],
+                self.tpf_meta["channel"][0],
+                self.tpf_meta["quarter"][0],
+            )
+
+        # create data structure (DataFrame) to save the model params
+        table = fits.BinTableHDU.from_columns(
+            [fits.Column(name="psf_w", array=self.psf_w, format="D")]
+        )
+        # include metadata and descriptions
+        table.header["object"] = ("PRF shape", "PRF shape parameters")
+        table.header["datatype"] = ("TPF stack", "Type of data used to fit shape model")
+        table.header["origin"] = ("PSFmachine.TPFMachine", "Software of origin")
+        table.header["version"] = (__version__, "Software version")
+        table.header["mission"] = (self.tpf_meta["mission"][0], "Mission name")
+        table.header["quarter"] = (
+            self.tpf_meta["quarter"][0],
+            "Quarter of observations",
+        )
+        table.header["channel"] = (self.tpf_meta["channel"][0], "Channel output")
+        table.header["n_rknots"] = (
+            self.n_r_knots,
+            "Number of knots for spline basis in radial axis",
+        )
+        table.header["n_pknots"] = (
+            self.n_phi_knots,
+            "Number of knots for spline basis in angle axis",
+        )
+        table.header["rmin"] = (self.rmin, "Minimum value for knot spacing")
+        table.header["rmax"] = (self.rmax, "Maximum value for knot spacing")
+        table.header["cut_r"] = (
+            self.cut_r,
+            "Radial distance to remove angle dependency",
+        )
+        # spline degree is hardcoded in `_make_A_polar` implementation.
+        table.header["spln_deg"] = (3, "Degree of the spline basis")
+
+        table.writeto(output, checksum=True, overwrite=True)
+
+        return
+
     @staticmethod
     def from_TPFs(
         tpfs,
@@ -343,9 +474,9 @@ class TPFMachine(Machine):
 
         tpf_meta = {k: m for m, k in zip(meta, attrs)}
         if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.header["kepmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["kepmag"] for tpf in tpfs]
         elif isinstance(tpfs[0], lk.TessTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.header["tmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["tmag"] for tpf in tpfs]
         else:
             raise ValueError("TPFs not understood")
 
