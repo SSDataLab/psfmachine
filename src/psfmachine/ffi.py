@@ -44,6 +44,8 @@ class FFIMachine(Machine):
             kwargs["row"].ravel(),
             n_r_knots=5,
             n_phi_knots=15,
+            cut_r=6,
+            do_sparse=True,
         )
         self.channel = channel
         self.quarter = quarter
@@ -118,12 +120,110 @@ class FFIMachine(Machine):
             bkg_estimator=MedianBackground(),
             interpolator=BkgZoomInterpolator(order=3),
         )
-        self.flux_2d -= model
-        raise NotImplementedError
+        self.flux_2d -= model.background
+        self.flux = self.flux_2d.ravel()[None, :]
+        return
 
-    def _mask_pixels(self):
-        """kepler-apertures probably needed some bespoke masking functions?"""
-        raise NotImplementedError
+    def _saturated_pixels_mask(self, saturation_limit=1.5e5, tolerance=3):
+        """
+        Finds and removes saturated pixels, including bleed columns.
+
+        Parameters
+        ----------
+        saturation_limit : foat
+            Saturation limit at which pixels are removed.
+        tolerance : float
+            Number of pixels masked around the saturated pixel, remove bleeding.
+
+        Returns
+        -------
+        mask : numpy.ndarray
+            Boolean mask with rejected pixels
+        """
+        # Which pixels are saturated
+        saturated = np.where((self.flux > saturation_limit).astype(float))[0]
+
+        # Find bad pixels, including allowence for a bleed column.
+        bad_pixels = np.vstack(
+            [
+                np.hstack(
+                    [
+                        self.column[saturated] + idx
+                        for idx in np.arange(-tolerance, tolerance)
+                    ]
+                ),
+                np.hstack(
+                    [self.row[saturated] for idx in np.arange(-tolerance, tolerance)]
+                ),
+            ]
+        ).T
+        # Find unique row/column combinations
+        bad_pixels = bad_pixels[
+            np.unique(["".join(s) for s in bad_pixels.astype(str)], return_index=True)[
+                1
+            ]
+        ]
+        # Build a mask of saturated pixels
+        m = np.zeros(len(self.column), bool)
+        for p in bad_pixels:
+            m |= (self.column == p[0]) & (self.row == p[1])
+        return m
+
+    def _bright_sources_mask(self, magnitude_limit=10, tolerance=30):
+        """
+        Finds and mask pixels with halos produced by bright stars (<10 mag).
+
+        Parameters
+        ----------
+        magnitude_limit : foat
+            Magnitude limit at which bright sources are identified.
+        tolerance : float
+            Radius limit (in pixels) at which pixels around bright sources are masked.
+
+        Returns
+        -------
+        mask : numpy.ndarray
+            Boolean mask with rejected pixels
+        """
+        bright_mask = self.sources["phot_g_mean_mag"] <= magnitude_limit
+
+        mask = [
+            np.hypot(self.column - s.col, self.row - s.row) < tolerance
+            for _, s in self.sources[bright_mask].iterrows()
+        ]
+        mask = np.array(mask).sum(axis=0) > 0
+
+        return mask
+
+    def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=10):
+        """
+        Mask saturated pixels and halo/difraction from bright sources.
+
+        Parameters
+        ----------
+        pixel_saturation_limit: float
+            Flux value at which pixels saturate.
+        magnitude_bright_limit: float
+            Magnitude limit for sources at which pixels are masked.
+        """
+
+        # mask saturated pixels.
+        self.non_sat_pixel_mask = ~self._saturated_pixels_mask(
+            saturation_limit=pixel_saturation_limit
+        )
+        print((~self.non_sat_pixel_mask).sum())
+        self.non_bright_source_mask = ~self._bright_sources_mask(
+            magnitude_limit=magnitude_bright_limit
+        )
+        good_pixels = self.non_sat_pixel_mask | self.non_bright_source_mask
+
+        self.column = self.column[good_pixels]
+        self.row = self.row[good_pixels]
+        self.ra = self.ra[good_pixels]
+        self.dec = self.dec[good_pixels]
+        self.flux = self.flux[:, good_pixels]
+        self.flux_err = self.flux_err[:, good_pixels]
+        return
 
     def plot_image(self, ax=None, sources=False):
         """
@@ -170,6 +270,50 @@ class FFIMachine(Machine):
             )
         return ax
 
+    def plot_pixel_masks(self, ax=None):
+        """
+        Function to plot the mask used to reject saturated and bright pixels
+
+        Parameters
+        ----------
+        ax : matplotlib.axes
+            Matlotlib axis can be provided, if not one will be created and returned
+
+        Returns
+        -------
+        ax : matplotlib.axes
+            Matlotlib axis with the figure
+        """
+        row_2d, col_2d = np.mgrid[: self.flux_2d.shape[0], : self.flux_2d.shape[1]]
+
+        if ax is None:
+            fig, ax = plt.subplots(1, figsize=(10, 10))
+        if hasattr(self, "non_sat_pixel_mask"):
+            print(col_2d.ravel()[~self.non_sat_pixel_mask].shape)
+            ax.scatter(
+                col_2d.ravel()[~self.non_sat_pixel_mask],
+                row_2d.ravel()[~self.non_sat_pixel_mask],
+                c="r",
+                marker=".",
+                label="saturated pixels",
+            )
+        if hasattr(self, "non_bright_source_mask"):
+            print(col_2d.ravel()[~self.non_bright_source_mask].shape)
+            ax.scatter(
+                col_2d.ravel()[~self.non_bright_source_mask],
+                row_2d.ravel()[~self.non_bright_source_mask],
+                c="y",
+                marker=".",
+                label="bright mask",
+            )
+        ax.legend(loc="best")
+
+        ax.set_xlabel("Column Pixel Number")
+        ax.set_ylabel("Row Pixel Number")
+        ax.set_title("Pixel Mask")
+
+        return ax
+
 
 def _load_file(fname, channel=1):
     """Helper function to load file?"""
@@ -212,6 +356,7 @@ def _load_file(fname, channel=1):
     row_2d -= r_min
     ra_2d = ra.reshape(flux_2d.shape)
     dec_2d = dec.reshape(flux_2d.shape)
+    del hdr, img, err, ra, dec
 
     return (wcs, time, quarter, flux_2d, flux_err_2d, ra_2d, dec_2d, col_2d, row_2d)
 
