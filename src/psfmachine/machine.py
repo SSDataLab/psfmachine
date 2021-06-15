@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 import astropy.units as u
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
@@ -217,7 +217,7 @@ class Machine(object):
         dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
         dra, ddec, sparse_mask = [], [], []
-        for i in range(len(self.sources)):
+        for i in tqdm(range(len(self.sources))):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
             ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
             box_mask = sparse.csr_matrix(
