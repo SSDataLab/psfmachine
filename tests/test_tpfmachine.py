@@ -1,6 +1,7 @@
 """
 This contains a collection of functions to test the Machine API
 """
+import os
 import numpy as np
 import pandas as pd
 import pytest
@@ -149,3 +150,38 @@ def test_do_tiled_query():
     assert boundary_sources.shape == (85, 11)
     # check that no result objects are outside the boundary for ra
     assert not ((boundary_sources.ra < 359) & (boundary_sources.ra > 1)).all()
+
+
+@pytest.mark.remote_data
+def test_load_save_shape_model():
+    # load sufficient TPFs to build a shape model
+    # the 10 TPFs in ./data/tpf_test* are not enough to fit a model, singular matrix
+    # error.
+    tpfs_k16 = lk.search_targetpixelfile(
+        "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
+    ).download_all(quality_bitmask=None)
+    # instantiate a machine object
+    machine = TPFMachine.from_TPFs(tpfs_k16)
+    # build a shape model from TPF data
+    machine.build_shape_model(plot=False)
+    # save object state
+    org_state = machine.__dict__
+    # save shape model to disk
+    file_name = "%s/data/test_shape_model.fits" % os.path.abspath(
+        os.path.dirname(__file__)
+    )
+    machine.save_shape_model(output=file_name)
+
+    # instantiate a new machine object with same data but load shape model from disk
+    machine = TPFMachine.from_TPFs(tpfs_k16)
+    machine.load_shape_model(plot=False, input=file_name)
+    new_state = machine.__dict__
+
+    # check that critical attributes match
+    assert org_state["n_r_knots"] == new_state["n_r_knots"]
+    assert org_state["n_phi_knots"] == new_state["n_phi_knots"]
+    assert org_state["rmin"] == new_state["rmin"]
+    assert org_state["rmax"] == new_state["rmax"]
+    assert org_state["cut_r"] == new_state["cut_r"]
+    assert (org_state["psf_w"] == new_state["psf_w"]).all()
+    assert ((org_state["mean_model"] == new_state["mean_model"]).data).all()
