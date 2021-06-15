@@ -66,21 +66,24 @@ class TPFMachine(Machine):
         self.tpfs = tpfs
 
         # Cut out 1.5 days after every data gap
-        dt = np.hstack([10, np.diff(time)])
-        focus_mask = ~np.in1d(
-            np.arange(len(time)),
-            np.hstack(
-                [
-                    np.arange(t, t + int(1.5 / np.median(dt)))
-                    for t in np.where(dt > (np.median(dt) * 5))[0]
-                ]
-            ),
-        )
-        if time_mask is None:
+        # dt = np.hstack([10, np.diff(time)])
+        # focus_mask = ~np.in1d(
+        #     np.arange(len(time)),
+        #     np.hstack(
+        #         [
+        #             np.arange(t, t + int(1.5 / np.median(dt)))
+        #             for t in np.where(dt > (np.median(dt) * 5))[0]
+        #         ]
+        #     ),
+        # )
+        if time_mask is None and focus_mask is None:
+            self.time_mask = np.ones(len(self.time), bool)
+        elif time_mask is None and not focus_mask is None:
             self.time_mask = focus_mask
+        elif not time_mask is None and focus_mask is None:
+            self.time_mask = time_mask
         else:
             self.time_mask = time_mask & focus_mask
-
         self.pix2obs = pix2obs
         #        self.pos_corr1 = pos_corr1
         #        self.pos_corr2 = pos_corr2
@@ -420,6 +423,7 @@ class TPFMachine(Machine):
         magnitude_limit=18,
         dr=2,
         time_mask=None,
+        do_focus_mask=True,
         query_ra=None,
         query_dec=None,
         query_rad=None,
@@ -502,6 +506,7 @@ class TPFMachine(Machine):
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
+        focus_mask = focus_mask if do_focus_mask else None
 
         # convert to RA Dec
         locs, ra, dec = _wcs_from_tpfs(tpfs)
