@@ -943,9 +943,8 @@ def _clean_source_list(sources, ra, dec):
 
     # Keep track of sources that we removed
     sources.loc[:, "clean_flag"] = 0
-    sources.loc[:, "clean_flag"][~inside] = 2 ** 0  # outside TPF
-    # sources.loc[:, "clean_flag"][unresolved] += 2 ** 1  # close contaminant
-
+    # to avoid pandas SettingWithCopyWarning
+    sources.clean_flag.where(inside, 2 ** 0, inplace=True)
     # combine 2 source masks
     clean = sources.clean_flag == 0
     removed_sources = sources[~clean].reset_index(drop=True)
