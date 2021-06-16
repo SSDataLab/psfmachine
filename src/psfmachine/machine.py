@@ -178,7 +178,15 @@ class Machine(object):
         return f"Machine (N sources, N times, N pixels): {self.shape}"
 
     def _create_delta_arrays(self, centroid_offset=[0, 0]):
-        """Creates dra, ddec, r and phi arrays as numpy.ndarrays"""
+        """
+        Creates dra, ddec, r and phi numpy ndarrays .
+
+        Parameters
+        ----------
+        centroid_offset : list
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
+            Default is [0, 0].
+        """
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
@@ -211,7 +219,7 @@ class Machine(object):
         dist_lim : float
             Distance limit (in arcsecds) at which pixels are keep.
         centroid_offset : list
-            Centroid offset for [ra, dec] to be included dra and ddec computation.
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
             Default is [0, 0].
         """
         dist_lim /= 3600
