@@ -65,17 +65,7 @@ class TPFMachine(Machine):
         )
         self.tpfs = tpfs
 
-        # Cut out 1.5 days after every data gap
-        # dt = np.hstack([10, np.diff(time)])
-        # focus_mask = ~np.in1d(
-        #     np.arange(len(time)),
-        #     np.hstack(
-        #         [
-        #             np.arange(t, t + int(1.5 / np.median(dt)))
-        #             for t in np.where(dt > (np.median(dt) * 5))[0]
-        #         ]
-        #     ),
-        # )
+        # combine focus mask and time mask if they exist
         if time_mask is None and focus_mask is None:
             self.time_mask = np.ones(len(self.time), bool)
         elif time_mask is None and focus_mask is not None:
@@ -631,6 +621,7 @@ def _parse_TPFs(tpfs, **kwargs):
             tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
         )
         qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
+        # Cut out 1.5 days after every data gap
         dt = np.hstack([10, np.diff(time)])
         focus_mask = ~np.in1d(
             np.arange(len(time)),
