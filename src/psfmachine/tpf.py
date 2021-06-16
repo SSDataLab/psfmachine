@@ -78,9 +78,9 @@ class TPFMachine(Machine):
         # )
         if time_mask is None and focus_mask is None:
             self.time_mask = np.ones(len(self.time), bool)
-        elif time_mask is None and not focus_mask is None:
+        elif time_mask is None and focus_mask is not None:
             self.time_mask = focus_mask
-        elif not time_mask is None and focus_mask is None:
+        elif time_mask is not None and focus_mask is None:
             self.time_mask = time_mask
         else:
             self.time_mask = time_mask & focus_mask
