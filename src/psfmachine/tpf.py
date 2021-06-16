@@ -496,6 +496,7 @@ class TPFMachine(Machine):
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
+        # use or not the focus mask
         focus_mask = focus_mask if do_focus_mask else None
 
         # convert to RA Dec
