@@ -435,6 +435,25 @@ class TPFMachine(Machine):
         ----------
         tpfs: lightkurve TargetPixelFileCollection
             Collection of Target Pixel files
+        magnitude_limit : float
+            Limiting magnitude to query Gaia catalog.
+        dr : int
+            Gaia data release to be use, default is 2, options are DR2 and EDR3
+        time_mask : boolean array
+            Mask to be applied to discard cadences if needed.
+        apply_focus_mask : boolean
+            Mask or not cadances near observation gaps to remove focus change.
+        query_ra : numpy.array
+            Array of RA to query Gaia catalog. Default is `None` and will use the
+            coordinate centers of each TPF.
+        query_dec : numpy.array
+            Array of Dec to query Gaia catalog. Default is `None` and will use the
+            coordinate centers of each TPF.
+        query_rad : numpy.array
+            Array of radius to query Gaia catalog. Default is `None` and will use
+            the coordinate centers of each TPF.
+        **kwargs
+            Keyword arguments to be passed to `TPFMachine`.
 
         Returns
         -------
