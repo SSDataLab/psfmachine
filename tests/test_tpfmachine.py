@@ -155,7 +155,7 @@ def test_do_tiled_query():
 @pytest.mark.remote_data
 def test_load_save_shape_model():
     # instantiate a machine object
-    machine = TPFMachine.from_TPFs(tpfs, do_focus_mask=False)
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     # build a shape model from TPF data
     machine.build_shape_model(plot=False)
     # save object state
@@ -167,7 +167,7 @@ def test_load_save_shape_model():
     machine.save_shape_model(output=file_name)
 
     # instantiate a new machine object with same data but load shape model from disk
-    machine = TPFMachine.from_TPFs(tpfs, do_focus_mask=False)
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     machine.load_shape_model(plot=False, input=file_name)
     new_state = machine.__dict__
 
