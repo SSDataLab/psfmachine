@@ -7,7 +7,7 @@ import pytest
 import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
 
-from psfmachine import Machine, TPFMachine
+from psfmachine import TPFMachine
 
 tpfs = []
 for idx in range(10):
