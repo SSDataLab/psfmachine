@@ -167,6 +167,7 @@ class FFIMachine(Machine):
         ]
         # Build a mask of saturated pixels
         m = np.zeros(len(self.column), bool)
+        # this works for FFIs but is slow
         for p in bad_pixels:
             m |= (self.column == p[0]) & (self.row == p[1])
 
@@ -293,21 +294,21 @@ class FFIMachine(Machine):
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))
         if hasattr(self, "non_bright_source_mask"):
-            print(col_2d.ravel()[~self.non_bright_source_mask].shape)
             ax.scatter(
                 col_2d.ravel()[~self.non_bright_source_mask],
                 row_2d.ravel()[~self.non_bright_source_mask],
                 c="y",
-                marker=".",
+                marker="s",
+                s=1,
                 label="bright mask",
             )
         if hasattr(self, "non_sat_pixel_mask"):
-            print(col_2d.ravel()[~self.non_sat_pixel_mask].shape)
             ax.scatter(
                 col_2d.ravel()[~self.non_sat_pixel_mask],
                 row_2d.ravel()[~self.non_sat_pixel_mask],
                 c="r",
-                marker=".",
+                marker="s",
+                s=1,
                 label="saturated pixels",
             )
         ax.legend(loc="best")
