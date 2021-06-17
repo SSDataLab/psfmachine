@@ -222,6 +222,7 @@ class Machine(object):
             Centroid offset for [ra, dec] to be included in dra and ddec computation.
             Default is [0, 0].
         """
+        # convert to degrees
         dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
         dra, ddec, sparse_mask = [], [], []
