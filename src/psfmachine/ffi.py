@@ -141,8 +141,10 @@ class FFIMachine(Machine):
             Boolean mask with rejected pixels
         """
         # Which pixels are saturated
-        saturated = np.where((self.flux > saturation_limit).astype(float))[0]
-
+        # this nanpercentile takes forever to compute for a single cadance ffi
+        # saturated = np.nanpercentile(self.flux, 99, axis=0)
+        # assume we'll use ffi for 1 single cadence
+        saturated = np.where(self.flux > saturation_limit)[1]
         # Find bad pixels, including allowence for a bleed column.
         bad_pixels = np.vstack(
             [
@@ -167,6 +169,8 @@ class FFIMachine(Machine):
         m = np.zeros(len(self.column), bool)
         for p in bad_pixels:
             m |= (self.column == p[0]) & (self.row == p[1])
+
+        saturated = (self.flux > saturation_limit)[0]
         return m
 
     def _bright_sources_mask(self, magnitude_limit=10, tolerance=30):
@@ -211,11 +215,10 @@ class FFIMachine(Machine):
         self.non_sat_pixel_mask = ~self._saturated_pixels_mask(
             saturation_limit=pixel_saturation_limit
         )
-        print((~self.non_sat_pixel_mask).sum())
         self.non_bright_source_mask = ~self._bright_sources_mask(
             magnitude_limit=magnitude_bright_limit
         )
-        good_pixels = self.non_sat_pixel_mask | self.non_bright_source_mask
+        good_pixels = self.non_sat_pixel_mask & self.non_bright_source_mask
 
         self.column = self.column[good_pixels]
         self.row = self.row[good_pixels]
@@ -285,18 +288,10 @@ class FFIMachine(Machine):
             Matlotlib axis with the figure
         """
         row_2d, col_2d = np.mgrid[: self.flux_2d.shape[0], : self.flux_2d.shape[1]]
+        print(row_2d.shape)
 
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))
-        if hasattr(self, "non_sat_pixel_mask"):
-            print(col_2d.ravel()[~self.non_sat_pixel_mask].shape)
-            ax.scatter(
-                col_2d.ravel()[~self.non_sat_pixel_mask],
-                row_2d.ravel()[~self.non_sat_pixel_mask],
-                c="r",
-                marker=".",
-                label="saturated pixels",
-            )
         if hasattr(self, "non_bright_source_mask"):
             print(col_2d.ravel()[~self.non_bright_source_mask].shape)
             ax.scatter(
@@ -305,6 +300,15 @@ class FFIMachine(Machine):
                 c="y",
                 marker=".",
                 label="bright mask",
+            )
+        if hasattr(self, "non_sat_pixel_mask"):
+            print(col_2d.ravel()[~self.non_sat_pixel_mask].shape)
+            ax.scatter(
+                col_2d.ravel()[~self.non_sat_pixel_mask],
+                row_2d.ravel()[~self.non_sat_pixel_mask],
+                c="r",
+                marker=".",
+                label="saturated pixels",
             )
         ax.legend(loc="best")
 
