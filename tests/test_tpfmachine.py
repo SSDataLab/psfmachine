@@ -154,14 +154,8 @@ def test_do_tiled_query():
 
 @pytest.mark.remote_data
 def test_load_save_shape_model():
-    # load sufficient TPFs to build a shape model
-    # the 10 TPFs in ./data/tpf_test* are not enough to fit a model, singular matrix
-    # error.
-    tpfs_k16 = lk.search_targetpixelfile(
-        "Kepler-16", mission="Kepler", quarter=12, radius=200, limit=10, cadence="long"
-    ).download_all(quality_bitmask=None)
     # instantiate a machine object
-    machine = TPFMachine.from_TPFs(tpfs_k16)
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     # build a shape model from TPF data
     machine.build_shape_model(plot=False)
     # save object state
@@ -173,7 +167,7 @@ def test_load_save_shape_model():
     machine.save_shape_model(output=file_name)
 
     # instantiate a new machine object with same data but load shape model from disk
-    machine = TPFMachine.from_TPFs(tpfs_k16)
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     machine.load_shape_model(plot=False, input=file_name)
     new_state = machine.__dict__
 
@@ -185,3 +179,5 @@ def test_load_save_shape_model():
     assert org_state["cut_r"] == new_state["cut_r"]
     assert (org_state["psf_w"] == new_state["psf_w"]).all()
     assert ((org_state["mean_model"] == new_state["mean_model"]).data).all()
+    # remove shape model from disk
+    os.remove(file_name)
