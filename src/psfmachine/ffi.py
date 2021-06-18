@@ -33,15 +33,28 @@ class FFIMachine(Machine):
 
     # Probably don't need a very new init function over Machine.
     def __init__(self, channel=1, quarter=5, wcs=None, **kwargs):
+
+        self.column = kwargs["column"].ravel()
+        self.row = kwargs["row"].ravel()
+        self.ra = kwargs["ra"].ravel()
+        self.dec = kwargs["dec"].ravel()
+        self.flux_2d = kwargs["flux"]
+        self.flux = np.atleast_2d(kwargs["flux"].ravel())
+        self.flux_err = np.atleast_2d(kwargs["flux_err"].ravel())
+        self.sources = kwargs["sources"]
+
+        self._remove_background()
+        self._mask_pixels()
+
         super().__init__(
             kwargs["time"],
-            np.atleast_2d(kwargs["flux"].ravel()),
-            np.atleast_2d(kwargs["flux_err"].ravel()),
-            kwargs["ra"].ravel(),
-            kwargs["dec"].ravel(),
-            kwargs["sources"],
-            kwargs["column"].ravel(),
-            kwargs["row"].ravel(),
+            self.flux,
+            self.flux_err,
+            self.ra,
+            self.dec,
+            self.sources,
+            self.column,
+            self.row,
             n_r_knots=5,
             n_phi_knots=15,
             cut_r=6,
@@ -65,6 +78,7 @@ class FFIMachine(Machine):
         wcs, time, quarter, flux, flux_err, ra, dec, column, row = _load_file(
             fname, channel=channel
         )
+
         sources = _get_sources(
             ra, dec, wcs, magnitude_limit=18, epoch=time.jyear, ngrid=(5, 5), dr=3
         )
