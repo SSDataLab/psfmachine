@@ -366,16 +366,15 @@ class Machine(object):
         #     axis=0
         # ) ** 0.5 / self.time_mask.sum()
 
-        # First we make a guess that each source has exactly the gaia flux
-        source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
-            :, None
-        ] * np.ones((self.nsources, self.npixels))
-
         # Mask out sources that are above the flux limit, and pixels above the radius limit
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
         # temp_mask for the sparse r case should also be a sparse matrix. Then its
         # applied to r, mean_flux, and source_flux_estimates.
         if not isinstance(r, sparse.csr_matrix):
+            # First we make a guess that each source has exactly the gaia flux
+            source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
+                :, None
+            ] * np.ones((self.nsources, self.npixels))
             temp_mask = (r < source_rad[:, None]) & (
                 source_flux_estimates < upper_flux_limit
             )
@@ -394,9 +393,12 @@ class Machine(object):
             # flux estimates
             mf = np.log10(source_flux_estimates[temp_mask])
         else:
+            source_flux_estimates = self.r.astype(bool).multiply(
+                self.source_flux_estimates[:, None]
+            )
             temp_mask = sparse_lessthan(r, source_rad)
             temp_mask = temp_mask.multiply(
-                (source_flux_estimates < upper_flux_limit)
+                sparse_lessthan(source_flux_estimates, upper_flux_limit)
             ).tocsr()
             temp_mask = temp_mask.multiply(temp_mask.sum(axis=0) == 1).tocsr()
             temp_mask.eliminate_zeros()
@@ -415,13 +417,13 @@ class Machine(object):
             [
                 r_temp_mask ** 0,
                 r_temp_mask,
-                # r_temp_mask ** 2,
+                r_temp_mask ** 2,
                 r_temp_mask ** 0 * mf,
                 r_temp_mask * mf,
-                # r_temp_mask ** 2 * mf,
-                # r_temp_mask ** 0 * mf ** 2,
-                # r_temp_mask * mf ** 2,
-                # r_temp_mask ** 2 * mf ** 2,
+                r_temp_mask ** 2 * mf,
+                r_temp_mask ** 0 * mf ** 2,
+                r_temp_mask * mf ** 2,
+                r_temp_mask ** 2 * mf ** 2,
             ]
         ).T
 
@@ -436,8 +438,8 @@ class Machine(object):
 
         # Now find the radius and source flux at which the model reaches the flux limit
         test_f = np.linspace(
-            np.log10(source_flux_estimates.min()),
-            np.log10(source_flux_estimates.max()),
+            np.log10(self.source_flux_estimates.min()),
+            np.log10(self.source_flux_estimates.max()),
             100,
         )
         test_r = np.arange(lower_radius_limit, upper_radius_limit, 0.25)
@@ -448,13 +450,13 @@ class Machine(object):
                 [
                     test_r2.ravel() ** 0,
                     test_r2.ravel(),
-                    # test_r2.ravel() ** 2,
+                    test_r2.ravel() ** 2,
                     test_r2.ravel() ** 0 * test_f2.ravel(),
                     test_r2.ravel() * test_f2.ravel(),
-                    # test_r2.ravel() ** 2 * test_f2.ravel(),
-                    # test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
-                    # test_r2.ravel() * test_f2.ravel() ** 2,
-                    # test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
+                    test_r2.ravel() ** 2 * test_f2.ravel(),
+                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
+                    test_r2.ravel() * test_f2.ravel() ** 2,
+                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
                 ]
             )
             .T.dot(w)
@@ -467,7 +469,7 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 1), np.log10(source_flux_estimates[:, 0])
+            np.polyfit(test_f[ok], l[ok], 1), np.log10(self.source_flux_estimates)
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -510,22 +512,6 @@ class Machine(object):
         k = np.isfinite(mean_f)
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
-
-        # the following is repeated code, we could just call `_create_delta_arrays()`
-        # and pass ra_cent, dec_cent
-        # self.dra, self.ddec = np.asarray(
-        #     [
-        #         [
-        #             self.ra - self.sources["ra"][idx] - ra_cent,
-        #             self.dec - self.sources["dec"][idx] - dec_cent,
-        #         ]
-        #         for idx in range(len(self.sources))
-        #     ]
-        # ).transpose(1, 0, 2)
-        # self.dra = self.dra * (u.deg)
-        # self.ddec = self.ddec * (u.deg)
-        # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        # self.phi = np.arctan2(self.ddec, self.dra)
 
         # if self.nsources < 1000 and self.npixels < 10000:
         if not self.do_sparse:
@@ -865,7 +851,7 @@ class Machine(object):
         cbar.set_label("Normalized Flux")
         return fig
 
-    def build_shape_model(self, plot=False, flux_cut_off=1):
+    def build_shape_model(self, plot=False, flux_cut_off=1, **kwargs):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
         fitting each source pixels to estimate its PSF photometry
@@ -874,6 +860,8 @@ class Machine(object):
         ----------
         flux_cut_off: float
             the flux in COUNTS at which to stop evaluating the model!
+        **kwargs
+            Keyword arguments to be passed to `_get_source_mask()`
         """
 
         # gaia estimate flux values per pixel to be used as flux priors
@@ -881,7 +869,7 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask()
+        self._get_source_mask(**kwargs)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -1255,9 +1243,12 @@ class Machine(object):
 def sparse_lessthan(arr, limit):
     nonz_idx = arr.nonzero()
     # apply condition for each row
-    mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
-    # flatten mask
-    mask = [x for sub in mask for x in sub]
+    if isinstance(limit, np.ndarray) and limit.shape[0] == arr.shape[0]:
+        mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
+        # flatten mask
+        mask = [x for sub in mask for x in sub]
+    else:
+        mask = arr.data < limit
     # reconstruct sparse array
     temp_mask = sparse.csr_matrix(
         (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
