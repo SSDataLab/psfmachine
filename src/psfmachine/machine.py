@@ -260,7 +260,7 @@ class Machine(object):
             shape=sparse_mask.shape,
             dtype=float,
         )
-        del r_vals, phi_vals, nnz_inds
+        del r_vals, phi_vals, nnz_inds, sparse_mask
         return
 
     @staticmethod
