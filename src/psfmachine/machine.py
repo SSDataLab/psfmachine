@@ -417,13 +417,13 @@ class Machine(object):
             [
                 r_temp_mask ** 0,
                 r_temp_mask,
-                r_temp_mask ** 2,
+                # r_temp_mask ** 2,
                 r_temp_mask ** 0 * mf,
                 r_temp_mask * mf,
-                r_temp_mask ** 2 * mf,
-                r_temp_mask ** 0 * mf ** 2,
-                r_temp_mask * mf ** 2,
-                r_temp_mask ** 2 * mf ** 2,
+                # r_temp_mask ** 2 * mf,
+                # r_temp_mask ** 0 * mf ** 2,
+                # r_temp_mask * mf ** 2,
+                # r_temp_mask ** 2 * mf ** 2,
             ]
         ).T
 
@@ -450,13 +450,13 @@ class Machine(object):
                 [
                     test_r2.ravel() ** 0,
                     test_r2.ravel(),
-                    test_r2.ravel() ** 2,
+                    # test_r2.ravel() ** 2,
                     test_r2.ravel() ** 0 * test_f2.ravel(),
                     test_r2.ravel() * test_f2.ravel(),
-                    test_r2.ravel() ** 2 * test_f2.ravel(),
-                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
-                    test_r2.ravel() * test_f2.ravel() ** 2,
-                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
+                    # test_r2.ravel() ** 2 * test_f2.ravel(),
+                    # test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
+                    # test_r2.ravel() * test_f2.ravel() ** 2,
+                    # test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
                 ]
             )
             .T.dot(w)
@@ -1067,7 +1067,7 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        fig, ax = plt.subplots(2, 2, figsize=(8, 6.5))
+        fig, ax = plt.subplots(2, 2, figsize=(9.5, 6.5))
         im = ax[0, 0].scatter(
             dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
         )
@@ -1133,7 +1133,8 @@ class Machine(object):
             xlim=(-radius, radius),
             ylim=(-radius, radius),
         )
-
+        ax[0, 0].set_aspect("equal", adjustable="box")
+        ax[1, 0].set_aspect("equal", adjustable="box")
         cbar = fig.colorbar(im, ax=ax, shrink=0.7, location="right")
         cbar.set_label("log$_{10}$ Normalized Flux")
 
