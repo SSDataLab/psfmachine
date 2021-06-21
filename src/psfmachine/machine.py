@@ -164,8 +164,7 @@ class Machine(object):
 
         # have to find where the non sparse implementation starts to break due to
         # the number of sources and pixels. For now we'll use 1000 sources and 10k pix.
-        # if self.nsources < 1000 and self.npixels < 10000:
-        if not self.do_sparse:
+        if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays()
         else:
             self._create_delta_sparse_arrays()
@@ -520,28 +519,9 @@ class Machine(object):
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
 
-        # the following is repeated code, we could just call `_create_delta_arrays()`
-        # and pass ra_cent, dec_cent
-        # self.dra, self.ddec = np.asarray(
-        #     [
-        #         [
-        #             self.ra - self.sources["ra"][idx] - ra_cent,
-        #             self.dec - self.sources["dec"][idx] - dec_cent,
-        #         ]
-        #         for idx in range(len(self.sources))
-        #     ]
-        # ).transpose(1, 0, 2)
-        # self.dra = self.dra * (u.deg)
-        # self.ddec = self.ddec * (u.deg)
-        # self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        # self.phi = np.arctan2(self.ddec, self.dra)
-
-        # if self.nsources < 1000 and self.npixels < 10000:
-        if not self.do_sparse:
+        if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
         else:
-            # do this again for a dense field (e.g. FFI) is inefficient, is it worth
-            # it to correct for centroid offsets? gonna skip it for now.
             self._create_delta_sparse_arrays(centroid_offset=[ra_cent, dec_cent])
 
         if plot:
