@@ -60,6 +60,7 @@ class FFIMachine(Machine):
             cut_r=6,
             do_sparse=True,
         )
+        self.header = kwargs["header"]
         self.channel = channel
         self.quarter = quarter
         self.wcs = wcs
@@ -75,7 +76,7 @@ class FFIMachine(Machine):
         ----------
         fname : str
             Filename"""
-        wcs, time, quarter, flux, flux_err, ra, dec, column, row = _load_file(
+        wcs, time, quarter, flux, flux_err, ra, dec, column, row, header = _load_file(
             fname, channel=channel
         )
 
@@ -95,6 +96,7 @@ class FFIMachine(Machine):
             channel=channel,
             quarter=quarter,
             wcs=wcs,
+            header=header,
         )
 
     def save_shape_model(self, output=None):
@@ -207,7 +209,7 @@ class FFIMachine(Machine):
         bright_mask = self.sources["phot_g_mean_mag"] <= magnitude_limit
 
         mask = [
-            np.hypot(self.column - s.col, self.row - s.row) < tolerance
+            np.hypot(self.column - s.column, self.row - s.row) < tolerance
             for _, s in self.sources[bright_mask].iterrows()
         ]
         mask = np.array(mask).sum(axis=0) > 0
@@ -279,7 +281,7 @@ class FFIMachine(Machine):
 
         if sources:
             ax.scatter(
-                self.sources.col,
+                self.sources.column,
                 self.sources.row,
                 facecolors="none",
                 edgecolors="r",
@@ -303,7 +305,6 @@ class FFIMachine(Machine):
             Matlotlib axis with the figure
         """
         row_2d, col_2d = np.mgrid[: self.flux_2d.shape[0], : self.flux_2d.shape[1]]
-        print(row_2d.shape)
 
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))
@@ -345,7 +346,8 @@ def _load_file(fname, channel=1):
         print("Downloading FFI uncertainty fits file")
         download_ffi(err_path.split("/")[-1])
 
-    header = fits.open(img_path)[0].header
+    hdul = fits.open(img_path)
+    header = hdul[0].header
     quarter = header["QUARTER"]
 
     # Have to do some checks here that it's the right kind of data.
@@ -360,9 +362,9 @@ def _load_file(fname, channel=1):
     else:
         raise TypeError("File is not from Kepler or TESS mission")
 
-    hdr = fits.open(img_path)[channel].header
-    img = fits.open(img_path)[channel].data
-    err = fits.open(err_path)[channel].data
+    hdr = hdul[channel].header
+    img = hdul[channel].data
+    err = hdul[channel].data
     wcs = WCS(hdr)
     time = Time(hdr["MJDSTART"], format="mjd")
     row_2d, col_2d = np.mgrid[: img.shape[0], : img.shape[1]]
@@ -370,33 +372,44 @@ def _load_file(fname, channel=1):
     row_2d = row_2d[r_min:r_max, c_min:c_max]
     flux_2d = img[r_min:r_max, c_min:c_max]
     flux_err_2d = err[r_min:r_max, c_min:c_max]
-    ra, dec = wcs.all_pix2world(np.vstack([row_2d.ravel(), col_2d.ravel()]).T, 0.0).T
+    ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
     col_2d -= c_min
     row_2d -= r_min
     ra_2d = ra.reshape(flux_2d.shape)
     dec_2d = dec.reshape(flux_2d.shape)
-    del hdr, img, err, ra, dec
+    del hdul, hdr, img, err, ra, dec
 
-    return (wcs, time, quarter, flux_2d, flux_err_2d, ra_2d, dec_2d, col_2d, row_2d)
+    return (
+        wcs,
+        time,
+        quarter,
+        flux_2d,
+        flux_err_2d,
+        ra_2d,
+        dec_2d,
+        col_2d,
+        row_2d,
+        header,
+    )
 
 
 def _get_sources(ra, dec, wcs, **kwargs):
     """"""
     sources = do_tiled_query(ra, dec, **kwargs)
-    sources["col"], sources["row"] = wcs.all_world2pix(
+    sources["column"], sources["row"] = wcs.all_world2pix(
         sources.loc[:, ["ra", "dec"]].values, 0.0
     ).T
 
     # correct col,row columns for gaia sources
     sources.row -= r_min
-    sources.col -= c_min
+    sources.column -= c_min
     # remove sources outiside the ccd
     tolerance = 0
     inside = (
         (sources.row > 0 - tolerance)
         & (sources.row < 1023 + tolerance)
-        & (sources.col > 0 - tolerance)
-        & (sources.col < 1099 + tolerance)
+        & (sources.column > 0 - tolerance)
+        & (sources.column < 1099 + tolerance)
     )
     sources = sources[inside].reset_index(drop=True)
     return sources
