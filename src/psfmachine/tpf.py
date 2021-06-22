@@ -67,22 +67,15 @@ class TPFMachine(Machine):
         )
         self.tpfs = tpfs
 
-        # Cut out 1.5 days after every data gap
-        dt = np.hstack([10, np.diff(time)])
-        focus_mask = ~np.in1d(
-            np.arange(len(time)),
-            np.hstack(
-                [
-                    np.arange(t, t + int(1.5 / np.median(dt)))
-                    for t in np.where(dt > (np.median(dt) * 5))[0]
-                ]
-            ),
-        )
-        if time_mask is None:
+        # combine focus mask and time mask if they exist
+        if time_mask is None and focus_mask is None:
+            self.time_mask = np.ones(len(self.time), bool)
+        elif time_mask is None and focus_mask is not None:
             self.time_mask = focus_mask
+        elif time_mask is not None and focus_mask is None:
+            self.time_mask = time_mask
         else:
             self.time_mask = time_mask & focus_mask
-
         self.pix2obs = pix2obs
         #        self.pos_corr1 = pos_corr1
         #        self.pos_corr2 = pos_corr2
@@ -422,6 +415,7 @@ class TPFMachine(Machine):
         magnitude_limit=18,
         dr=2,
         time_mask=None,
+        apply_focus_mask=True,
         query_ra=None,
         query_dec=None,
         query_rad=None,
@@ -443,6 +437,25 @@ class TPFMachine(Machine):
         ----------
         tpfs: lightkurve TargetPixelFileCollection
             Collection of Target Pixel files
+        magnitude_limit : float
+            Limiting magnitude to query Gaia catalog.
+        dr : int
+            Gaia data release to be use, default is 2, options are DR2 and EDR3
+        time_mask : boolean array
+            Mask to be applied to discard cadences if needed.
+        apply_focus_mask : boolean
+            Mask or not cadances near observation gaps to remove focus change.
+        query_ra : numpy.array
+            Array of RA to query Gaia catalog. Default is `None` and will use the
+            coordinate centers of each TPF.
+        query_dec : numpy.array
+            Array of Dec to query Gaia catalog. Default is `None` and will use the
+            coordinate centers of each TPF.
+        query_rad : numpy.array
+            Array of radius to query Gaia catalog. Default is `None` and will use
+            the coordinate centers of each TPF.
+        **kwargs
+            Keyword arguments to be passed to `TPFMachine`.
 
         Returns
         -------
@@ -504,6 +517,8 @@ class TPFMachine(Machine):
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
+        # use or not the focus mask
+        focus_mask = focus_mask if apply_focus_mask else None
 
         # convert to RA Dec
         locs, ra, dec = _wcs_from_tpfs(tpfs)
@@ -628,6 +643,7 @@ def _parse_TPFs(tpfs, **kwargs):
             tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
         )
         qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
+        # Cut out 1.5 days after every data gap
         dt = np.hstack([10, np.diff(time)])
         focus_mask = ~np.in1d(
             np.arange(len(time)),
@@ -869,13 +885,13 @@ def _get_coord_and_query_gaia(
     if (ra is None) & (dec is None) & (rad is None):
         ras1, decs1 = np.asarray(
             [
-                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 4], 0)[0]
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[::-1][:2]) + 4], 0)[0]
                 for tpf in tpfs
             ]
         ).T
         ras, decs = np.asarray(
             [
-                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0]
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[::-1][:2]) // 2], 0)[0]
                 for tpf in tpfs
             ]
         ).T
