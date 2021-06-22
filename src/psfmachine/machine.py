@@ -164,8 +164,7 @@ class Machine(object):
 
         # have to find where the non sparse implementation starts to break due to
         # the number of sources and pixels. For now we'll use 1000 sources and 10k pix.
-        # if self.nsources < 1000 and self.npixels < 10000:
-        if not self.do_sparse:
+        if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays()
         else:
             self._create_delta_sparse_arrays()
@@ -178,7 +177,15 @@ class Machine(object):
         return f"Machine (N sources, N times, N pixels): {self.shape}"
 
     def _create_delta_arrays(self, centroid_offset=[0, 0]):
-        """Creates dra, ddec, r and phi arrays as numpy.ndarrays"""
+        """
+        Creates dra, ddec, r and phi numpy ndarrays .
+
+        Parameters
+        ----------
+        centroid_offset : list
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
+            Default is [0, 0].
+        """
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
@@ -211,13 +218,14 @@ class Machine(object):
         dist_lim : float
             Distance limit (in arcsecds) at which pixels are keep.
         centroid_offset : list
-            Centroid offset for [ra, dec] to be included dra and ddec computation.
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
             Default is [0, 0].
         """
+        # convert to degrees
         dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
         dra, ddec, sparse_mask = [], [], []
-        for i in tqdm(range(len(self.sources))):
+        for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
             ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
             box_mask = sparse.csr_matrix(
@@ -251,7 +259,7 @@ class Machine(object):
             shape=sparse_mask.shape,
             dtype=float,
         )
-        del r_vals, phi_vals, nnz_inds
+        del r_vals, phi_vals, nnz_inds, sparse_mask
         return
 
     @staticmethod
@@ -513,12 +521,9 @@ class Machine(object):
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
 
-        # if self.nsources < 1000 and self.npixels < 10000:
-        if not self.do_sparse:
+        if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
         else:
-            # do this again for a dense field (e.g. FFI) is inefficient, is it worth
-            # it to correct for centroid offsets? gonna skip it for now.
             self._create_delta_sparse_arrays(centroid_offset=[ra_cent, dec_cent])
 
         if plot:
