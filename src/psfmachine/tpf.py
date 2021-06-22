@@ -325,7 +325,7 @@ class TPFMachine(Machine):
             raise ValueError(
                 "Wrong shape model: file is for mission '%s',"
                 % (hdu[1].header["mission"])
-                + " it should be '%s.''" % (self.tpf_meta["mission"][0])
+                + " it should be '%s'." % (self.tpf_meta["mission"][0])
             )
         if hdu[1].header["quarter"] != self.tpf_meta["quarter"][0]:
             raise ValueError(

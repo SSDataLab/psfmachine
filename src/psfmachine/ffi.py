@@ -112,7 +112,45 @@ class FFIMachine(Machine):
         output : str, None
             Output file name. If None, one will be generated.
         """
-        raise NotImplementedError
+        # asign a file name
+        if output is None:
+            output = "./%s-ffi_shape_model_ch%02i_q%02i.fits" % (
+                self.meta["TELESCOP"],
+                self.channel,
+                self.quarter,
+            )
+
+        # create data structure (DataFrame) to save the model params
+        table = fits.BinTableHDU.from_columns(
+            [fits.Column(name="psf_w", array=self.psf_w, format="D")]
+        )
+        # include metadata and descriptions
+        table.header["object"] = ("PRF shape", "PRF shape parameters")
+        table.header["datatype"] = ("FFI", "Type of data used to fit shape model")
+        table.header["origin"] = ("PSFmachine.FFIMachine", "Software of origin")
+        table.header["version"] = (__version__, "Software version")
+        table.header["mission"] = ("Kepler", "Mission name")
+        table.header["quarter"] = (self.quarter, "Quarter of observations")
+        table.header["channel"] = (self.channel, "Channel output")
+        table.header["MJD-OBS"] = (self.time[0], "MJD of observation")
+        table.header["n_rknots"] = (
+            self.n_r_knots,
+            "Number of knots for spline basis in radial axis",
+        )
+        table.header["n_pknots"] = (
+            self.n_phi_knots,
+            "Number of knots for spline basis in angle axis",
+        )
+        table.header["rmin"] = (self.rmin, "Minimum value for knot spacing")
+        table.header["rmax"] = (self.rmax, "Maximum value for knot spacing")
+        table.header["cut_r"] = (
+            self.cut_r,
+            "Radial distance to remove angle dependency",
+        )
+        # spline degree is hardcoded in `_make_A_polar` implementation.
+        table.header["spln_deg"] = (3, "Degree of the spline basis")
+
+        table.writeto(output, checksum=True, overwrite=True)
 
     def load_shape_model(self):
         """Loads a PRF"""
