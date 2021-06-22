@@ -46,7 +46,6 @@ class Machine(object):
         rmin=1,
         rmax=16,
         cut_r=6,
-        do_sparse=False,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -160,10 +159,8 @@ class Machine(object):
         self.nsources = len(self.sources)
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
-        self.do_sparse = do_sparse
 
-        # have to find where the non sparse implementation starts to break due to
-        # the number of sources and pixels. For now we'll use 1000 sources and 10k pix.
+        # sparse implementation is efficient when (JMP profile this):
         if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays()
         else:
@@ -224,6 +221,7 @@ class Machine(object):
         # convert to degrees
         dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
+        # this is inefficient, could be done in a tiled manner? only for squared data
         dra, ddec, sparse_mask = [], [], []
         for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
@@ -236,7 +234,7 @@ class Machine(object):
             sparse_mask.append(box_mask)
 
         del dra_aux, ddec_aux, box_mask
-        # we stack dra, ddec of each object to create a [nsources, npixels] matrix
+        # we stack dra, ddec of each object to create a [nsources, npixels] matrices
         self.dra = sparse.vstack(dra, "csr")
         self.ddec = sparse.vstack(ddec, "csr")
         sparse_mask = sparse.vstack(sparse_mask, "csr")
@@ -363,6 +361,7 @@ class Machine(object):
                 np.asarray(self.sources.phot_g_mean_flux)
             )
         # We will use the radius a lot, this is for readibility
+        # don't do if sparse array
         if isinstance(self.r, u.quantity.Quantity):
             r = self.r.value
         else:
@@ -376,8 +375,9 @@ class Machine(object):
 
         # Mask out sources that are above the flux limit, and pixels above the radius limit
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
-        # temp_mask for the sparse r case should also be a sparse matrix. Then its
-        # applied to r, mean_flux, and source_flux_estimates.
+        # temp_mask for the sparse array case should also be a sparse matrix. Then it is
+        # applied to r, mean_flux, and, source_flux_estimates to be used later.
+        # Numpy array case:
         if not isinstance(r, sparse.csr_matrix):
             # First we make a guess that each source has exactly the gaia flux
             source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
@@ -400,6 +400,7 @@ class Machine(object):
 
             # flux estimates
             mf = np.log10(source_flux_estimates[temp_mask])
+        # sparse array case:
         else:
             source_flux_estimates = self.r.astype(bool).multiply(
                 self.source_flux_estimates[:, None]
@@ -489,19 +490,19 @@ class Machine(object):
         # Here we set the radius for each source. We add two pixels, to be generous
         self.radius = source_radius_limit + 2
 
-        # This sparse mask is one where there is ANY number of sources in a pixel
+        # This sparse mask is one where where is ANY number of sources in a pixel
         if not isinstance(self.r, sparse.csr_matrix):
             self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
         else:
-            # for a sparse matrix doing < self.radius is not efficient, evenmore, it
+            # for a sparse matrix doing < self.radius is not efficient, it
             # considers all zero values in the sparse matrix and set them to True.
             # this is a workaround to this problem.
             self.source_mask = sparse_lessthan(r, self.radius)
 
         self._get_uncontaminated_pixel_mask()
 
-        # Now we can update the r and phi estimates, allowing for a slight centroid offset
-        # not necessary to take values from Quantity to do .multiply()
+        # Now we can update the r and phi estimates, allowing for a slight centroid
+        # offset not necessary to take values from Quantity to do .multiply()
         dx, dy = (
             self.uncontaminated_source_mask.multiply(self.dra),
             self.uncontaminated_source_mask.multiply(self.ddec),
@@ -509,7 +510,6 @@ class Machine(object):
         dx = dx.data
         dy = dy.data
 
-        # if not isinstance(self.r, sparse.csr_matrix):
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
             .multiply(self.flux[self.time_mask].mean(axis=0))
@@ -521,6 +521,7 @@ class Machine(object):
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
 
+        # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
         if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
         else:
@@ -1247,6 +1248,24 @@ class Machine(object):
 
 
 def sparse_lessthan(arr, limit):
+    """
+    Compute less than operation on sparse array by evaluating only non-zero values
+    and reconstructing the sparse array.
+
+    Parameters
+    ----------
+    arr : scipy.sparse
+        Sparse array to be masked, is a 2D matrix.
+    limit : float, numpy.array
+        Upper limit to evaluate less than. If float will do `arr < limit`. If array,
+        shape has to match first dimension of arr to do arr < limi[:, None] and
+        evaluate the condition for every row.
+
+    Returns
+    -------
+    masked_arr : scipy.sparse.csr_matrix
+        Sparse array after < evaluation.
+    """
     nonz_idx = arr.nonzero()
     # apply condition for each row
     if isinstance(limit, np.ndarray) and limit.shape[0] == arr.shape[0]:
@@ -1256,8 +1275,8 @@ def sparse_lessthan(arr, limit):
     else:
         mask = arr.data < limit
     # reconstruct sparse array
-    temp_mask = sparse.csr_matrix(
+    masked_arr = sparse.csr_matrix(
         (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
         shape=arr.shape,
     ).astype(bool)
-    return temp_mask
+    return masked_arr
