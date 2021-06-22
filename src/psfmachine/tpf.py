@@ -44,7 +44,6 @@ class TPFMachine(Machine):
         #        pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
-        do_sparse=False,
     ):
         super().__init__(
             time=time,
@@ -63,7 +62,6 @@ class TPFMachine(Machine):
             time_radius=time_radius,
             rmin=rmin,
             rmax=rmax,
-            do_sparse=do_sparse,
         )
         self.tpfs = tpfs
 
