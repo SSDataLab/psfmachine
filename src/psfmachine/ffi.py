@@ -1,24 +1,17 @@
 """Subclass of `Machine` that Specifically work with FFIs"""
 import os
-
-# import warnings
-import wget
-
 import numpy as np
-import pandas as pd
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
-from scipy import sparse
-from tqdm.auto import tqdm
 from astropy.io import fits
-from astropy.stats import sigma_clip, SigmaClip
+from astropy.stats import SigmaClip
 from astropy.time import Time
 from astropy.wcs import WCS
 from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
-from . import PACKAGEDIR
+# from . import PACKAGEDIR
 from .utils import do_tiled_query
 from .machine import Machine
 
@@ -340,11 +333,9 @@ def _load_file(fname, channel=1):
     img_path = "./data/ffi/%s-cal.fits" % (fname)
     err_path = "./data/ffi/%s-uncert.fits" % (fname)
     if not os.path.isfile(img_path):
-        print("Downloading FFI calibrated fits file")
-        download_ffi(img_path.split("/")[-1])
+        raise FileNotFoundError("FFI calibrated fits file does not exist.")
     if not os.path.isfile(err_path):
-        print("Downloading FFI uncertainty fits file")
-        download_ffi(err_path.split("/")[-1])
+        raise FileNotFoundError("FFI uncertainty fits file does not exist.")
 
     hdul = fits.open(img_path)
     header = hdul[0].header
@@ -415,29 +406,7 @@ def _get_sources(ra, dec, wcs, **kwargs):
     return sources
 
 
-def download_ffi(fits_name):
-    """
-    Download FFI fits file to a dedicated quarter directory
-
-    Parameters
-    ----------
-    fits_name : string
-        Name of FFI fits file
-    """
-    url = "https://archive.stsci.edu/missions/kepler/ffi"
-    if fits_name == "":
-        raise ValueError("Invalid fits file name")
-
-    if not os.path.isdir("./data/ffi"):
-        os.makedirs("./data/ffi")
-
-    out = "./data/ffi/%s" % (fits_name)
-    wget.download("%s/%s" % (url, fits_name), out=out)
-
-    return
-
-
-def _buildKeplerPRFDatabase(fnames):
+def buildKeplerPRFDatabase(fnames):
     """Procedure to build the database of Kepler PRF shape models.
     Parameters
     ---------
@@ -452,13 +421,15 @@ def _buildKeplerPRFDatabase(fnames):
     # all 53 are present, all same channel etc.
 
     # 2. Iterate through files
-    for fname in fnames:
-        f = FFIMachine.from_file(fname, HARD_CODED_PARAMETERS)
-        f.build_shape_model()
-        f.fit_model()
-
-        output = (
-            PACKAGEDIR
-            + f"src/psfmachine/data/q{self.quarter}_ch{self.channel}_{params}.csv"
-        )
-        f.save_shape_model(output=output)
+    # for fname in fnames:
+    #     f = FFIMachine.from_file(fname, HARD_CODED_PARAMETERS)
+    #     f.build_shape_model()
+    #     f.fit_model()
+    #
+    #     output = (
+    #         PACKAGEDIR
+    #         + f"src/psfmachine/data/q{quarter}_ch{channel}_{params}.csv"
+    #     )
+    #     f.save_shape_model(output=output)
+    raise NotImplementedError
+    return

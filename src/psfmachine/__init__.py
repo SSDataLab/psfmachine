@@ -9,4 +9,4 @@ PACKAGEDIR = os.path.abspath(os.path.dirname(__file__))
 from .version import __version__  # noqa
 from .machine import Machine  # noqa
 from .tpf import TPFMachine  # noqa
-from .ffi import FFIMachine
+from .ffi import FFIMachine  # noqa
