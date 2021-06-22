@@ -14,6 +14,7 @@ from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 # from . import PACKAGEDIR
 from .utils import do_tiled_query
 from .machine import Machine
+from .version import __version__
 
 __all__ = ["FFIMachine"]
 
@@ -36,9 +37,13 @@ class FFIMachine(Machine):
         self.flux_err = np.atleast_2d(kwargs["flux_err"].ravel())
         self.sources = kwargs["sources"]
 
+        # remove background and mask bright/saturated pixels
+        # these steps need to be done before `machine` init, so sparse delta
+        # and flux arrays have the same shape
         self._remove_background()
         self._mask_pixels()
 
+        # init `machine` object
         super().__init__(
             kwargs["time"],
             self.flux,
@@ -53,7 +58,7 @@ class FFIMachine(Machine):
             cut_r=6,
             do_sparse=True,
         )
-        self.header = kwargs["header"]
+        self.meta = kwargs["metadata"]
         self.channel = channel
         self.quarter = quarter
         self.wcs = wcs
@@ -69,9 +74,17 @@ class FFIMachine(Machine):
         ----------
         fname : str
             Filename"""
-        wcs, time, quarter, flux, flux_err, ra, dec, column, row, header = _load_file(
-            fname, channel=channel
-        )
+        (
+            wcs,
+            time,
+            flux,
+            flux_err,
+            ra,
+            dec,
+            column,
+            row,
+            metadata,
+        ) = _load_file(fname, channel=channel)
 
         sources = _get_sources(
             ra, dec, wcs, magnitude_limit=18, epoch=time.jyear, ngrid=(5, 5), dr=3
@@ -87,9 +100,9 @@ class FFIMachine(Machine):
             column=column,
             row=row,
             channel=channel,
-            quarter=quarter,
+            quarter=metadata["QUARTER"],
             wcs=wcs,
-            header=header,
+            metadata=metadata,
         )
 
     def save_shape_model(self, output=None):
@@ -105,7 +118,7 @@ class FFIMachine(Machine):
         """Loads a PRF"""
         raise NotImplementedError
 
-    def save_flux_values(self, output=None, format="feather"):
+    def save_flux_values(self, output=None, format="fits"):
         """Saves the flux values of all sources to a file
         Parameters
         ----------
@@ -114,7 +127,66 @@ class FFIMachine(Machine):
         format : str
             Something like a format, maybe feather, csv, fits?
         """
-        raise NotImplementedError
+        # check if model was fitted
+        if not hasattr(self, "ws"):
+            self.fit_model(fit_va=False)
+
+        # asign default output file name
+        if output is None:
+            output = "./source_catalog_ch%02i_q%02i_mjd%s.fits" % (
+                self.channel,
+                self.quarter,
+                str(self.time[0]),
+            )
+        # create bin table with photometry
+        id_col = fits.Column(
+            name="gaia_id", array=self.sources.designation, format="29A"
+        )
+        ra_col = fits.Column(name="ra", array=self.sources.ra, format="D", unit="deg")
+        dec_col = fits.Column(
+            name="dec", array=self.sources.dec, format="D", unit="deg"
+        )
+        flux_col = fits.Column(
+            name="psf_flux", array=self.ws[0, :], format="D", unit="-e/s"
+        )
+        flux_err_col = fits.Column(
+            name="psf_flux_err", array=self.werrs[0, :], format="D", unit="-e/s"
+        )
+        table_hdu = fits.BinTableHDU.from_columns(
+            [id_col, ra_col, dec_col, flux_col, flux_err_col]
+        )
+        table_hdu.header["EXTNAME"] = "CATALOG"
+
+        primary_hdu = fits.PrimaryHDU()
+        primary_hdu.header["object"] = ("Photometric Catalog", "Photometry")
+        primary_hdu.header["origin"] = ("PSFmachine.FFIMachine", "Software of origin")
+        primary_hdu.header["version"] = (__version__, "Software version")
+        primary_hdu.header["TELESCOP"] = (self.meta["TELESCOP"], "Telescope")
+        primary_hdu.header["mission"] = ("kepler", "Mission name")
+        primary_hdu.header["OBSMODE"] = (self.meta["OBSMODE"], "Observing mode")
+        primary_hdu.header["DCT_TYPE"] = (self.meta["DCT_TYPE"], "Data type")
+        primary_hdu.header["quarter"] = (self.quarter, "Quarter of observations")
+        primary_hdu.header["SEASON"] = (self.meta["SEASON"], "Observation season")
+        primary_hdu.header["channel"] = (self.channel, "CCD channel")
+        primary_hdu.header["MODULE"] = (self.meta["MODULE"], "CCD module")
+        primary_hdu.header["OUTPUT"] = (self.meta["OUTPUT"], "CCD module")
+        primary_hdu.header["aperture"] = ("PSF", "Type of photometry")
+        primary_hdu.header["MJD-OBS"] = (self.time[0], "MJD of observation")
+        primary_hdu.header["DATSETNM"] = (self.meta["DATSETNM"], "data set name")
+        primary_hdu.header["RADESYS"] = (
+            self.meta["RADESYS"],
+            "reference frame of celestial coordinates",
+        )
+        primary_hdu.header["EQUINOX"] = (
+            self.meta["EQUINOX"],
+            "equinox of celestial coordinate system",
+        )
+
+        hdul = fits.HDUList([primary_hdu, table_hdu])
+
+        hdul.writeto(output, checksum=True, overwrite=True)
+
+        return
 
     def _remove_background(self, mask=None):
         """kepler-apertures probably used some background removal functions,
@@ -183,9 +255,9 @@ class FFIMachine(Machine):
         saturated = (self.flux > saturation_limit)[0]
         return m
 
-    def _bright_sources_mask(self, magnitude_limit=10, tolerance=30):
+    def _bright_sources_mask(self, magnitude_limit=8, tolerance=30):
         """
-        Finds and mask pixels with halos produced by bright stars (<10 mag).
+        Finds and mask pixels with halos produced by bright stars (<8 mag).
 
         Parameters
         ----------
@@ -209,7 +281,7 @@ class FFIMachine(Machine):
 
         return mask
 
-    def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=10):
+    def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=8):
         """
         Mask saturated pixels and halo/difraction from bright sources.
 
@@ -339,7 +411,6 @@ def _load_file(fname, channel=1):
 
     hdul = fits.open(img_path)
     header = hdul[0].header
-    quarter = header["QUARTER"]
 
     # Have to do some checks here that it's the right kind of data.
     #  We could loosen these checks in future.
@@ -353,11 +424,16 @@ def _load_file(fname, channel=1):
     else:
         raise TypeError("File is not from Kepler or TESS mission")
 
+    if hdul[channel].header["CHANNEL"] != channel:
+        raise ValueError("Woring channel number")
+
     hdr = hdul[channel].header
     img = hdul[channel].data
-    err = hdul[channel].data
+    err = fits.open(err_path)[channel].data
+    # err = np.sqrt(np.abs(img))
     wcs = WCS(hdr)
-    time = Time(hdr["MJDSTART"], format="mjd")
+    # mid observ time
+    time = Time((hdr["MJDEND"] + hdr["MJDSTART"]) / 2, format="mjd")
     row_2d, col_2d = np.mgrid[: img.shape[0], : img.shape[1]]
     col_2d = col_2d[r_min:r_max, c_min:c_max]
     row_2d = row_2d[r_min:r_max, c_min:c_max]
@@ -368,19 +444,41 @@ def _load_file(fname, channel=1):
     row_2d -= r_min
     ra_2d = ra.reshape(flux_2d.shape)
     dec_2d = dec.reshape(flux_2d.shape)
-    del hdul, hdr, img, err, ra, dec
+
+    attrs = [
+        "TELESCOP",
+        "INSTRUME",
+        "OBSMODE",
+        "DCT_TYPE",
+        "DATSETNM",
+        "QUARTER",
+        "SEASON",
+    ]
+    meta = {k: header[k] for k in attrs}
+    attrs = [
+        "CHANNEL",
+        "MODULE",
+        "OUTPUT",
+        "MJDSTART",
+        "MJDEND",
+        "TIMEDEL",
+        "RADESYS",
+        "EQUINOX",
+    ]
+    meta.update({k: hdr[k] for k in attrs})
+
+    del hdul, header, hdr, img, err, ra, dec
 
     return (
         wcs,
         time,
-        quarter,
         flux_2d,
         flux_err_2d,
         ra_2d,
         dec_2d,
         col_2d,
         row_2d,
-        header,
+        meta,
     )
 
 
@@ -432,4 +530,3 @@ def buildKeplerPRFDatabase(fnames):
     #     )
     #     f.save_shape_model(output=output)
     raise NotImplementedError
-    return
