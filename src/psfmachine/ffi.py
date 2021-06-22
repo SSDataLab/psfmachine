@@ -18,16 +18,47 @@ from .version import __version__
 
 __all__ = ["FFIMachine"]
 
+# column and row values of non useful pixels
 r_min, r_max = 20, 1044
 c_min, c_max = 12, 1112
 
 
 class FFIMachine(Machine):
-    """Subclass of Machine for working with FFI data"""
+    """
+    Subclass of Machine for working with FFI data. It is a subclass of Machine
+    """
 
-    # Probably don't need a very new init function over Machine.
     def __init__(self, channel=1, quarter=5, wcs=None, **kwargs):
+        """
+        Class to work with FFI data.
 
+        Parameters
+        ----------
+        channel : int
+            Channel number to be used
+        quarter : int
+            Quarter/Campagn nunmber to be used (for Kepler data).
+        wcs : astropy.wcs
+            World coordinates system solution for the FFI. Used for plotting.
+        **kwargs
+            Keyword attributes that contain information parsed from `from_file()` and
+            is used to initialize a `Machine` class object.
+
+        Attributes
+        ----------
+        All attributes inherited from Machine.
+
+        meta : dictionary
+            Meta data information related to the FFI
+        wcs : astropy.wcs
+            World coordinates system solution for the FFI. Used for plotting.
+        flux_2d : numpy.ndarray
+            2D image representation of the FFI, used for plotting.
+        channel : int
+            Channel number to be used
+        quarter : int
+            Quarter/Campagn nunmber to be used (for Kepler data).
+        """
         self.column = kwargs["column"].ravel()
         self.row = kwargs["row"].ravel()
         self.ra = kwargs["ra"].ravel()
@@ -69,11 +100,21 @@ class FFIMachine(Machine):
 
     @staticmethod
     def from_file(fname, channel=1):
-        """Reads data from files and initiates a new class...
+        """
+        Reads data from files and initiates a new FFIMachine class.
+
         Parameters
         ----------
         fname : str
-            Filename"""
+            Filename of the FFI file
+        channel : int
+            Channel number to be used
+
+        Returns
+        -------
+        FFIMachine : Machine object
+            A Machine class object built from the FFI.
+        """
         (
             wcs,
             time,
@@ -106,7 +147,9 @@ class FFIMachine(Machine):
         )
 
     def save_shape_model(self, output=None):
-        """Saves the weights of a PRF fit to a file
+        """
+        Saves the weights of a PRF fit to a disk.
+
         Parameters
         ----------
         output : str, None
@@ -227,8 +270,16 @@ class FFIMachine(Machine):
         return
 
     def _remove_background(self, mask=None):
-        """kepler-apertures probably used some background removal functions,
-        e.g. mean filter, fine to subclass astropy here"""
+        """
+        Background removal. It models the background using a median estimator, rejects
+        flux values with sigma clipping. It modiffies the attributes `flux` and
+        `flux_2d`.
+
+        Parameters
+        ----------
+        mask : numpy.ndarray of booleans
+            Mask to reject pixels containing source flux. Default None.
+        """
         model = Background2D(
             self.flux_2d,
             mask=mask,
@@ -346,6 +397,7 @@ class FFIMachine(Machine):
         self.dec = self.dec[good_pixels]
         self.flux = self.flux[:, good_pixels]
         self.flux_err = self.flux_err[:, good_pixels]
+
         return
 
     def plot_image(self, ax=None, sources=False):
@@ -439,7 +491,37 @@ class FFIMachine(Machine):
 
 
 def _load_file(fname, channel=1):
-    """Helper function to load file?"""
+    """
+    Helper function to load FFI files and parse data.
+
+    Parameters
+    ----------
+    fname : string
+        Name of the FFI file
+    channel : int
+        Number of channel to be used.
+
+    Returns
+    -------
+    wcs : astropy.wcs
+        World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
+    time : numpy.array
+        Array with time values in MJD
+    flux_2d : numpy.ndarray
+        Array with 2D (image) representation of flux values
+    flux_err_2d : numpy.ndarray
+        Array with 2D (image) representation of flux errors
+    ra_2d : numpy.ndarray
+        Array with 2D (image) representation of flux RA
+    dec_2d : numpy.ndarray
+        Array with 2D (image) representation of flux Dec
+    col_2d : numpy.ndarray
+        Array with 2D (image) representation of pixel column
+    row_2d : numpy.ndarray
+        Array with 2D (image) representation of pixel row
+    meta : dict
+        Dictionary with metadata
+    """
     img_path = "./data/ffi/%s-cal.fits" % (fname)
     err_path = "./data/ffi/%s-uncert.fits" % (fname)
     if not os.path.isfile(img_path):
@@ -521,7 +603,27 @@ def _load_file(fname, channel=1):
 
 
 def _get_sources(ra, dec, wcs, **kwargs):
-    """"""
+    """
+    Query Gaia catalog in a tiled manner and clean sources off sensor.
+
+    Parameters
+    ----------
+    ra : numpy.ndarray
+        Data array with pixel RA values used to create the grid for tiled query and
+        compute centers and radius of cone search
+    dec : numpy.ndarray
+        Data array with pixel Dec values used to create the grid for tiled query and
+        compute centers and radius of cone search
+    wcs : astropy.wcs
+        World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
+    **kwargs
+        Keyword arguments to be passed to `do_tiled_query`.
+
+    Returns
+    -------
+    sources : pandas.DataFrame
+        Data Frame with query result
+    """
     sources = do_tiled_query(ra, dec, **kwargs)
     sources["column"], sources["row"] = wcs.all_world2pix(
         sources.loc[:, ["ra", "dec"]].values, 0.0
