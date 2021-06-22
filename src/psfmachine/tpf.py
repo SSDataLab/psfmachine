@@ -883,13 +883,13 @@ def _get_coord_and_query_gaia(
     if (ra is None) & (dec is None) & (rad is None):
         ras1, decs1 = np.asarray(
             [
-                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) + 4], 0)[0]
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[::-1][:2]) + 4], 0)[0]
                 for tpf in tpfs
             ]
         ).T
         ras, decs = np.asarray(
             [
-                tpf.wcs.all_pix2world([np.asarray(tpf.shape[1:]) // 2], 0)[0]
+                tpf.wcs.all_pix2world([np.asarray(tpf.shape[::-1][:2]) // 2], 0)[0]
                 for tpf in tpfs
             ]
         ).T
