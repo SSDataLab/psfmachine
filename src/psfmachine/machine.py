@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 import astropy.units as u
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
@@ -160,10 +160,36 @@ class Machine(object):
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
 
+        # sparse implementation is efficient when (JMP profile this):
+        if self.nsources * self.npixels < 1e7:
+            self._create_delta_arrays()
+        else:
+            self._create_delta_sparse_arrays()
+
+    @property
+    def shape(self):
+        return (self.nsources, self.nt, self.npixels)
+
+    def __repr__(self):
+        return f"Machine (N sources, N times, N pixels): {self.shape}"
+
+    def _create_delta_arrays(self, centroid_offset=[0, 0]):
+        """
+        Creates dra, ddec, r and phi numpy ndarrays .
+
+        Parameters
+        ----------
+        centroid_offset : list
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
+            Default is [0, 0].
+        """
         # The distance in ra & dec from each source to each pixel
         self.dra, self.ddec = np.asarray(
             [
-                [self.ra - self.sources["ra"][idx], self.dec - self.sources["dec"][idx]]
+                [
+                    self.ra - self.sources["ra"][idx] - centroid_offset[0],
+                    self.dec - self.sources["dec"][idx] - centroid_offset[1],
+                ]
                 for idx in range(len(self.sources))
             ]
         ).transpose(1, 0, 2)
@@ -174,12 +200,65 @@ class Machine(object):
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         self.phi = np.arctan2(self.ddec, self.dra)
 
-    @property
-    def shape(self):
-        return (self.nsources, self.nt, self.npixels)
+    def _create_delta_sparse_arrays(self, dist_lim=40, centroid_offset=[0, 0]):
+        """
+        Creates dra, ddec, r and phi arrays as sparse arrays to be used for dense data,
+        e.g. Kepler FFIs or cluster fields. Assuming that there is no flux information
+        further than `dist_lim` for a given source, we only keep pixels within the
+        `dist_lim`.
+        dra, ddec, ra, and phi are unitless because they are `sparse.csr_matrix`. But
+        keep same scale as '_create_delta_arrays()'.
+        dra and ddec in deg. r in arcseconds and phi in rads
 
-    def __repr__(self):
-        return f"Machine (N sources, N times, N pixels): {self.shape}"
+        Parameters
+        ----------
+        dist_lim : float
+            Distance limit (in arcsecds) at which pixels are keep.
+        centroid_offset : list
+            Centroid offset for [ra, dec] to be included in dra and ddec computation.
+            Default is [0, 0].
+        """
+        # convert to degrees
+        dist_lim /= 3600
+        # iterate over sources to only keep pixels within dist_lim
+        # this is inefficient, could be done in a tiled manner? only for squared data
+        dra, ddec, sparse_mask = [], [], []
+        for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
+            dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
+            ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
+            box_mask = sparse.csr_matrix(
+                (np.abs(dra_aux) <= dist_lim) & (np.abs(ddec_aux) <= dist_lim)
+            )
+            dra.append(box_mask.multiply(dra_aux))
+            ddec.append(box_mask.multiply(ddec_aux))
+            sparse_mask.append(box_mask)
+
+        del dra_aux, ddec_aux, box_mask
+        # we stack dra, ddec of each object to create a [nsources, npixels] matrices
+        self.dra = sparse.vstack(dra, "csr")
+        self.ddec = sparse.vstack(ddec, "csr")
+        sparse_mask = sparse.vstack(sparse_mask, "csr")
+        sparse_mask.eliminate_zeros()
+
+        # convertion to polar coordinates. We can't apply np.hypot or np.arctan2 to
+        # sparse arrays. We keep track of non-zero index, do math in numpy space,
+        # then rebuild r, phi as sparse.
+        nnz_inds = sparse_mask.nonzero()
+        # convert radial dist to arcseconds
+        r_vals = np.hypot(self.dra.data, self.ddec.data) * 3600
+        phi_vals = np.arctan2(self.ddec.data, self.dra.data)
+        self.r = sparse.csr_matrix(
+            (r_vals, (nnz_inds[0], nnz_inds[1])),
+            shape=sparse_mask.shape,
+            dtype=float,
+        )
+        self.phi = sparse.csr_matrix(
+            (phi_vals, (nnz_inds[0], nnz_inds[1])),
+            shape=sparse_mask.shape,
+            dtype=float,
+        )
+        del r_vals, phi_vals, nnz_inds, sparse_mask
+        return
 
     @staticmethod
     def _solve_linear_model(
@@ -282,7 +361,11 @@ class Machine(object):
                 np.asarray(self.sources.phot_g_mean_flux)
             )
         # We will use the radius a lot, this is for readibility
-        r = self.r
+        # don't do if sparse array
+        if isinstance(self.r, u.quantity.Quantity):
+            r = self.r.value
+        else:
+            r = self.r
 
         # The average flux, which we assume is a good estimate of the whole stack of images
         mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
@@ -290,57 +373,82 @@ class Machine(object):
         #     axis=0
         # ) ** 0.5 / self.time_mask.sum()
 
-        # First we make a guess that each source has exactly the gaia flux
-        source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
-            :, None
-        ] * np.ones((self.nsources, self.npixels))
-
         # Mask out sources that are above the flux limit, and pixels above the radius limit
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
-        temp_mask = (r.value < source_rad[:, None]) & (
-            source_flux_estimates < upper_flux_limit
-        )
-        temp_mask &= temp_mask.sum(axis=0) == 1
-        #        temp_mask &= temp_mask.sum(axis=1)[:, None] == 1
+        # temp_mask for the sparse array case should also be a sparse matrix. Then it is
+        # applied to r, mean_flux, and, source_flux_estimates to be used later.
+        # Numpy array case:
+        if not isinstance(r, sparse.csr_matrix):
+            # First we make a guess that each source has exactly the gaia flux
+            source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
+                :, None
+            ] * np.ones((self.nsources, self.npixels))
+            temp_mask = (r < source_rad[:, None]) & (
+                source_flux_estimates < upper_flux_limit
+            )
+            temp_mask &= temp_mask.sum(axis=0) == 1
 
-        # log of flux values
-        f = np.log10((temp_mask.astype(float) * mean_flux))
-        #        weights = (
-        #            (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
-        #        ) * temp_mask
+            # apply temp_mask to r
+            r_temp_mask = r[temp_mask]
 
-        # flux estimates
-        mf = np.log10(source_flux_estimates[temp_mask])
+            # log of flux values
+            f = np.log10((temp_mask.astype(float) * mean_flux))
+            f_temp_mask = f[temp_mask]
+            # weights = (
+            #     (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
+            # ) * temp_mask
+
+            # flux estimates
+            mf = np.log10(source_flux_estimates[temp_mask])
+        # sparse array case:
+        else:
+            source_flux_estimates = self.r.astype(bool).multiply(
+                self.source_flux_estimates[:, None]
+            )
+            temp_mask = sparse_lessthan(r, source_rad)
+            temp_mask = temp_mask.multiply(
+                sparse_lessthan(source_flux_estimates, upper_flux_limit)
+            ).tocsr()
+            temp_mask = temp_mask.multiply(temp_mask.sum(axis=0) == 1).tocsr()
+            temp_mask.eliminate_zeros()
+
+            f = np.log10(temp_mask.astype(float).multiply(mean_flux).data)
+            k = np.isfinite(f)
+            f_temp_mask = f[k]
+            r_temp_mask = temp_mask.astype(float).multiply(r).data[k]
+            mf = np.log10(
+                temp_mask.astype(float).multiply(source_flux_estimates).data[k]
+            )
 
         # Model is polynomial in r and log of the flux estimate.
         # Here I'm using a 1st order polynomial, to ensure it's monatonic in each dimension
         A = np.vstack(
             [
-                r.value[temp_mask] ** 0,
-                r.value[temp_mask],
-                #                r.value[temp_mask] ** 2,
-                r.value[temp_mask] ** 0 * mf,
-                r.value[temp_mask] * mf,
-                #                r.value[temp_mask] ** 2 * mf,
-                #                r.value[temp_mask] ** 0 * mf ** 2,
-                #                r.value[temp_mask] * mf ** 2,
-                #                r.value[temp_mask] ** 2 * mf ** 2,
+                r_temp_mask ** 0,
+                r_temp_mask,
+                # r_temp_mask ** 2,
+                r_temp_mask ** 0 * mf,
+                r_temp_mask * mf,
+                # r_temp_mask ** 2 * mf,
+                # r_temp_mask ** 0 * mf ** 2,
+                # r_temp_mask * mf ** 2,
+                # r_temp_mask ** 2 * mf ** 2,
             ]
         ).T
 
         # Iteratively fit
-        k = np.isfinite(f[temp_mask])
+        k = np.isfinite(f_temp_mask)
         for count in [0, 1, 2]:
             sigma_w_inv = A[k].T.dot(A[k])
-            B = A[k].T.dot(f[temp_mask][k])
+            B = A[k].T.dot(f_temp_mask[k])
             w = np.linalg.solve(sigma_w_inv, B)
-            res = np.ma.masked_array(f[temp_mask], ~k) - A.dot(w)
+            res = np.ma.masked_array(f_temp_mask, ~k) - A.dot(w)
             k &= ~sigma_clip(res, sigma=3).mask
 
         # Now find the radius and source flux at which the model reaches the flux limit
         test_f = np.linspace(
-            np.log10(source_flux_estimates.min()),
-            np.log10(source_flux_estimates.max()),
+            np.log10(self.source_flux_estimates.min()),
+            np.log10(self.source_flux_estimates.max()),
             100,
         )
         test_r = np.arange(lower_radius_limit, upper_radius_limit, 0.25)
@@ -351,13 +459,13 @@ class Machine(object):
                 [
                     test_r2.ravel() ** 0,
                     test_r2.ravel(),
-                    #                    test_r2.ravel() ** 2,
+                    # test_r2.ravel() ** 2,
                     test_r2.ravel() ** 0 * test_f2.ravel(),
                     test_r2.ravel() * test_f2.ravel(),
-                    #                    test_r2.ravel() ** 2 * test_f2.ravel(),
-                    #                    test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
-                    #                    test_r2.ravel() * test_f2.ravel() ** 2,
-                    #                    test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
+                    # test_r2.ravel() ** 2 * test_f2.ravel(),
+                    # test_r2.ravel() ** 0 * test_f2.ravel() ** 2,
+                    # test_r2.ravel() * test_f2.ravel() ** 2,
+                    # test_r2.ravel() ** 2 * test_f2.ravel() ** 2,
                 ]
             )
             .T.dot(w)
@@ -370,7 +478,7 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 1), np.log10(source_flux_estimates[:, 0])
+            np.polyfit(test_f[ok], l[ok], 1), np.log10(self.source_flux_estimates)
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -382,16 +490,22 @@ class Machine(object):
         # Here we set the radius for each source. We add two pixels, to be generous
         self.radius = source_radius_limit + 2
 
-        # This sparse mask is one where there is ANY number of sources in a pixel
-        self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
+        # This sparse mask is one where where is ANY number of sources in a pixel
+        if not isinstance(self.r, sparse.csr_matrix):
+            self.source_mask = sparse.csr_matrix(self.r.value < self.radius[:, None])
+        else:
+            # for a sparse matrix doing < self.radius is not efficient, it
+            # considers all zero values in the sparse matrix and set them to True.
+            # this is a workaround to this problem.
+            self.source_mask = sparse_lessthan(r, self.radius)
 
         self._get_uncontaminated_pixel_mask()
 
-        # Now we can update the r and phi estimates, allowing for a slight centroid offset
-
+        # Now we can update the r and phi estimates, allowing for a slight centroid
+        # offset not necessary to take values from Quantity to do .multiply()
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data
         dy = dy.data
@@ -402,35 +516,24 @@ class Machine(object):
             .multiply(1 / self.source_flux_estimates[:, None])
             .data
         )
+
         k = np.isfinite(mean_f)
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
 
-        self.dra, self.ddec = np.asarray(
-            [
-                [
-                    self.ra - self.sources["ra"][idx] - ra_cent,
-                    self.dec - self.sources["dec"][idx] - dec_cent,
-                ]
-                for idx in range(len(self.sources))
-            ]
-        ).transpose(1, 0, 2)
-        self.dra = self.dra * (u.deg)
-        self.ddec = self.ddec * (u.deg)
-        self.r = np.hypot(self.dra, self.ddec).to("arcsec")
-        self.phi = np.arctan2(self.ddec, self.dra)
+        # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
+        if self.nsources * self.npixels < 1e7:
+            self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
+        else:
+            self._create_delta_sparse_arrays(centroid_offset=[ra_cent, dec_cent])
 
         if plot:
-            k = np.isfinite(f[temp_mask])
+            k = np.isfinite(f_temp_mask)
             # Make a nice diagnostic plot
             fig, ax = plt.subplots(1, 2, figsize=(8, 3), facecolor="white")
 
-            ax[0].scatter(
-                r.value[temp_mask][k], f[temp_mask][k], s=0.4, c="k", label="Data"
-            )
-            ax[0].scatter(
-                r.value[temp_mask][k], A[k].dot(w), c="r", s=0.4, label="Model"
-            )
+            ax[0].scatter(r_temp_mask[k], f_temp_mask[k], s=0.4, c="k", label="Data")
+            ax[0].scatter(r_temp_mask[k], A[k].dot(w), c="r", s=0.4, label="Model")
             ax[0].set(
                 xlabel=("Radius from Source [arcsec]"),
                 ylabel=("log$_{10}$ Kepler Flux"),
@@ -444,6 +547,7 @@ class Machine(object):
                 vmin=0,
                 vmax=lower_flux_limit * 2,
                 cmap="viridis",
+                shading="auto",
             )
             line = np.polyval(np.polyfit(test_f[ok], l[ok], 1), test_f)
             line[line > upper_radius_limit] = upper_radius_limit
@@ -472,6 +576,8 @@ class Machine(object):
         self.uncontaminated_source_mask = self.source_mask.multiply(
             np.asarray(self.source_mask.sum(axis=0) == 1)[0]
         ).tocsr()
+        # have to remove leaked zeros
+        self.uncontaminated_source_mask.eliminate_zeros()
 
         # # reduce to good pixels
         # self.uncontaminated_pixel_mask = sparse.csr_matrix(
@@ -596,9 +702,10 @@ class Machine(object):
         ) = self._time_bin(npoints=self.n_time_points)
 
         self._whitened_time = time_original
+        # not necessary to take value from Quantity to do .multiply()
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
@@ -673,9 +780,10 @@ class Machine(object):
             flux_err_binned,
         ) = self._time_bin(npoints=self.n_time_points)
 
+        # not necessary to take value from Quantity to do .multiply()
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
@@ -749,7 +857,7 @@ class Machine(object):
         cbar.set_label("Normalized Flux")
         return fig
 
-    def build_shape_model(self, plot=False, flux_cut_off=1):
+    def build_shape_model(self, plot=False, flux_cut_off=1, **kwargs):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
         fitting each source pixels to estimate its PSF photometry
@@ -758,6 +866,8 @@ class Machine(object):
         ----------
         flux_cut_off: float
             the flux in COUNTS at which to stop evaluating the model!
+        **kwargs
+            Keyword arguments to be passed to `_get_source_mask()`
         """
 
         # gaia estimate flux values per pixel to be used as flux priors
@@ -765,7 +875,7 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask()
+        self._get_source_mask(**kwargs)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -800,8 +910,9 @@ class Machine(object):
         )
         mean_f_err.data = np.abs(mean_f_err.data)
 
-        phi_b = self.uncontaminated_source_mask.multiply(self.phi.value).data
-        r_b = self.uncontaminated_source_mask.multiply(self.r.value).data
+        # take value from Quantity is not necessary
+        phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
+        r_b = self.uncontaminated_source_mask.multiply(self.r).data
         mean_f_b = mean_f
 
         # save them for later plotting
@@ -956,13 +1067,13 @@ class Machine(object):
         )
 
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra.value),
-            self.uncontaminated_source_mask.multiply(self.ddec.value),
+            self.uncontaminated_source_mask.multiply(self.dra),
+            self.uncontaminated_source_mask.multiply(self.ddec),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        fig, ax = plt.subplots(2, 2, figsize=(8, 6.5))
+        fig, ax = plt.subplots(2, 2, figsize=(9.5, 6.5))
         im = ax[0, 0].scatter(
             dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
         )
@@ -1028,7 +1139,8 @@ class Machine(object):
             xlim=(-radius, radius),
             ylim=(-radius, radius),
         )
-
+        ax[0, 0].set_aspect("equal", adjustable="box")
+        ax[1, 0].set_aspect("equal", adjustable="box")
         cbar = fig.colorbar(im, ax=ax, shrink=0.7, location="right")
         cbar.set_label("log$_{10}$ Normalized Flux")
 
@@ -1054,9 +1166,10 @@ class Machine(object):
                     "Please use `build_time_model` before fitting with velocity aberration."
                 )
 
+            # not necessary to take value from Quantity to do .multiply()
             dx, dy = (
-                self.source_mask.multiply(self.dra.value),
-                self.source_mask.multiply(self.ddec.value),
+                self.source_mask.multiply(self.dra),
+                self.source_mask.multiply(self.ddec),
             )
             dx = dx.data * u.deg.to(u.arcsecond)
             dy = dy.data * u.deg.to(u.arcsecond)
@@ -1132,3 +1245,48 @@ class Machine(object):
             self.werrs[:, nodata] *= np.nan
 
         return
+
+
+def sparse_lessthan(arr, limit):
+    """
+    Compute less than operation on sparse array by evaluating only non-zero values
+    and reconstructing the sparse array. This function return a sparse array, which is
+    crutial to keep operating large matrices.
+
+    Notes: when doing `x < a` for a sparse array `x` and `a > 0` it effectively compares
+    all zero and non-zero values. Then we get a dense boolean array with `True` where
+    the condition is met but also `True` where the sparse array was zero.
+    To avoid this we evaluate the condition only for non-zero values in the sparse
+    array and later reconstruct the sparse array with the right shape and content.
+    When `x` is a [N * M] matrix and `a` is [N] array, and we want to evaluate the
+    condition per row, we need to iterate over rows to perform the evaluation and then
+    reconstruct the masked sparse array.
+
+    Parameters
+    ----------
+    arr : scipy.sparse
+        Sparse array to be masked, is a 2D matrix.
+    limit : float, numpy.array
+        Upper limit to evaluate less than. If float will do `arr < limit`. If array,
+        shape has to match first dimension of `arr` to do `arr < limi[:, None]`` and
+        evaluate the condition per row.
+
+    Returns
+    -------
+    masked_arr : scipy.sparse.csr_matrix
+        Sparse array after less than evaluation.
+    """
+    nonz_idx = arr.nonzero()
+    # apply condition for each row
+    if isinstance(limit, np.ndarray) and limit.shape[0] == arr.shape[0]:
+        mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
+        # flatten mask
+        mask = [x for sub in mask for x in sub]
+    else:
+        mask = arr.data < limit
+    # reconstruct sparse array
+    masked_arr = sparse.csr_matrix(
+        (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
+        shape=arr.shape,
+    ).astype(bool)
+    return masked_arr
