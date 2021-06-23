@@ -98,7 +98,7 @@ class FFIMachine(Machine):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
 
     @staticmethod
-    def from_file(fname, channel=1):
+    def from_file(fname, channel=1, cutout_size=None, cutout_origin=[0, 0]):
         """
         Reads data from files and initiates a new FFIMachine class.
 
@@ -126,8 +126,28 @@ class FFIMachine(Machine):
             metadata,
         ) = _load_file(fname, channel=channel)
 
+        if cutout_size is not None:
+            flux, flux_err, ra, dec, column, row = do_image_cutout(
+                flux,
+                flux_err,
+                ra,
+                dec,
+                column,
+                row,
+                cutout_size=cutout_size,
+                cutout_origin=cutout_origin,
+            )
+
         sources = _get_sources(
-            ra, dec, wcs, magnitude_limit=18, epoch=time.jyear, ngrid=(5, 5), dr=3
+            ra,
+            dec,
+            wcs,
+            magnitude_limit=18,
+            epoch=time.jyear,
+            ngrid=(2, 2) if cutout_size is not None else (5, 5),
+            dr=3,
+            cutout_size=cutout_size,
+            cutout_origin=cutout_origin,
         )
         # return wcs, time, flux, flux_err, ra, dec, column, row, sources
         return FFIMachine(
@@ -421,11 +441,19 @@ class FFIMachine(Machine):
         """
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))
+
         ax = plt.subplot(projection=self.wcs)
-        im = ax.imshow(
+        row_2d, col_2d = np.mgrid[
+            self.row.min() : self.row.max() + 1,
+            self.column.min() : self.column.max() + 1,
+        ]
+        im = ax.pcolormesh(
+            col_2d,
+            row_2d,
             self.flux_2d,
             cmap=plt.cm.viridis,
-            origin="lower",
+            shading="nearest",
+            # origin="lower",
             norm=colors.SymLogNorm(linthresh=200, vmin=0, vmax=2000, base=10),
             rasterized=True,
         )
@@ -434,7 +462,10 @@ class FFIMachine(Machine):
         ax.set_title("FFI Ch %i MJD %f" % (self.channel, self.time[0]))
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
-        ax.grid(color="white", ls="solid")
+        ax.grid(True, which="major", axis="both", ls="-", color="w", alpha=0.7)
+        ax.set_xlim(self.column.min() - 2, self.column.max() + 2)
+        ax.set_ylim(self.row.min() - 2, self.row.max() + 2)
+
         ax.set_aspect("equal", adjustable="box")
 
         if sources:
@@ -446,6 +477,7 @@ class FFIMachine(Machine):
                 linewidths=0.5,
                 alpha=0.9,
             )
+
         return ax
 
     def plot_pixel_masks(self, ax=None):
@@ -562,6 +594,7 @@ def _load_file(fname, channel=1):
     row_2d = row_2d[r_min:r_max, c_min:c_max]
     flux_2d = img[r_min:r_max, c_min:c_max]
     flux_err_2d = err[r_min:r_max, c_min:c_max]
+
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
     col_2d -= c_min
     row_2d -= r_min
@@ -605,7 +638,7 @@ def _load_file(fname, channel=1):
     )
 
 
-def _get_sources(ra, dec, wcs, **kwargs):
+def _get_sources(ra, dec, wcs, cutout_size=None, cutout_origin=[0, 0], **kwargs):
     """
     Query Gaia catalog in a tiled manner and clean sources off sensor.
 
@@ -637,14 +670,55 @@ def _get_sources(ra, dec, wcs, **kwargs):
     sources.column -= c_min
     # remove sources outiside the ccd
     tolerance = 0
+    if cutout_size is None:
+        r_low, c_low = 0, 0
+        r_high, c_high = 1023, 1099
+    else:
+        r_low, c_low = cutout_origin[0], cutout_origin[1]
+        r_high, c_high = cutout_origin[0] + cutout_size, cutout_origin[1] + cutout_size
     inside = (
-        (sources.row > 0 - tolerance)
-        & (sources.row < 1023 + tolerance)
-        & (sources.column > 0 - tolerance)
-        & (sources.column < 1099 + tolerance)
+        (sources.row > r_low - tolerance)
+        & (sources.row < r_high + tolerance)
+        & (sources.column > c_low - tolerance)
+        & (sources.column < c_high + tolerance)
     )
     sources = sources[inside].reset_index(drop=True)
     return sources
+
+
+def do_image_cutout(
+    flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
+):
+
+    if cutout_size + cutout_origin[0] < np.minimum(*flux.shape):
+        column = column[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        row = row[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux = flux[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux_err = flux_err[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        ra = ra[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        dec = dec[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+    else:
+        raise ValueError("Cutout size is larger than image shape ", flux_2d.shape)
+
+    return flux, flux_err, ra, dec, column, row
 
 
 def buildKeplerPRFDatabase(fnames):
