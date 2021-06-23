@@ -87,7 +87,6 @@ class FFIMachine(Machine):
             n_r_knots=5,
             n_phi_knots=15,
             cut_r=6,
-            do_sparse=True,
         )
         self.meta = kwargs["metadata"]
         self.channel = channel
