@@ -399,6 +399,10 @@ class FFIMachine(Machine):
 
         return
 
+    def residuals(self):
+        """Get the residuals (img - mean model)"""
+        raise NotImplementedError
+
     def plot_image(self, ax=None, sources=False):
         """
         Function to plot the Full Frame Image and the Gaia Sources
@@ -522,11 +526,11 @@ def _load_file(fname, channel=1):
         Dictionary with metadata
     """
     img_path = "./data/ffi/%s-cal.fits" % (fname)
-    err_path = "./data/ffi/%s-uncert.fits" % (fname)
+    # err_path = "./data/ffi/%s-uncert.fits" % (fname)
     if not os.path.isfile(img_path):
         raise FileNotFoundError("FFI calibrated fits file does not exist.")
-    if not os.path.isfile(err_path):
-        raise FileNotFoundError("FFI uncertainty fits file does not exist.")
+    # if not os.path.isfile(err_path):
+    #     raise FileNotFoundError("FFI uncertainty fits file does not exist.")
 
     hdul = fits.open(img_path)
     header = hdul[0].header
@@ -548,8 +552,8 @@ def _load_file(fname, channel=1):
 
     hdr = hdul[channel].header
     img = hdul[channel].data
-    err = fits.open(err_path)[channel].data
-    # err = np.sqrt(np.abs(img))
+    # err = fits.open(err_path)[channel].data
+    err = np.sqrt(np.abs(img))
     wcs = WCS(hdr)
     # mid observ time
     time = Time((hdr["MJDEND"] + hdr["MJDSTART"]) / 2, format="mjd")
