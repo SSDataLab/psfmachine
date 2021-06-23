@@ -1250,7 +1250,17 @@ class Machine(object):
 def sparse_lessthan(arr, limit):
     """
     Compute less than operation on sparse array by evaluating only non-zero values
-    and reconstructing the sparse array.
+    and reconstructing the sparse array. This function return a sparse array, which is
+    crutial to keep operating large matrices.
+
+    Notes: when doing `x < a` for a sparse array `x` and `a > 0` it effectively compares
+    all zero and non-zero values. Then we get a dense boolean array with `True` where
+    the condition is met but also `True` where the sparse array was zero.
+    To avoid this we evaluate the condition only for non-zero values in the sparse
+    array and later reconstruct the sparse array with the right shape and content.
+    When `x` is a [N * M] matrix and `a` is [N] array, and we want to evaluate the
+    condition per row, we need to iterate over rows to perform the evaluation and then
+    reconstruct the masked sparse array.
 
     Parameters
     ----------
@@ -1258,13 +1268,13 @@ def sparse_lessthan(arr, limit):
         Sparse array to be masked, is a 2D matrix.
     limit : float, numpy.array
         Upper limit to evaluate less than. If float will do `arr < limit`. If array,
-        shape has to match first dimension of arr to do arr < limi[:, None] and
-        evaluate the condition for every row.
+        shape has to match first dimension of `arr` to do `arr < limi[:, None]`` and
+        evaluate the condition per row.
 
     Returns
     -------
     masked_arr : scipy.sparse.csr_matrix
-        Sparse array after < evaluation.
+        Sparse array after less than evaluation.
     """
     nonz_idx = arr.nonzero()
     # apply condition for each row
