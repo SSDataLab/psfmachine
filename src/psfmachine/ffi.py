@@ -190,6 +190,7 @@ class FFIMachine(Machine):
         table.header["datatype"] = ("FFI", "Type of data used to fit shape model")
         table.header["origin"] = ("PSFmachine.FFIMachine", "Software of origin")
         table.header["version"] = (__version__, "Software version")
+        table.header["TELESCOP"] = (self.meta["TELESCOP"], "Telescope name")
         table.header["mission"] = ("Kepler", "Mission name")
         table.header["quarter"] = (self.quarter, "Quarter of observations")
         table.header["channel"] = (self.channel, "Channel output")
