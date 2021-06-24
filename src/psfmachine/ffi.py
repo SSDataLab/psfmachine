@@ -144,7 +144,7 @@ class FFIMachine(Machine):
             wcs,
             magnitude_limit=18,
             epoch=time.jyear,
-            ngrid=(2, 2) if flux.shape[0] < 200 else (5, 5),
+            ngrid=(2, 2) if flux.shape[0] <= 200 else (5, 5),
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
