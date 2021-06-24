@@ -24,7 +24,19 @@ class FFIMachine(Machine):
     Subclass of Machine for working with FFI data. It is a subclass of Machine
     """
 
-    def __init__(self, channel=1, quarter=5, wcs=None, **kwargs):
+    def __init__(
+        self,
+        channel=1,
+        quarter=5,
+        wcs=None,
+        limit_radius=32.0,
+        n_r_knots=10,
+        n_phi_knots=15,
+        cut_r=6,
+        rmin=1,
+        rmax=16,
+        **kwargs,
+    ):
         """
         Class to work with FFI data.
 
@@ -80,9 +92,11 @@ class FFIMachine(Machine):
             self.sources,
             self.column,
             self.row,
-            n_r_knots=5,
-            n_phi_knots=15,
-            cut_r=6,
+            n_r_knots=n_r_knots,
+            n_phi_knots=n_phi_knots,
+            cut_r=cut_r,
+            rmin=rmin,
+            rmax=rmax,
         )
         self.meta = kwargs["metadata"]
         self.channel = channel
@@ -94,7 +108,7 @@ class FFIMachine(Machine):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
 
     @staticmethod
-    def from_file(fname, channel=1, cutout_size=None, cutout_origin=[0, 0]):
+    def from_file(fname, channel=1, cutout_size=None, cutout_origin=[0, 0], **kwargs):
         """
         Reads data from files and initiates a new FFIMachine class.
 
@@ -108,6 +122,8 @@ class FFIMachine(Machine):
             Size of the cutout in pixels, assumed to be square
         cutout_origin : tuple
             Origin pixel coordinates where to start the cut out. Follows matrix indexing
+        **kwargs : dictionary
+            Keyword arguments that defines shape model in a `machine` class object.
 
         Returns
         -------
@@ -162,6 +178,7 @@ class FFIMachine(Machine):
             quarter=metadata["QUARTER"],
             wcs=wcs,
             metadata=metadata,
+            **kwargs,
         )
 
     def save_shape_model(self, output=None):
@@ -435,6 +452,8 @@ class FFIMachine(Machine):
         fig : matplotlib figure
             Figure
         """
+        if not hasattr(self, "ws"):
+            self.fit_model(fit_va=False)
 
         # evaluate mean model
         ffi_model = self.mean_model.T.dot(self.ws[0])
