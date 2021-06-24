@@ -437,7 +437,7 @@ class FFIMachine(Machine):
 
         return
 
-    def residuals(self, plot=False, zoom=False):
+    def residuals(self, plot=False, zoom=False, metric="residuals"):
         """
         Get the residuals (model - image) and compute statistics
 
@@ -447,6 +447,7 @@ class FFIMachine(Machine):
             Do plotting
         zoom : bool
             Zoom into a section of the image for better visualization
+
         Return
         ------
         fig : matplotlib figure
@@ -457,8 +458,10 @@ class FFIMachine(Machine):
 
         # evaluate mean model
         ffi_model = self.mean_model.T.dot(self.ws[0])
+        ffi_model_err = self.mean_model.T.dot(self.werrs[0])
         # compute residuals
         residuals = ffi_model - self.flux[0]
+        weighted_chi = (ffi_model - self.flux[0]) ** 2 / ffi_model_err
         # mask background
         source_mask = ffi_model != 0.0
         # rms
@@ -493,14 +496,25 @@ class FFIMachine(Machine):
             )
             ax[0, 1].set_aspect("equal", adjustable="box")
 
+            if metric == "residuals":
+                to_plot = residuals
+                norm = colors.SymLogNorm(linthresh=500, vmin=-5000, vmax=5000, base=10)
+                cmap = "RdBu"
+            elif metric == "chi2":
+                to_plot = weighted_chi
+                norm = colors.LogNorm(vmin=1, vmax=5000)
+                cmap = "viridis"
+            else:
+                raise ValueError("wrong type of metric")
+
             cbar = ax[1, 0].scatter(
                 self.column[source_mask],
                 self.row[source_mask],
-                c=residuals[source_mask],
+                c=to_plot[source_mask],
                 marker="s",
                 s=7.5 if zoom else 1,
-                cmap="RdBu",
-                norm=colors.SymLogNorm(linthresh=500, vmin=-5000, vmax=5000, base=10),
+                cmap=cmap,
+                norm=norm,
             )
             ax[1, 0].set_aspect("equal", adjustable="box")
             plt.colorbar(
@@ -807,6 +821,13 @@ def do_image_cutout(
 ):
     """
     Creates a cutout of the full image
+
+    Parameters
+    ----------
+    cutout_size : int
+        Size in pixels of the cutout
+    cutout_origin : list
+        Origin of the cutout following matrix indexing
     """
 
     if cutout_size + cutout_origin[0] < np.minimum(*flux.shape):
