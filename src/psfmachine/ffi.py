@@ -144,7 +144,7 @@ class FFIMachine(Machine):
             wcs,
             magnitude_limit=18,
             epoch=time.jyear,
-            ngrid=(2, 2) if flux.shape[0] <= 200 else (5, 5),
+            ngrid=(2, 2) if flux.shape[0] <= 500 else (5, 5),
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
@@ -309,6 +309,7 @@ class FFIMachine(Machine):
             bkg_estimator=MedianBackground(),
             interpolator=BkgZoomInterpolator(order=3),
         )
+        self.background_model = model.background
         self.flux_2d -= model.background
         self.flux = self.flux_2d.ravel()[None, :]
         return
@@ -419,9 +420,104 @@ class FFIMachine(Machine):
 
         return
 
-    def residuals(self):
-        """Get the residuals (img - mean model)"""
-        raise NotImplementedError
+    def residuals(self, plot=False, zoom=False):
+        """
+        Get the residuals (model - image) and compute statistics
+
+        Parameters
+        ----------
+        plot : bool
+            Do plotting
+        zoom : bool
+            Zoom into a section of the image for better visualization
+        Return
+        ------
+        fig : matplotlib figure
+            Figure
+        """
+
+        # evaluate mean model
+        ffi_model = self.mean_model.T.dot(self.ws[0])
+        # compute residuals
+        residuals = ffi_model - self.flux[0]
+        # mask background
+        source_mask = ffi_model != 0.0
+        # rms
+        self.rms = np.sqrt((residuals[source_mask] ** 2).mean())
+        self.frac_esidual_median = np.median(
+            residuals[source_mask] / self.flux[0][source_mask]
+        )
+        self.frac_esidual_std = np.std(
+            residuals[source_mask] / self.flux[0][source_mask]
+        )
+
+        if plot:
+            fig, ax = plt.subplots(2, 2, figsize=(15, 15))
+
+            ax[0, 0].scatter(
+                self.column,
+                self.row,
+                c=self.flux[0],
+                marker="s",
+                s=7.5 if zoom else 1,
+                norm=colors.SymLogNorm(linthresh=500, vmin=0, vmax=5000, base=10),
+            )
+            ax[0, 0].set_aspect("equal", adjustable="box")
+
+            ax[0, 1].scatter(
+                self.column,
+                self.row,
+                c=ffi_model,
+                marker="s",
+                s=7.5 if zoom else 1,
+                norm=colors.SymLogNorm(linthresh=500, vmin=0, vmax=5000, base=10),
+            )
+            ax[0, 1].set_aspect("equal", adjustable="box")
+
+            cbar = ax[1, 0].scatter(
+                self.column[source_mask],
+                self.row[source_mask],
+                c=residuals[source_mask],
+                marker="s",
+                s=7.5 if zoom else 1,
+                cmap="RdBu",
+                norm=colors.SymLogNorm(linthresh=500, vmin=-5000, vmax=5000, base=10),
+            )
+            ax[1, 0].set_aspect("equal", adjustable="box")
+            plt.colorbar(
+                cbar, ax=ax[1, 0], label=r"Flux ($e^{-}s^{-1}$)", fraction=0.042
+            )
+
+            ax[1, 1].hist(
+                residuals[source_mask] / self.flux[0][source_mask],
+                bins=50,
+                log=True,
+                label=(
+                    "RMS (model - data) = %.3f" % self.rms
+                    + "\nMedian = %.3f" % self.frac_esidual_median
+                    + "\nSTD = %3f" % self.frac_esidual_std
+                ),
+            )
+            ax[1, 1].legend(loc="best")
+
+            ax[0, 0].set_ylabel("Pixel Row Number")
+            ax[0, 0].set_xlabel("Pixel Column Number")
+            ax[0, 1].set_xlabel("Pixel Column Number")
+            ax[1, 0].set_ylabel("Pixel Row Number")
+            ax[1, 0].set_xlabel("Pixel Column Number")
+            ax[1, 1].set_xlabel("(model - data) / data")
+
+            if zoom:
+                ax[0, 0].set_xlim(self.column.min(), self.column.min() + 100)
+                ax[0, 0].set_ylim(self.row.min(), self.row.min() + 100)
+                ax[0, 1].set_xlim(self.column.min(), self.column.min() + 100)
+                ax[0, 1].set_ylim(self.row.min(), self.row.min() + 100)
+                ax[1, 0].set_xlim(self.column.min(), self.column.min() + 100)
+                ax[1, 0].set_ylim(self.row.min(), self.row.min() + 100)
+
+            return fig
+
+        return
 
     def plot_image(self, ax=None, sources=False):
         """
