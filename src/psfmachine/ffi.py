@@ -18,10 +18,6 @@ from .version import __version__
 
 __all__ = ["FFIMachine"]
 
-# column and row values of non useful pixels
-r_min, r_max = 20, 1044
-c_min, c_max = 12, 1112
-
 
 class FFIMachine(Machine):
     """
@@ -108,6 +104,10 @@ class FFIMachine(Machine):
             Filename of the FFI file
         channel : int
             Channel number to be used
+        cutout_size : int
+            Size of the cutout in pixels, assumed to be square
+        cutout_origin : tuple
+            Origin pixel coordinates where to start the cut out. Follows matrix indexing
 
         Returns
         -------
@@ -144,10 +144,9 @@ class FFIMachine(Machine):
             wcs,
             magnitude_limit=18,
             epoch=time.jyear,
-            ngrid=(2, 2) if cutout_size is not None else (5, 5),
+            ngrid=(2, 2) if flux.shape[0] < 200 else (5, 5),
             dr=3,
-            cutout_size=cutout_size,
-            cutout_origin=cutout_origin,
+            img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
         # return wcs, time, flux, flux_err, ra, dec, column, row, sources
         return FFIMachine(
@@ -474,7 +473,7 @@ class FFIMachine(Machine):
                 self.sources.row,
                 facecolors="none",
                 edgecolors="r",
-                linewidths=0.5,
+                linewidths=0.5 if self.sources.shape[0] > 1000 else 1,
                 alpha=0.9,
             )
 
@@ -557,14 +556,14 @@ def _load_file(fname, channel=1):
     meta : dict
         Dictionary with metadata
     """
-    img_path = "./data/ffi/%s-cal.fits" % (fname)
+    # fname = "./data/ffi/%s-cal.fits" % (fname)
     # err_path = "./data/ffi/%s-uncert.fits" % (fname)
-    if not os.path.isfile(img_path):
+    if not os.path.isfile(fname):
         raise FileNotFoundError("FFI calibrated fits file does not exist.")
     # if not os.path.isfile(err_path):
     #     raise FileNotFoundError("FFI uncertainty fits file does not exist.")
 
-    hdul = fits.open(img_path)
+    hdul = fits.open(fname)
     header = hdul[0].header
 
     # Have to do some checks here that it's the right kind of data.
@@ -574,7 +573,17 @@ def _load_file(fname, channel=1):
             pass
         else:
             raise TypeError("File is not Kepler FFI type.")
+        # CCD overscan for Kepler
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
     elif header["TELESCOP"] == "TESS":
+        # CCD overscan for TESS
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
         raise NotImplementedError
     else:
         raise TypeError("File is not from Kepler or TESS mission")
@@ -596,8 +605,6 @@ def _load_file(fname, channel=1):
     flux_err_2d = err[r_min:r_max, c_min:c_max]
 
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
-    col_2d -= c_min
-    row_2d -= r_min
     ra_2d = ra.reshape(flux_2d.shape)
     dec_2d = dec.reshape(flux_2d.shape)
 
@@ -638,7 +645,7 @@ def _load_file(fname, channel=1):
     )
 
 
-def _get_sources(ra, dec, wcs, cutout_size=None, cutout_origin=[0, 0], **kwargs):
+def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
     """
     Query Gaia catalog in a tiled manner and clean sources off sensor.
 
@@ -652,6 +659,8 @@ def _get_sources(ra, dec, wcs, cutout_size=None, cutout_origin=[0, 0], **kwargs)
         compute centers and radius of cone search
     wcs : astropy.wcs
         World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
+    img_limits :
+        Image limits in pixel numbers to remove sources outside the CCD
     **kwargs
         Keyword arguments to be passed to `do_tiled_query`.
 
@@ -665,22 +674,13 @@ def _get_sources(ra, dec, wcs, cutout_size=None, cutout_origin=[0, 0], **kwargs)
         sources.loc[:, ["ra", "dec"]].values, 0.0
     ).T
 
-    # correct col,row columns for gaia sources
-    sources.row -= r_min
-    sources.column -= c_min
-    # remove sources outiside the ccd
+    # remove sources outiside the ccd with a tolerance
     tolerance = 0
-    if cutout_size is None:
-        r_low, c_low = 0, 0
-        r_high, c_high = 1023, 1099
-    else:
-        r_low, c_low = cutout_origin[0], cutout_origin[1]
-        r_high, c_high = cutout_origin[0] + cutout_size, cutout_origin[1] + cutout_size
     inside = (
-        (sources.row > r_low - tolerance)
-        & (sources.row < r_high + tolerance)
-        & (sources.column > c_low - tolerance)
-        & (sources.column < c_high + tolerance)
+        (sources.row > img_limits[0][0] - tolerance)
+        & (sources.row < img_limits[0][1] + tolerance)
+        & (sources.column > img_limits[1][0] - tolerance)
+        & (sources.column < img_limits[1][1] + tolerance)
     )
     sources = sources[inside].reset_index(drop=True)
     return sources
@@ -689,6 +689,9 @@ def _get_sources(ra, dec, wcs, cutout_size=None, cutout_origin=[0, 0], **kwargs)
 def do_image_cutout(
     flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
 ):
+    """
+    Creates a cutout of the full image
+    """
 
     if cutout_size + cutout_origin[0] < np.minimum(*flux.shape):
         column = column[
@@ -716,7 +719,7 @@ def do_image_cutout(
             cutout_origin[1] : cutout_origin[1] + cutout_size,
         ]
     else:
-        raise ValueError("Cutout size is larger than image shape ", flux_2d.shape)
+        raise ValueError("Cutout size is larger than image shape ", flux.shape)
 
     return flux, flux_err, ra, dec, column, row
 
