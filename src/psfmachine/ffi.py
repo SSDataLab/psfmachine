@@ -717,6 +717,8 @@ def _load_file(fname, channel=1):
             quarters.append(header["CAMPAIGN"])
         elif header["TELESCOP"] == "TESS":
             raise NotImplementedError
+        else:
+            raise ValueError("FFI is not from Kepler or TESS.")
 
         hdr = hdul[channel].header
         times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
@@ -733,8 +735,7 @@ def _load_file(fname, channel=1):
         raise ValueError("All images must be FFIs")
     if len(set(quarters)) != 1:
         raise ValueError("All FFIs must be of same quarter/campaign/sector.")
-    if len(set(channels)) != 1 or set(channels).pop() != channel:
-        raise ValueError("Woring channel number")
+
     # Have to do some checks here that it's the right kind of data.
     #  We could loosen these checks in future.
     if telescopes[0] == "Kepler":
