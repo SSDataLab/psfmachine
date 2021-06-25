@@ -71,9 +71,11 @@ class FFIMachine(Machine):
         self.row = kwargs["row"].ravel()
         self.ra = kwargs["ra"].ravel()
         self.dec = kwargs["dec"].ravel()
+        # keep 2d image for easy plotting
         self.flux_2d = kwargs["flux"]
-        self.flux = np.atleast_2d(kwargs["flux"].ravel())
-        self.flux_err = np.atleast_2d(kwargs["flux_err"].ravel())
+        # reshape flux and flux_err as [ntimes, npix]
+        self.flux = kwargs["flux"].reshape(kwargs["flux"].shape[0], -1)
+        self.flux_err = kwargs["flux_err"].reshape(kwargs["flux_err"].shape[0], -1)
         self.sources = kwargs["sources"]
 
         # remove background and mask bright/saturated pixels
@@ -141,7 +143,6 @@ class FFIMachine(Machine):
             row,
             metadata,
         ) = _load_file(fname, channel=channel)
-
         if cutout_size is not None:
             flux, flux_err, ra, dec, column, row = do_image_cutout(
                 flux,
@@ -159,14 +160,14 @@ class FFIMachine(Machine):
             dec,
             wcs,
             magnitude_limit=18,
-            epoch=time.jyear,
-            ngrid=(2, 2) if flux.shape[0] <= 500 else (5, 5),
+            epoch=time.jyear.mean(),
+            ngrid=(2, 2) if flux.shape[1] <= 500 else (4, 4),
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
         # return wcs, time, flux, flux_err, ra, dec, column, row, sources
         return FFIMachine(
-            time=np.array([time.jd]),
+            time=time.jd,
             flux=flux,
             flux_err=flux_err,
             ra=ra,
@@ -316,19 +317,26 @@ class FFIMachine(Machine):
         mask : numpy.ndarray of booleans
             Mask to reject pixels containing source flux. Default None.
         """
-        model = Background2D(
-            self.flux_2d,
-            mask=mask,
-            box_size=(64, 50),
-            filter_size=15,
-            exclude_percentile=20,
-            sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
-            bkg_estimator=MedianBackground(),
-            interpolator=BkgZoomInterpolator(order=3),
+        # model background for all cadences
+        self.background_model = np.array(
+            [
+                Background2D(
+                    flux_2d,
+                    mask=mask,
+                    box_size=(64, 50),
+                    filter_size=15,
+                    exclude_percentile=20,
+                    sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
+                    bkg_estimator=MedianBackground(),
+                    interpolator=BkgZoomInterpolator(order=3),
+                ).background
+                for flux_2d in self.flux_2d
+            ]
         )
-        self.background_model = model.background
-        self.flux_2d -= model.background
-        self.flux = self.flux_2d.ravel()[None, :]
+        # substract background
+        self.flux_2d -= self.background_model
+        # flatten flix image
+        self.flux = self.flux_2d.reshape(self.flux_2d.shape[0], -1)
         return
 
     def _saturated_pixels_mask(self, saturation_limit=1.5e5, tolerance=3):
@@ -579,7 +587,7 @@ class FFIMachine(Machine):
         im = ax.pcolormesh(
             col_2d,
             row_2d,
-            self.flux_2d,
+            self.flux_2d[0],
             cmap=plt.cm.viridis,
             shading="nearest",
             # origin="lower",
@@ -623,7 +631,7 @@ class FFIMachine(Machine):
         ax : matplotlib.axes
             Matlotlib axis with the figure
         """
-        row_2d, col_2d = np.mgrid[: self.flux_2d.shape[0], : self.flux_2d.shape[1]]
+        row_2d, col_2d = np.mgrid[: self.flux_2d.shape[1], : self.flux_2d.shape[2]]
 
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))
@@ -660,8 +668,8 @@ def _load_file(fname, channel=1):
 
     Parameters
     ----------
-    fname : string
-        Name of the FFI file
+    fname : string or list of strings
+        Name of the FFI files
     channel : int
         Number of channel to be used.
 
@@ -686,20 +694,51 @@ def _load_file(fname, channel=1):
     meta : dict
         Dictionary with metadata
     """
-    # fname = "./data/ffi/%s-cal.fits" % (fname)
-    # err_path = "./data/ffi/%s-uncert.fits" % (fname)
-    if not os.path.isfile(fname):
-        raise FileNotFoundError("FFI calibrated fits file does not exist.")
-    # if not os.path.isfile(err_path):
-    #     raise FileNotFoundError("FFI uncertainty fits file does not exist.")
+    if not isinstance(fname, list):
+        fname = np.sort([fname])
+    imgs = []
+    times = []
+    telescopes = []
+    dct_types = []
+    quarters = []
+    channels = []
 
-    hdul = fits.open(fname)
-    header = hdul[0].header
+    for i, f in enumerate(fname):
+        if not os.path.isfile(f):
+            raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
 
+        hdul = fits.open(f)
+        header = hdul[0].header
+        telescopes.append(header["TELESCOP"])
+        dct_types.append(header["DCT_TYPE"])
+        if header["DATSETNM"].startswith("kplr"):
+            quarters.append(header["QUARTER"])
+        elif header["DATSETNM"].startswith("ktwo"):
+            quarters.append(header["CAMPAIGN"])
+        elif header["TELESCOP"] == "TESS":
+            raise NotImplementedError
+
+        hdr = hdul[channel].header
+        times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
+        imgs.append(hdul[channel].data)
+        channels.append(hdul[channel].header["CHANNEL"])
+
+        if i == 0:
+            wcs = WCS(hdr)
+
+    # check for integrity of files, same telescope, all FFIs and same quarter
+    if len(set(telescopes)) != 1:
+        raise ValueError("All FFIs must be from same telescope")
+    if len(set(dct_types)) != 1 or set(dct_types).pop() != "FFI":
+        raise ValueError("All images must be FFIs")
+    if len(set(quarters)) != 1:
+        raise ValueError("All FFIs must be of same quarter/campaign/sector.")
+    if len(set(channels)) != 1 or set(channels).pop() != channel:
+        raise ValueError("Woring channel number")
     # Have to do some checks here that it's the right kind of data.
     #  We could loosen these checks in future.
-    if header["TELESCOP"] == "Kepler":
-        if header["DCT_TYPE"] == "FFI":
+    if telescopes[0] == "Kepler":
+        if dct_types[0] == "FFI":
             pass
         else:
             raise TypeError("File is not Kepler FFI type.")
@@ -708,36 +747,17 @@ def _load_file(fname, channel=1):
         r_max = 1044
         c_min = 12
         c_max = 1112
-    elif header["TELESCOP"] == "TESS":
+    elif telescopes[0] == "TESS":
         # CCD overscan for TESS
-        r_min = 20
-        r_max = 1044
-        c_min = 12
-        c_max = 1112
+        r_min = 0
+        r_max = 2048
+        c_min = 45
+        c_max = 2093
         raise NotImplementedError
     else:
         raise TypeError("File is not from Kepler or TESS mission")
 
-    if hdul[channel].header["CHANNEL"] != channel:
-        raise ValueError("Woring channel number")
-
-    hdr = hdul[channel].header
-    img = hdul[channel].data
-    # err = fits.open(err_path)[channel].data
-    err = np.sqrt(np.abs(img))
-    wcs = WCS(hdr)
-    # mid observ time
-    time = Time((hdr["MJDEND"] + hdr["MJDSTART"]) / 2, format="mjd")
-    row_2d, col_2d = np.mgrid[: img.shape[0], : img.shape[1]]
-    col_2d = col_2d[r_min:r_max, c_min:c_max]
-    row_2d = row_2d[r_min:r_max, c_min:c_max]
-    flux_2d = img[r_min:r_max, c_min:c_max]
-    flux_err_2d = err[r_min:r_max, c_min:c_max]
-
-    ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
-    ra_2d = ra.reshape(flux_2d.shape)
-    dec_2d = dec.reshape(flux_2d.shape)
-
+    # collect meta data, I get everthing from one header.
     attrs = [
         "TELESCOP",
         "INSTRUME",
@@ -752,19 +772,31 @@ def _load_file(fname, channel=1):
         "CHANNEL",
         "MODULE",
         "OUTPUT",
-        "MJDSTART",
-        "MJDEND",
-        "TIMEDEL",
         "RADESYS",
         "EQUINOX",
     ]
     meta.update({k: hdr[k] for k in attrs})
+    # sort by times
+    times = Time(times, format="mjd")
+    tdx = np.argsort(times)
+    times = times[tdx]
 
-    del hdul, header, hdr, img, err, ra, dec
+    # remove overscan
+    row_2d, col_2d = np.mgrid[: imgs[0].shape[0], : imgs[0].shape[1]]
+    col_2d = col_2d[r_min:r_max, c_min:c_max]
+    row_2d = row_2d[r_min:r_max, c_min:c_max]
+    flux_2d = np.array(imgs)[tdx, r_min:r_max, c_min:c_max]
+    flux_err_2d = np.sqrt(np.abs(flux_2d))
+
+    ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
+    ra_2d = ra.reshape(flux_2d.shape[1:])
+    dec_2d = dec.reshape(flux_2d.shape[1:])
+
+    del hdul, header, hdr, imgs, ra, dec
 
     return (
         wcs,
-        time,
+        times,
         flux_2d,
         flux_err_2d,
         ra_2d,
@@ -840,10 +872,12 @@ def do_image_cutout(
             cutout_origin[1] : cutout_origin[1] + cutout_size,
         ]
         flux = flux[
+            :,
             cutout_origin[0] : cutout_origin[0] + cutout_size,
             cutout_origin[1] : cutout_origin[1] + cutout_size,
         ]
         flux_err = flux_err[
+            :,
             cutout_origin[0] : cutout_origin[0] + cutout_size,
             cutout_origin[1] : cutout_origin[1] + cutout_size,
         ]

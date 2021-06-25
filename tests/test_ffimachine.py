@@ -22,7 +22,7 @@ def test_ffi_from_file():
     # test attributes have the right shapes
     assert ffi.time.shape == (1,)
     assert ffi.flux.shape == (1, 33812)
-    assert ffi.flux_2d.shape == (180, 188)
+    assert ffi.flux_2d.shape == (1, 180, 188)
     assert ffi.flux_err.shape == (1, 33812)
     assert ffi.column.shape == (33812,)
     assert ffi.row.shape == (33812,)
