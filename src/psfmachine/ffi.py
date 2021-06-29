@@ -26,8 +26,14 @@ class FFIMachine(Machine):
 
     def __init__(
         self,
-        channel=1,
-        quarter=5,
+        time,
+        flux,
+        flux_err,
+        ra,
+        dec,
+        sources,
+        column,
+        row,
         wcs=None,
         limit_radius=32.0,
         n_r_knots=10,
@@ -35,7 +41,7 @@ class FFIMachine(Machine):
         cut_r=6,
         rmin=1,
         rmax=16,
-        **kwargs,
+        meta=None,
     ):
         """
         Class to work with FFI data.
@@ -48,9 +54,6 @@ class FFIMachine(Machine):
             Quarter/Campagn nunmber to be used (for Kepler data).
         wcs : astropy.wcs
             World coordinates system solution for the FFI. Used for plotting.
-        **kwargs
-            Keyword attributes that contain information parsed from `from_file()` and
-            is used to initialize a `Machine` class object.
 
         Attributes
         ----------
@@ -67,16 +70,17 @@ class FFIMachine(Machine):
         quarter : int
             Quarter/Campagn nunmber to be used (for Kepler data).
         """
-        self.column = kwargs["column"].ravel()
-        self.row = kwargs["row"].ravel()
-        self.ra = kwargs["ra"].ravel()
-        self.dec = kwargs["dec"].ravel()
+        self.column = column
+        self.row = row
+        self.ra = ra
+        self.dec = dec
         # keep 2d image for easy plotting
-        self.flux_2d = kwargs["flux"]
+        self.flux_2d = flux
+        self.image_shape = flux.shape[1:]
         # reshape flux and flux_err as [ntimes, npix]
-        self.flux = kwargs["flux"].reshape(kwargs["flux"].shape[0], -1)
-        self.flux_err = kwargs["flux_err"].reshape(kwargs["flux_err"].shape[0], -1)
-        self.sources = kwargs["sources"]
+        self.flux = flux.reshape(flux.shape[0], -1)
+        self.flux_err = flux_err.reshape(flux_err.shape[0], -1)
+        self.sources = sources
 
         # remove background and mask bright/saturated pixels
         # these steps need to be done before `machine` init, so sparse delta
@@ -86,7 +90,7 @@ class FFIMachine(Machine):
 
         # init `machine` object
         super().__init__(
-            kwargs["time"],
+            time,
             self.flux,
             self.flux_err,
             self.ra,
@@ -99,12 +103,10 @@ class FFIMachine(Machine):
             cut_r=cut_r,
             rmin=rmin,
             rmax=rmax,
+            sparse_dist_lim=40 if meta["TELESCOP"] == "Kepler" else 210,
         )
-        self.meta = kwargs["metadata"]
-        self.channel = channel
-        self.quarter = quarter
+        self.meta = meta
         self.wcs = wcs
-        self.flux_2d = kwargs["flux"]
 
     def __repr__(self):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
@@ -154,31 +156,32 @@ class FFIMachine(Machine):
                 cutout_size=cutout_size,
                 cutout_origin=cutout_origin,
             )
-
+        if metadata["TELESCOP"] == "Kepler":
+            ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
+        else:
+            ngrid = (5, 5) if flux.shape[1] < 500 else (10, 10)
         sources = _get_sources(
             ra,
             dec,
             wcs,
-            magnitude_limit=18,
+            magnitude_limit=18 if metadata["TELESCOP"] == "Kepler" else 15,
             epoch=time.jyear.mean(),
-            ngrid=(2, 2) if flux.shape[1] <= 500 else (4, 4),
+            ngrid=ngrid,
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
         # return wcs, time, flux, flux_err, ra, dec, column, row, sources
         return FFIMachine(
-            time=time.jd,
-            flux=flux,
-            flux_err=flux_err,
-            ra=ra,
-            dec=dec,
-            sources=sources,
-            column=column,
-            row=row,
-            channel=channel,
-            quarter=metadata["QUARTER"],
+            time.jd,
+            flux,
+            flux_err,
+            ra.ravel(),
+            dec.ravel(),
+            sources,
+            column.ravel(),
+            row.ravel(),
             wcs=wcs,
-            metadata=metadata,
+            meta=metadata,
             **kwargs,
         )
 
@@ -193,10 +196,10 @@ class FFIMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "./%s-ffi_shape_model_ch%02i_q%02i.fits" % (
-                self.meta["TELESCOP"],
-                self.channel,
-                self.quarter,
+            output = "./%s_ffi_shape_model_ch%s_q%s.fits" % (
+                self.meta["MISSION"],
+                str(self.meta["CHANNEL"]),
+                str(self.meta["QUARTER"]),
             )
 
         # create data structure (DataFrame) to save the model params
@@ -209,9 +212,12 @@ class FFIMachine(Machine):
         table.header["origin"] = ("PSFmachine.FFIMachine", "Software of origin")
         table.header["version"] = (__version__, "Software version")
         table.header["TELESCOP"] = (self.meta["TELESCOP"], "Telescope name")
-        table.header["mission"] = ("Kepler", "Mission name")
-        table.header["quarter"] = (self.quarter, "Quarter of observations")
-        table.header["channel"] = (self.channel, "Channel output")
+        table.header["mission"] = (self.meta["MISSION"], "Mission name")
+        table.header["quarter"] = (
+            self.meta["QUARTER"],
+            "Quarter/Campaign/Sector of observations",
+        )
+        table.header["channel"] = (self.meta["CHANNEL"], "Channel/Camera-CCD output")
         table.header["MJD-OBS"] = (self.time[0], "MJD of observation")
         table.header["n_rknots"] = (
             self.n_r_knots,
@@ -251,45 +257,30 @@ class FFIMachine(Machine):
 
         # asign default output file name
         if output is None:
-            output = "./source_catalog_ch%02i_q%02i_mjd%s.fits" % (
-                self.channel,
-                self.quarter,
+            output = "./%s_source_catalog_ch%s_q%s_mjd%s.fits" % (
+                self.meta["MISSION"],
+                str(self.meta["CHANNEL"]),
+                str(self.meta["QUARTER"]),
                 str(self.time[0]),
             )
-        # create bin table with photometry
-        id_col = fits.Column(
-            name="gaia_id", array=self.sources.designation, format="29A"
-        )
-        ra_col = fits.Column(name="ra", array=self.sources.ra, format="D", unit="deg")
-        dec_col = fits.Column(
-            name="dec", array=self.sources.dec, format="D", unit="deg"
-        )
-        flux_col = fits.Column(
-            name="psf_flux", array=self.ws[0, :], format="D", unit="-e/s"
-        )
-        flux_err_col = fits.Column(
-            name="psf_flux_err", array=self.werrs[0, :], format="D", unit="-e/s"
-        )
-        table_hdu = fits.BinTableHDU.from_columns(
-            [id_col, ra_col, dec_col, flux_col, flux_err_col]
-        )
-        table_hdu.header["EXTNAME"] = "CATALOG"
 
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["object"] = ("Photometric Catalog", "Photometry")
         primary_hdu.header["origin"] = ("PSFmachine.FFIMachine", "Software of origin")
         primary_hdu.header["version"] = (__version__, "Software version")
         primary_hdu.header["TELESCOP"] = (self.meta["TELESCOP"], "Telescope")
-        primary_hdu.header["mission"] = ("kepler", "Mission name")
-        primary_hdu.header["OBSMODE"] = (self.meta["OBSMODE"], "Observing mode")
+        primary_hdu.header["mission"] = (self.meta["MISSION"], "Mission name")
         primary_hdu.header["DCT_TYPE"] = (self.meta["DCT_TYPE"], "Data type")
-        primary_hdu.header["quarter"] = (self.quarter, "Quarter of observations")
-        primary_hdu.header["SEASON"] = (self.meta["SEASON"], "Observation season")
-        primary_hdu.header["channel"] = (self.channel, "CCD channel")
-        primary_hdu.header["MODULE"] = (self.meta["MODULE"], "CCD module")
-        primary_hdu.header["OUTPUT"] = (self.meta["OUTPUT"], "CCD module")
+        primary_hdu.header["quarter"] = (
+            self.meta["QUARTER"],
+            "Quarter/Campaign/Sector of observations",
+        )
+        primary_hdu.header["channel"] = (
+            self.meta["CHANNEL"],
+            "Channel/Camera-CCD output",
+        )
         primary_hdu.header["aperture"] = ("PSF", "Type of photometry")
-        primary_hdu.header["MJD-OBS"] = (self.time[0], "MJD of observation")
+        primary_hdu.header["N_OBS"] = (self.time.shape[0], "Number of cadences")
         primary_hdu.header["DATSETNM"] = (self.meta["DATSETNM"], "data set name")
         primary_hdu.header["RADESYS"] = (
             self.meta["RADESYS"],
@@ -299,8 +290,31 @@ class FFIMachine(Machine):
             self.meta["EQUINOX"],
             "equinox of celestial coordinate system",
         )
+        hdul = fits.HDUList([primary_hdu])
+        # create bin table with photometry
+        for k in range(self.time.shape[0]):
+            id_col = fits.Column(
+                name="gaia_id", array=self.sources.designation, format="29A"
+            )
+            ra_col = fits.Column(
+                name="ra", array=self.sources.ra, format="D", unit="deg"
+            )
+            dec_col = fits.Column(
+                name="dec", array=self.sources.dec, format="D", unit="deg"
+            )
+            flux_col = fits.Column(
+                name="psf_flux", array=self.ws[k, :], format="D", unit="-e/s"
+            )
+            flux_err_col = fits.Column(
+                name="psf_flux_err", array=self.werrs[k, :], format="D", unit="-e/s"
+            )
+            table_hdu = fits.BinTableHDU.from_columns(
+                [id_col, ra_col, dec_col, flux_col, flux_err_col]
+            )
+            table_hdu.header["EXTNAME"] = "CATALOG"
+            table_hdu.header["MJD-OBS"] = (self.time[k], "MJD of observation")
 
-        hdul = fits.HDUList([primary_hdu, table_hdu])
+            hdul.append(table_hdu)
 
         hdul.writeto(output, checksum=True, overwrite=True)
 
@@ -547,6 +561,7 @@ class FFIMachine(Machine):
             ax[1, 0].set_ylabel("Pixel Row Number")
             ax[1, 0].set_xlabel("Pixel Column Number")
             ax[1, 1].set_xlabel("(model - data) / data")
+            ax[1, 0].set_title(metric)
 
             if zoom:
                 ax[0, 0].set_xlim(self.column.min(), self.column.min() + 100)
@@ -596,7 +611,10 @@ class FFIMachine(Machine):
         )
         plt.colorbar(im, ax=ax, label=r"Flux ($e^{-}s^{-1}$)", fraction=0.042)
 
-        ax.set_title("FFI Ch %i MJD %f" % (self.channel, self.time[0]))
+        ax.set_title(
+            "%s FFI Ch/CCD %s MJD %f"
+            % (self.meta["MISSION"], self.meta["CHANNEL"], self.time[0])
+        )
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
         ax.grid(True, which="major", axis="both", ls="-", color="w", alpha=0.7)
@@ -710,28 +728,41 @@ def _load_file(fname, channel=1):
         hdul = fits.open(f)
         header = hdul[0].header
         telescopes.append(header["TELESCOP"])
-        dct_types.append(header["DCT_TYPE"])
-        if header["DATSETNM"].startswith("kplr"):
+        # kepler
+        if f.split("/")[-1].startswith("kplr"):
+            dct_types.append(header["DCT_TYPE"])
             quarters.append(header["QUARTER"])
-        elif header["DATSETNM"].startswith("ktwo"):
+            channels.append(hdul[channel].header["CHANNEL"])
+            hdr = hdul[channel].header
+            times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
+            imgs.append(hdul[channel].data)
+        # K2
+        elif f.split("/")[-1].startswith("ktwo"):
+            dct_types.append(header["DCT_TYPE"])
             quarters.append(header["CAMPAIGN"])
-        elif header["TELESCOP"] == "TESS":
-            raise NotImplementedError
+            channels.append(hdul[channel].header["CHANNEL"])
+            hdr = hdul[channel].header
+            times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
+            imgs.append(hdul[channel].data)
+        # TESS
+        elif f.split("/")[-1].startswith("tess"):
+            dct_types.append(header["CREATOR"].split(" ")[-1].upper())
+            quarters.append(f.split("/")[-1].split("-")[1])
+            hdr = hdul[1].header
+            times.append((hdr["TSTART"] + hdr["TSTOP"]) / 2)
+            imgs.append(hdul[1].data)
+            channels.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
+            # raise NotImplementedError
         else:
             raise ValueError("FFI is not from Kepler or TESS.")
-
-        hdr = hdul[channel].header
-        times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-        imgs.append(hdul[channel].data)
-        channels.append(hdul[channel].header["CHANNEL"])
 
         if i == 0:
             wcs = WCS(hdr)
 
-    # check for integrity of files, same telescope, all FFIs and same quarter
+    # check for integrity of files, same telescope, all FFIs and same quarter/campaign
     if len(set(telescopes)) != 1:
         raise ValueError("All FFIs must be from same telescope")
-    if len(set(dct_types)) != 1 or set(dct_types).pop() != "FFI":
+    if len(set(dct_types)) != 1 or "FFI" not in set(dct_types).pop():
         raise ValueError("All images must be FFIs")
     if len(set(quarters)) != 1:
         raise ValueError("All FFIs must be of same quarter/campaign/sector.")
@@ -739,10 +770,6 @@ def _load_file(fname, channel=1):
     # Have to do some checks here that it's the right kind of data.
     #  We could loosen these checks in future.
     if telescopes[0] == "Kepler":
-        if dct_types[0] == "FFI":
-            pass
-        else:
-            raise TypeError("File is not Kepler FFI type.")
         # CCD overscan for Kepler
         r_min = 20
         r_max = 1044
@@ -754,7 +781,7 @@ def _load_file(fname, channel=1):
         r_max = 2048
         c_min = 45
         c_max = 2093
-        raise NotImplementedError
+        # raise NotImplementedError
     else:
         raise TypeError("File is not from Kepler or TESS mission")
 
@@ -762,23 +789,31 @@ def _load_file(fname, channel=1):
     attrs = [
         "TELESCOP",
         "INSTRUME",
-        "OBSMODE",
-        "DCT_TYPE",
+        "MISSION",
+        # "OBSMODE",
+        # "DCT_TYPE",
         "DATSETNM",
-        "QUARTER",
-        "SEASON",
+        # "QUARTER",
+        # "CAMPAIGN",
+        # "SEASON",
+        # "SECTOR",
     ]
-    meta = {k: header[k] for k in attrs}
+    meta = {k: header[k] for k in attrs if k in header.keys()}
     attrs = [
-        "CHANNEL",
-        "MODULE",
-        "OUTPUT",
+        # "CHANNEL",
+        # "CCD",
+        # "MODULE",
+        # "CAMERA",
+        # "OUTPUT",
         "RADESYS",
         "EQUINOX",
     ]
-    meta.update({k: hdr[k] for k in attrs})
+    meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
+    meta.update({"CHANNEL": channels[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
+    if "MISSION" not in meta.keys():
+        meta["MISSION"] = meta["TELESCOP"]
     # sort by times
-    times = Time(times, format="mjd")
+    times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
 
@@ -862,8 +897,7 @@ def do_image_cutout(
     cutout_origin : list
         Origin of the cutout following matrix indexing
     """
-
-    if cutout_size + cutout_origin[0] < np.minimum(*flux.shape):
+    if cutout_size + cutout_origin[0] < np.minimum(*flux.shape[1:]):
         column = column[
             cutout_origin[0] : cutout_origin[0] + cutout_size,
             cutout_origin[1] : cutout_origin[1] + cutout_size,
