@@ -46,6 +46,7 @@ class Machine(object):
         rmin=1,
         rmax=16,
         cut_r=6,
+        sparse_dist_lim=40,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -150,6 +151,7 @@ class Machine(object):
         self.rmin = rmin
         self.rmax = rmax
         self.cut_r = cut_r
+        self.sparse_dist_lim = sparse_dist_lim / 3600
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -219,7 +221,6 @@ class Machine(object):
             Default is [0, 0].
         """
         # convert to degrees
-        dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
         # this is inefficient, could be done in a tiled manner? only for squared data
         dra, ddec, sparse_mask = [], [], []
@@ -227,7 +228,8 @@ class Machine(object):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
             ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
             box_mask = sparse.csr_matrix(
-                (np.abs(dra_aux) <= dist_lim) & (np.abs(ddec_aux) <= dist_lim)
+                (np.abs(dra_aux) <= self.sparse_dist_lim)
+                & (np.abs(ddec_aux) <= self.sparse_dist_lim)
             )
             dra.append(box_mask.multiply(dra_aux))
             ddec.append(box_mask.multiply(ddec_aux))
