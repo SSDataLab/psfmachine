@@ -11,28 +11,30 @@ from astropy.utils.data import get_pkg_data_filename
 
 from psfmachine import Machine, FFIMachine
 
-ffi_path = get_pkg_data_filename("./data/ffi_ch01_test.fits")
-ffi = FFIMachine.from_file(ffi_path, channel=1)
-
 
 @pytest.mark.remote_data
 def test_ffi_from_file():
+
+    ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
+    ffi = FFIMachine.from_file(ffi_path, channel=1)
     # test `FFIMachine.from_file` is of Machine class
     assert isinstance(ffi, Machine)
     # test attributes have the right shapes
     assert ffi.time.shape == (1,)
-    assert ffi.flux.shape == (1, 33812)
+    assert ffi.flux.shape == (1, 20548)
     assert ffi.flux_2d.shape == (1, 180, 188)
-    assert ffi.flux_err.shape == (1, 33812)
-    assert ffi.column.shape == (33812,)
-    assert ffi.row.shape == (33812,)
-    assert ffi.ra.shape == (33812,)
-    assert ffi.dec.shape == (33812,)
+    assert ffi.flux_err.shape == (1, 20548)
+    assert ffi.column.shape == (20548,)
+    assert ffi.row.shape == (20548,)
+    assert ffi.ra.shape == (20548,)
+    assert ffi.dec.shape == (20548,)
     assert ffi.sources.shape == (259, 13)
 
 
 @pytest.mark.remote_data
 def test_save_shape_model():
+    ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
+    ffi = FFIMachine.from_file(ffi_path, channel=1)
     # create a shape model
     ffi.build_shape_model()
     file_name = "%s/data/test_ffi_shape_model.fits" % os.path.abspath(
@@ -59,7 +61,9 @@ def test_save_shape_model():
 
 @pytest.mark.remote_data
 def test_save_flux_values():
-
+    ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
+    ffi = FFIMachine.from_file(ffi_path, channel=1)
+    ffi.build_shape_model()
     file_name = "%s/data/ffi_test_phot.fits" % os.path.abspath(
         os.path.dirname(__file__)
     )
@@ -70,7 +74,7 @@ def test_save_flux_values():
     hdu = fits.open(file_name)
     assert hdu[0].header["TELESCOP"] == ffi.meta["TELESCOP"]
     assert hdu[0].header["DCT_TYPE"] == ffi.meta["DCT_TYPE"]
-    assert hdu[0].header["MJD-OBS"] == ffi.time[0]
+    assert hdu[1].header["MJD-OBS"] == ffi.time[0]
 
     # check FITS table has the right shapes, columns and units
     table = Table.read(file_name)
