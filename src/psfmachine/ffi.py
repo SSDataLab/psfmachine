@@ -48,12 +48,28 @@ class FFIMachine(Machine):
 
         Parameters
         ----------
-        channel : int
-            Channel number to be used
-        quarter : int
-            Quarter/Campagn nunmber to be used (for Kepler data).
+        time: numpy.ndarray
+            Time values in JD
+        flux: numpy.ndarray
+            Flux values at each pixels and times in units of electrons / sec. Has shape
+            [n_times, n_rows, n_columns]
+        flux_err: numpy.ndarray
+            Flux error values at each pixels and times in units of electrons / sec.
+            Has shape [n_times, n_rows, n_columns]
+        ra: numpy.ndarray
+            Right Ascension coordinate of each pixel
+        dec: numpy.ndarray
+            Declination coordinate of each pixel
+        sources: pandas.DataFrame
+            DataFrame with source present in the images
+        column: np.ndarray
+            Data array containing the "columns" of the detector that each pixel is on.
+        row: np.ndarray
+            Data array containing the "columns" of the detector that each pixel is on.
         wcs : astropy.wcs
             World coordinates system solution for the FFI. Used for plotting.
+        meta : dictionary
+            Meta data information related to the FFI
 
         Attributes
         ----------
@@ -65,10 +81,8 @@ class FFIMachine(Machine):
             World coordinates system solution for the FFI. Used for plotting.
         flux_2d : numpy.ndarray
             2D image representation of the FFI, used for plotting.
-        channel : int
-            Channel number to be used
-        quarter : int
-            Quarter/Campagn nunmber to be used (for Kepler data).
+        image_shape : tuple
+            Shape of 2D image
         """
         self.column = column
         self.row = row
@@ -113,7 +127,7 @@ class FFIMachine(Machine):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
 
     @staticmethod
-    def from_file(fname, channel=1, cutout_size=None, cutout_origin=[0, 0], **kwargs):
+    def from_file(fname, extension=1, cutout_size=None, cutout_origin=[0, 0], **kwargs):
         """
         Reads data from files and initiates a new FFIMachine class.
 
@@ -121,8 +135,8 @@ class FFIMachine(Machine):
         ----------
         fname : str
             Filename of the FFI file
-        channel : int
-            Channel number to be used
+        extension : int
+            Number of HDU extension to use, for Kepler FFIs this corresponds to the channel
         cutout_size : int
             Size of the cutout in pixels, assumed to be square
         cutout_origin : tuple
@@ -145,7 +159,7 @@ class FFIMachine(Machine):
             column,
             row,
             metadata,
-        ) = _load_file(fname, channel=channel)
+        ) = _load_file(fname, extension=extension)
         if cutout_size is not None:
             flux, flux_err, ra, dec, column, row = do_image_cutout(
                 flux,
@@ -199,7 +213,7 @@ class FFIMachine(Machine):
         if output is None:
             output = "./%s_ffi_shape_model_ch%s_q%s.fits" % (
                 self.meta["MISSION"],
-                str(self.meta["CHANNEL"]),
+                str(self.meta["EXTENSION"]),
                 str(self.meta["QUARTER"]),
             )
 
@@ -218,7 +232,7 @@ class FFIMachine(Machine):
             self.meta["QUARTER"],
             "Quarter/Campaign/Sector of observations",
         )
-        table.header["channel"] = (self.meta["CHANNEL"], "Channel/Camera-CCD output")
+        table.header["channel"] = (self.meta["EXTENSION"], "Channel/Camera-CCD output")
         table.header["MJD-OBS"] = (self.time[0], "MJD of observation")
         table.header["n_rknots"] = (
             self.n_r_knots,
@@ -260,7 +274,7 @@ class FFIMachine(Machine):
         if output is None:
             output = "./%s_source_catalog_ch%s_q%s_mjd%s.fits" % (
                 self.meta["MISSION"],
-                str(self.meta["CHANNEL"]),
+                str(self.meta["EXTENSION"]),
                 str(self.meta["QUARTER"]),
                 str(self.time[0]),
             )
@@ -277,7 +291,7 @@ class FFIMachine(Machine):
             "Quarter/Campaign/Sector of observations",
         )
         primary_hdu.header["channel"] = (
-            self.meta["CHANNEL"],
+            self.meta["EXTENSION"],
             "Channel/Camera-CCD output",
         )
         primary_hdu.header["aperture"] = ("PSF", "Type of photometry")
@@ -614,7 +628,7 @@ class FFIMachine(Machine):
 
         ax.set_title(
             "%s FFI Ch/CCD %s MJD %f"
-            % (self.meta["MISSION"], self.meta["CHANNEL"], self.time[0])
+            % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[0])
         )
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
@@ -681,7 +695,7 @@ class FFIMachine(Machine):
         return ax
 
 
-def _load_file(fname, channel=1):
+def _load_file(fname, extension=1):
     """
     Helper function to load FFI files and parse data.
 
@@ -689,8 +703,8 @@ def _load_file(fname, channel=1):
     ----------
     fname : string or list of strings
         Name of the FFI files
-    channel : int
-        Number of channel to be used.
+    extension : int
+        Number of HDU extension to use, for Kepler FFIs this corresponds to the channel
 
     Returns
     -------
@@ -720,7 +734,7 @@ def _load_file(fname, channel=1):
     telescopes = []
     dct_types = []
     quarters = []
-    channels = []
+    extensions = []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
@@ -732,18 +746,18 @@ def _load_file(fname, channel=1):
         if f.split("/")[-1].startswith("kplr"):
             dct_types.append(header["DCT_TYPE"])
             quarters.append(header["QUARTER"])
-            channels.append(hdul[channel].header["CHANNEL"])
-            hdr = hdul[channel].header
+            extensions.append(hdul[extension].header["CHANNEL"])
+            hdr = hdul[extension].header
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[channel].data)
+            imgs.append(hdul[extension].data)
         # K2
         elif f.split("/")[-1].startswith("ktwo"):
             dct_types.append(header["DCT_TYPE"])
             quarters.append(header["CAMPAIGN"])
-            channels.append(hdul[channel].header["CHANNEL"])
-            hdr = hdul[channel].header
+            extensions.append(hdul[extension].header["CHANNEL"])
+            hdr = hdul[extension].header
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[channel].data)
+            imgs.append(hdul[extension].data)
         # TESS
         elif f.split("/")[-1].startswith("tess"):
             dct_types.append(header["CREATOR"].split(" ")[-1].upper())
@@ -751,7 +765,7 @@ def _load_file(fname, channel=1):
             hdr = hdul[1].header
             times.append((hdr["TSTART"] + hdr["TSTOP"]) / 2)
             imgs.append(hdul[1].data)
-            channels.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
+            extensions.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
             # raise NotImplementedError
         else:
             raise ValueError("FFI is not from Kepler or TESS.")
@@ -810,7 +824,7 @@ def _load_file(fname, channel=1):
         "BACKAPP",
     ]
     meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
-    meta.update({"CHANNEL": channels[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
+    meta.update({"EXTENSION": extensions[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
     # sort by times
