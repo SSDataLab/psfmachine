@@ -85,7 +85,8 @@ class FFIMachine(Machine):
         # remove background and mask bright/saturated pixels
         # these steps need to be done before `machine` init, so sparse delta
         # and flux arrays have the same shape
-        self._remove_background()
+        if not meta["BACKAPP"]:
+            self._remove_background()
         self._mask_pixels()
 
         # init `machine` object
@@ -720,7 +721,6 @@ def _load_file(fname, channel=1):
     dct_types = []
     quarters = []
     channels = []
-
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
@@ -807,6 +807,7 @@ def _load_file(fname, channel=1):
         # "OUTPUT",
         "RADESYS",
         "EQUINOX",
+        "BACKAPP",
     ]
     meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
     meta.update({"CHANNEL": channels[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
