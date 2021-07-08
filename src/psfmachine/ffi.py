@@ -895,6 +895,8 @@ def _load_file(fname, extension=1):
     flux_err_2d = np.sqrt(np.abs(flux_2d))
 
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
+    if ra.min() < 0.0 or ra.max() > 360 or dec.min() < -90 or dec.max() > 90:
+        raise ValueError("WCS lead to out of bound RA and Dec coordinates.")
     ra_2d = ra.reshape(flux_2d.shape[1:])
     dec_2d = dec.reshape(flux_2d.shape[1:])
 
