@@ -522,6 +522,8 @@ class Machine(object):
         k = np.isfinite(mean_f)
         ra_cent = np.average(dx[k], weights=mean_f[k])
         dec_cent = np.average(dy[k], weights=mean_f[k])
+        self.ra_offset = ra_cent * u.deg.to(u.arcsecond)
+        self.dec_offset = dec_cent * u.deg.to(u.arcsecond)
 
         # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
         if self.nsources * self.npixels < 1e7:
@@ -1084,6 +1086,17 @@ class Machine(object):
             title="Data",
             xlim=(-radius, radius),
             ylim=(-radius, radius),
+        )
+        ax[0, 0].arrow(
+            0,
+            0,
+            self.ra_offset,
+            self.dec_offset,
+            width=1e-6,
+            shape="full",
+            head_width=0.05,
+            head_length=0.1,
+            color="tab:red",
         )
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
