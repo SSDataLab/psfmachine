@@ -16,7 +16,7 @@ from psfmachine import Machine, FFIMachine
 def test_ffi_from_file():
 
     ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
-    ffi = FFIMachine.from_file(ffi_path, channel=1)
+    ffi = FFIMachine.from_file(ffi_path, extension=1)
     # test `FFIMachine.from_file` is of Machine class
     assert isinstance(ffi, Machine)
     # test attributes have the right shapes
@@ -34,7 +34,7 @@ def test_ffi_from_file():
 @pytest.mark.remote_data
 def test_save_shape_model():
     ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
-    ffi = FFIMachine.from_file(ffi_path, channel=1)
+    ffi = FFIMachine.from_file(ffi_path, extension=1)
     # create a shape model
     ffi.build_shape_model()
     file_name = "%s/data/test_ffi_shape_model.fits" % os.path.abspath(
@@ -62,7 +62,7 @@ def test_save_shape_model():
 @pytest.mark.remote_data
 def test_save_flux_values():
     ffi_path = get_pkg_data_filename("./data/kplr-ffi_ch01_test.fits")
-    ffi = FFIMachine.from_file(ffi_path, channel=1)
+    ffi = FFIMachine.from_file(ffi_path, extension=1)
     ffi.build_shape_model()
     file_name = "%s/data/ffi_test_phot.fits" % os.path.abspath(
         os.path.dirname(__file__)

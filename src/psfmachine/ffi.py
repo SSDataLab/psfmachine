@@ -211,11 +211,12 @@ class FFIMachine(Machine):
         """
         # asign a file name
         if output is None:
-            output = "./%s_ffi_shape_model_ch%s_q%s.fits" % (
+            output = "./%s_ffi_shape_model_ext%s_q%s.fits" % (
                 self.meta["MISSION"],
                 str(self.meta["EXTENSION"]),
                 str(self.meta["QUARTER"]),
             )
+            print("File name: ", output)
 
         # create data structure (DataFrame) to save the model params
         table = fits.BinTableHDU.from_columns(
@@ -253,9 +254,62 @@ class FFIMachine(Machine):
 
         table.writeto(output, checksum=True, overwrite=True)
 
-    def load_shape_model(self):
+    def load_shape_model(self, input=None, plot=False):
         """Loads a PRF"""
-        raise NotImplementedError
+        if input is None:
+            raise NotImplementedError(
+                "Loading default model not implemented. Please provide input file."
+            )
+        # check if file exists and is the right format
+        if not os.path.isfile(input):
+            raise FileNotFoundError("No shape file: %s" % input)
+        if not input.endswith(".fits"):
+            # should use a custom exception for wrong file format
+            raise ValueError("File format not suported. Please provide a FITS file.")
+
+        # create source mask and uncontaminated pixel mask
+        self._get_source_mask()
+        self._get_uncontaminated_pixel_mask()
+
+        # open file
+        hdu = fits.open(input)
+        # check if shape parameters are for correct mission, quarter, and channel
+        if hdu[1].header["MISSION"] != self.meta["MISSION"]:
+            raise ValueError(
+                "Wrong shape model: file is for mission '%s',"
+                % (hdu[1].header["MISSION"])
+                + " it should be '%s'." % (self.meta["MISSION"])
+            )
+        if hdu[1].header["QUARTER"] != self.meta["QUARTER"]:
+            raise ValueError(
+                "Wrong shape model: file is for quarter %i,"
+                % (hdu[1].header["QUARTER"])
+                + " it should be %i." % (self.meta["QUARTER"])
+            )
+        if hdu[1].header["CHANNEL"] != self.meta["EXTENSION"]:
+            raise ValueError(
+                "Wrong shape model: file is for channel %i,"
+                % (hdu[1].header["CHANNEL"])
+                + " it should be %i." % (self.meta["EXTENSION"])
+            )
+        # load model hyperparameters and weights
+        self.n_r_knots = hdu[1].header["n_rknots"]
+        self.n_phi_knots = hdu[1].header["n_pknots"]
+        self.rmin = hdu[1].header["rmin"]
+        self.rmax = hdu[1].header["rmax"]
+        self.cut_r = hdu[1].header["cut_r"]
+        self.psf_w = hdu[1].data["psf_w"]
+        del hdu
+
+        # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
+        # work in arcseconds
+        self._get_mean_model()
+        # remove background pixels and recreate mean model
+        self._update_source_mask_remove_bkg_pixels()
+
+        if plot:
+            return self.plot_shape_model()
+        return
 
     def save_flux_values(self, output=None, format="fits"):
         """Saves the flux values of all sources to a file
@@ -272,12 +326,13 @@ class FFIMachine(Machine):
 
         # asign default output file name
         if output is None:
-            output = "./%s_source_catalog_ch%s_q%s_mjd%s.fits" % (
+            output = "./%s_source_catalog_ext%s_q%s_mjd%s.fits" % (
                 self.meta["MISSION"],
                 str(self.meta["EXTENSION"]),
                 str(self.meta["QUARTER"]),
                 str(self.time[0]),
             )
+            print("File name: ", output)
 
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["object"] = ("Photometric Catalog", "Photometry")
