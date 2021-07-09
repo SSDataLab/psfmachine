@@ -336,6 +336,7 @@ class Machine(object):
         lower_radius_limit=4.5,
         upper_flux_limit=2e5,
         lower_flux_limit=100,
+        correct_centroid_offset=True,
         plot=False,
     ):
         """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
@@ -526,23 +527,31 @@ class Machine(object):
         # self.dec_offset = dec_cent * u.deg.to(u.arcsecond)
 
         # calculate image centroids and correct dra,ddec for offset.
-        self._get_centroids()
+        if correct_centroid_offset:
+            self._get_centroids()
 
-        # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
-        if self.nsources * self.npixels < 1e7:
-            self._create_delta_arrays(
-                centroid_offset=[
-                    self.ra_centroid_avg.value,
-                    self.dec_centroid_avg.value,
-                ]
-            )
-        else:
-            self._create_delta_sparse_arrays(
-                centroid_offset=[
-                    self.ra_centroid_avg.value,
-                    self.dec_centroid_avg.value,
-                ]
-            )
+            # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
+            if self.nsources * self.npixels < 1e7:
+                self._create_delta_arrays(
+                    centroid_offset=[
+                        self.ra_centroid_avg.value,
+                        self.dec_centroid_avg.value,
+                    ]
+                )
+            else:
+                self._create_delta_sparse_arrays(
+                    centroid_offset=[
+                        self.ra_centroid_avg.value,
+                        self.dec_centroid_avg.value,
+                    ]
+                )
+            # if centroid offset id larger than 1" then we need to recalculate the
+            # source mask to include/reject correct pixels.
+            if (
+                np.abs(self.ra_centroid_avg.to("arcsec").value) > 1
+                or np.abs(self.dec_centroid_avg.to("arcsec").value) > 1
+            ):
+                self._get_source_mask(correct_centroid_offset=False)
 
         if plot:
             k = np.isfinite(f_temp_mask)
