@@ -505,31 +505,10 @@ class Machine(object):
         self._get_uncontaminated_pixel_mask()
 
         # Now we can update the r and phi estimates, allowing for a slight centroid
-        # offset not necessary to take values from Quantity to do .multiply()
-        # dx, dy = (
-        #     self.uncontaminated_source_mask.multiply(self.dra),
-        #     self.uncontaminated_source_mask.multiply(self.ddec),
-        # )
-        # dx = dx.data
-        # dy = dy.data
-        #
-        # mean_f = np.log10(
-        #     self.uncontaminated_source_mask.astype(float)
-        #     .multiply(self.flux[self.time_mask].mean(axis=0))
-        #     .multiply(1 / self.source_flux_estimates[:, None])
-        #     .data
-        # )
-        #
-        # k = np.isfinite(mean_f)
-        # ra_cent = np.average(dx[k], weights=mean_f[k])
-        # dec_cent = np.average(dy[k], weights=mean_f[k])
-        # self.ra_offset = ra_cent * u.deg.to(u.arcsecond)
-        # self.dec_offset = dec_cent * u.deg.to(u.arcsecond)
-
         # calculate image centroids and correct dra,ddec for offset.
         if correct_centroid_offset:
             self._get_centroids()
-
+            # print(self.ra_centroid_avg.to("arcsec"), self.dec_centroid_avg.to("arcsec"))
             # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
             if self.nsources * self.npixels < 1e7:
                 self._create_delta_arrays(
@@ -547,6 +526,7 @@ class Machine(object):
                 )
             # if centroid offset id larger than 1" then we need to recalculate the
             # source mask to include/reject correct pixels.
+            # this 1 arcsec limit only works for Kepler/K2
             if (
                 np.abs(self.ra_centroid_avg.to("arcsec").value) > 1
                 or np.abs(self.dec_centroid_avg.to("arcsec").value) > 1
@@ -623,12 +603,13 @@ class Machine(object):
         dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
         ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
         for t in range(self.nt):
-            wgts = (
-                self.uncontaminated_source_mask.multiply(self.flux[t])
-                .multiply(1 / self.source_flux_estimates[:, None])
-                .data
+            wgts = self.uncontaminated_source_mask.multiply(
+                np.sqrt(np.abs(self.flux[t]))
+            ).data
+            # mask out non finite values and background pixels
+            k = (np.isfinite(wgts)) & (
+                self.uncontaminated_source_mask.multiply(self.flux[t]).data > 100
             )
-            k = np.isfinite(wgts)
             self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
             self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
         del dra_m, ddec_m
@@ -1115,17 +1096,18 @@ class Machine(object):
             ylim=(-radius, radius),
         )
         # arrow to show centroid offset correction
-        ax[0, 0].arrow(
-            0,
-            0,
-            self.ra_centroid_avg.to("arcsec").value,
-            self.dec_centroid_avg.to("arcsec").value,
-            width=1e-6,
-            shape="full",
-            head_width=0.05,
-            head_length=0.1,
-            color="tab:red",
-        )
+        if hasattr(self, "ra_centroid_avg"):
+            ax[0, 0].arrow(
+                0,
+                0,
+                self.ra_centroid_avg.to("arcsec").value,
+                self.dec_centroid_avg.to("arcsec").value,
+                width=1e-6,
+                shape="full",
+                head_width=0.05,
+                head_length=0.1,
+                color="tab:red",
+            )
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
         im = ax[0, 1].scatter(
