@@ -505,31 +505,44 @@ class Machine(object):
 
         # Now we can update the r and phi estimates, allowing for a slight centroid
         # offset not necessary to take values from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra),
-            self.uncontaminated_source_mask.multiply(self.ddec),
-        )
-        dx = dx.data
-        dy = dy.data
+        # dx, dy = (
+        #     self.uncontaminated_source_mask.multiply(self.dra),
+        #     self.uncontaminated_source_mask.multiply(self.ddec),
+        # )
+        # dx = dx.data
+        # dy = dy.data
+        #
+        # mean_f = np.log10(
+        #     self.uncontaminated_source_mask.astype(float)
+        #     .multiply(self.flux[self.time_mask].mean(axis=0))
+        #     .multiply(1 / self.source_flux_estimates[:, None])
+        #     .data
+        # )
+        #
+        # k = np.isfinite(mean_f)
+        # ra_cent = np.average(dx[k], weights=mean_f[k])
+        # dec_cent = np.average(dy[k], weights=mean_f[k])
+        # self.ra_offset = ra_cent * u.deg.to(u.arcsecond)
+        # self.dec_offset = dec_cent * u.deg.to(u.arcsecond)
 
-        mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux[self.time_mask].mean(axis=0))
-            .multiply(1 / self.source_flux_estimates[:, None])
-            .data
-        )
-
-        k = np.isfinite(mean_f)
-        ra_cent = np.average(dx[k], weights=mean_f[k])
-        dec_cent = np.average(dy[k], weights=mean_f[k])
-        self.ra_offset = ra_cent * u.deg.to(u.arcsecond)
-        self.dec_offset = dec_cent * u.deg.to(u.arcsecond)
+        # calculate image centroids and correct dra,ddec for offset.
+        self._get_centroids()
 
         # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
         if self.nsources * self.npixels < 1e7:
-            self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
+            self._create_delta_arrays(
+                centroid_offset=[
+                    self.ra_centroid_avg.value,
+                    self.dec_centroid_avg.value,
+                ]
+            )
         else:
-            self._create_delta_sparse_arrays(centroid_offset=[ra_cent, dec_cent])
+            self._create_delta_sparse_arrays(
+                centroid_offset=[
+                    self.ra_centroid_avg.value,
+                    self.dec_centroid_avg.value,
+                ]
+            )
 
         if plot:
             k = np.isfinite(f_temp_mask)
@@ -598,12 +611,17 @@ class Machine(object):
         # centroids are astropy quantities
         self.ra_centroid = np.zeros(self.nt)
         self.dec_centroid = np.zeros(self.nt)
-        dra_m = self.source_mask.multiply(self.dra).data
-        ddec_m = self.source_mask.multiply(self.ddec).data
+        dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
+        ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
         for t in range(self.nt):
-            wgts = self.source_mask.multiply(self.flux[t]).data
-            self.ra_centroid[t] = np.average(dra_m, weights=wgts)
-            self.dec_centroid[t] = np.average(ddec_m, weights=wgts)
+            wgts = (
+                self.uncontaminated_source_mask.multiply(self.flux[t])
+                .multiply(1 / self.source_flux_estimates[:, None])
+                .data
+            )
+            k = np.isfinite(wgts)
+            self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
+            self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
         del dra_m, ddec_m
         self.ra_centroid *= u.deg
         self.dec_centroid *= u.deg
@@ -1087,11 +1105,12 @@ class Machine(object):
             xlim=(-radius, radius),
             ylim=(-radius, radius),
         )
+        # arrow to show centroid offset correction
         ax[0, 0].arrow(
             0,
             0,
-            self.ra_offset,
-            self.dec_offset,
+            self.ra_centroid_avg.to("arcsec").value,
+            self.dec_centroid_avg.to("arcsec").value,
             width=1e-6,
             shape="full",
             head_width=0.05,
