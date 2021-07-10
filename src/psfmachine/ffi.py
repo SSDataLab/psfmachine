@@ -836,44 +836,15 @@ def _load_file(fname, extension=1):
     if len(set(quarters)) != 1:
         raise ValueError("All FFIs must be of same quarter/campaign/sector.")
 
-    # Have to do some checks here that it's the right kind of data.
-    #  We could loosen these checks in future.
-    if telescopes[0] == "Kepler":
-        # CCD overscan for Kepler
-        r_min = 20
-        r_max = 1044
-        c_min = 12
-        c_max = 1112
-    elif telescopes[0] == "TESS":
-        # CCD overscan for TESS
-        r_min = 0
-        r_max = 2048
-        c_min = 45
-        c_max = 2093
-        # raise NotImplementedError
-    else:
-        raise TypeError("File is not from Kepler or TESS mission")
-
     # collect meta data, I get everthing from one header.
     attrs = [
         "TELESCOP",
         "INSTRUME",
         "MISSION",
-        # "OBSMODE",
-        # "DCT_TYPE",
         "DATSETNM",
-        # "QUARTER",
-        # "CAMPAIGN",
-        # "SEASON",
-        # "SECTOR",
     ]
     meta = {k: header[k] for k in attrs if k in header.keys()}
     attrs = [
-        # "CHANNEL",
-        # "CCD",
-        # "MODULE",
-        # "CAMERA",
-        # "OUTPUT",
         "RADESYS",
         "EQUINOX",
         "BACKAPP",
@@ -882,18 +853,16 @@ def _load_file(fname, extension=1):
     meta.update({"EXTENSION": extensions[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
+
     # sort by times
     times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
 
-    # remove overscan
-    row_2d, col_2d = np.mgrid[: imgs[0].shape[0], : imgs[0].shape[1]]
-    col_2d = col_2d[r_min:r_max, c_min:c_max]
-    row_2d = row_2d[r_min:r_max, c_min:c_max]
-    flux_2d = np.array(imgs)[tdx, r_min:r_max, c_min:c_max]
+    row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(imgs)[tdx])
     flux_err_2d = np.sqrt(np.abs(flux_2d))
 
+    # convert to RA and Dec
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
     if ra.min() < 0.0 or ra.max() > 360 or dec.min() < -90 or dec.max() > 90:
         raise ValueError("WCS lead to out of bound RA and Dec coordinates.")
@@ -1000,6 +969,31 @@ def do_image_cutout(
         raise ValueError("Cutout size is larger than image shape ", flux.shape)
 
     return flux, flux_err, ra, dec, column, row
+
+
+def _remove_overscan(telescope, imgs):
+    """ Removes overscan of the CCD"""
+    if telescope == "Kepler":
+        # CCD overscan for Kepler
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
+    elif telescope == "TESS":
+        # CCD overscan for TESS
+        r_min = 0
+        r_max = 2048
+        c_min = 45
+        c_max = 2093
+    else:
+        raise TypeError("File is not from Kepler or TESS mission")
+    # remove overscan
+    row_2d, col_2d = np.mgrid[: imgs[0].shape[0], : imgs[0].shape[1]]
+    col_2d = col_2d[r_min:r_max, c_min:c_max]
+    row_2d = row_2d[r_min:r_max, c_min:c_max]
+    flux_2d = imgs[:, r_min:r_max, c_min:c_max]
+
+    return row_2d, col_2d, flux_2d
 
 
 def buildKeplerPRFDatabase(fnames):
