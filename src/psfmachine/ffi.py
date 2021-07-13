@@ -9,10 +9,12 @@ from astropy.io import fits
 from astropy.stats import SigmaClip
 from astropy.time import Time
 from astropy.wcs import WCS
+import astropy.units as u
+from astropy.stats import sigma_clip
 from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query
+from .utils import do_tiled_query, _make_A_cartesian
 from .machine import Machine
 from .version import __version__
 
@@ -127,7 +129,14 @@ class FFIMachine(Machine):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
 
     @staticmethod
-    def from_file(fname, extension=1, cutout_size=None, cutout_origin=[0, 0], **kwargs):
+    def from_file(
+        fname,
+        extension=1,
+        cutout_size=None,
+        cutout_origin=[0, 0],
+        correct_offsets=False,
+        **kwargs,
+    ):
         """
         Reads data from files and initiates a new FFIMachine class.
 
@@ -185,6 +194,13 @@ class FFIMachine(Machine):
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
+        if correct_offsets:
+            sources = check_coordinate_offsets(
+                ra, dec, row, column, flux[0], sources, plot=True
+            )
+            sources["column"], sources["row"] = wcs.all_world2pix(
+                sources.loc[:, ["ra", "dec"]].values, 0.0
+            ).T
         # return wcs, time, flux, flux_err, ra, dec, column, row, sources
         return FFIMachine(
             time.jd,
@@ -994,6 +1010,204 @@ def _remove_overscan(telescope, imgs):
     flux_2d = imgs[:, r_min:r_max, c_min:c_max]
 
     return row_2d, col_2d, flux_2d
+
+
+def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
+
+    if plot:
+        fig, ax = plt.subplots(1, 3, figsize=(17, 4))
+        ax[0].pcolormesh(
+            ra,
+            dec,
+            flux,
+            cmap=plt.cm.viridis,
+            shading="nearest",
+            norm=colors.SymLogNorm(linthresh=200, vmin=0, vmax=2000, base=10),
+            rasterized=True,
+        )
+        ax[0].scatter(
+            sources.ra,
+            sources.dec,
+            facecolors="none",
+            edgecolors="r",
+            linewidths=1,
+            alpha=0.9,
+        )
+
+    # create a temporal mask of 25 (6 pix) arcsec around each source
+    ra, dec, flux = ra.ravel(), dec.ravel(), flux.ravel()
+    dra, ddec = np.asarray(
+        [
+            [
+                ra - sources["ra"][idx],
+                dec - sources["dec"][idx],
+            ]
+            for idx in range(len(sources))
+        ]
+    ).transpose(1, 0, 2)
+    dra = dra * (u.deg)
+    ddec = ddec * (u.deg)
+    r = np.hypot(dra, ddec).to("arcsec")
+    source_rad = 0.5 * np.log10(sources.phot_g_mean_flux) ** 1.5 + 25
+    tmp_mask = r.value < source_rad.values[:, None]
+    flx = (
+        np.tile(
+            flux, (sources.shape[0], 1)
+        )  # / sources.phot_g_mean_flux.values[:, None]
+    )[tmp_mask]
+
+    # design matrix in cartesian coord to model flux(dra, ddec)
+    A = _make_A_cartesian(
+        dra.value[tmp_mask],
+        ddec.value[tmp_mask],
+        radius=np.percentile(source_rad, 70) / 3600,
+        n_knots=8,
+    )
+    prior_sigma = np.ones(A.shape[1]) * 10
+    prior_mu = np.zeros(A.shape[1]) + 10
+    w = Machine._solve_linear_model(
+        A,
+        flx,
+        y_err=np.sqrt(np.abs(flx)),
+        prior_mu=prior_mu,
+        prior_sigma=prior_sigma,
+    )
+    # iterate to reject outliers from nearby sources using (data - model)
+    for k in range(3):
+        bad = sigma_clip(flx - A.dot(w), sigma=3).mask
+        w = Machine._solve_linear_model(
+            A,
+            flx,
+            y_err=np.sqrt(np.abs(flx)),
+            k=~bad,
+            prior_mu=prior_mu,
+            prior_sigma=prior_sigma,
+        )
+    # flux model
+    flx_mdl = A.dot(w)
+    # mask flux values from model to be used as weights
+    k = flx_mdl > np.percentile(flx_mdl, 85)
+
+    # compute centroid offsets in arcseconds
+    ra_offset = np.average(dra[tmp_mask][k], weights=np.sqrt(flx_mdl[k])).to("arcsec")
+    dec_offset = np.average(ddec[tmp_mask][k], weights=np.sqrt(flx_mdl[k])).to("arcsec")
+
+    # diagnostic plots
+    if plot:
+        im = ax[1].scatter(
+            dra[tmp_mask] * 3600,
+            ddec[tmp_mask] * 3600,
+            c=np.log10(flx),
+            s=2,
+            vmin=2.2,
+            vmax=3,
+        )
+        plt.colorbar(im, ax=ax[1], shrink=0.7, location="right")
+
+        im = ax[2].scatter(
+            dra[tmp_mask][k] * 3600,
+            ddec[tmp_mask][k] * 3600,
+            c=np.log10(flx_mdl[k]),
+            s=2,
+            vmin=2.2,
+            vmax=3,
+        )
+        plt.colorbar(im, ax=ax[2], shrink=0.7, location="right")
+        ax[1].set_xlim(-30, 30)
+        ax[1].set_ylim(-30, 30)
+        ax[2].set_xlim(-30, 30)
+        ax[2].set_ylim(-30, 30)
+
+        ax[1].set_xlabel("R.A.")
+        ax[1].set_ylabel("Dec")
+        ax[1].set_xlabel(r"$\delta x$")
+        ax[1].set_ylabel(r"$\delta y$")
+        ax[2].set_xlabel(r"$\delta x$")
+        ax[2].set_ylabel(r"$\delta y$")
+
+        ax[1].axvline(ra_offset.value, c="r", ls="-")
+        ax[1].axhline(dec_offset.value, c="r", ls="-")
+
+        plt.show()
+
+    return ra_offset, dec_offset
+
+
+def check_coordinate_offsets(
+    ra, dec, row, column, flux, sources, cutout_size=50, plot=True
+):
+    """
+    Checks if there is any offset between the pixel coordinates and the Gaia sources
+    due to wrong WCS. It checks all 4 corners and image center, compute coordinates
+    offsets and sees if is consistent in all regions.
+    """
+    # define cutout origins for corners and image center
+    cutout_org = [
+        [0, 0],
+        [flux.shape[0] - cutout_size, 0],
+        [0, flux.shape[1] - cutout_size],
+        [flux.shape[0] - cutout_size, flux.shape[1] - cutout_size],
+        [(flux.shape[0] - cutout_size) // 2, (flux.shape[1] - cutout_size) // 2],
+    ]
+    ra_offsets, dec_offsets = [], []
+    # iterate over cutouts to get offsets
+    for cdx, c_org in enumerate(cutout_org):
+        # create cutouts and sources inside
+        cutout_f = flux[
+            c_org[0] : c_org[0] + cutout_size, c_org[1] : c_org[1] + cutout_size
+        ]
+        cutout_ra = ra[
+            c_org[0] : c_org[0] + cutout_size, c_org[1] : c_org[1] + cutout_size
+        ]
+        cutout_dec = dec[
+            c_org[0] : c_org[0] + cutout_size, c_org[1] : c_org[1] + cutout_size
+        ]
+        cutout_row = row[
+            c_org[0] : c_org[0] + cutout_size, c_org[1] : c_org[1] + cutout_size
+        ]
+        cutout_col = column[
+            c_org[0] : c_org[0] + cutout_size, c_org[1] : c_org[1] + cutout_size
+        ]
+        inside = (
+            (sources.row > cutout_row.min())
+            & (sources.row < cutout_row.max())
+            & (sources.column > cutout_col.min())
+            & (sources.column < cutout_col.max())
+        )
+        sources_in = sources[inside].reset_index(drop=True)
+
+        ra_offset, dec_offset = compute_coordinate_offset(
+            cutout_ra, cutout_dec, cutout_f, sources_in, plot=plot
+        )
+        ra_offsets.append(ra_offset.value)
+        dec_offsets.append(dec_offset.value)
+        # break
+
+    ra_offsets = np.asarray(ra_offsets) * u.arcsec
+    dec_offsets = np.asarray(dec_offsets) * u.arcsec
+
+    # diagnostic plot
+    if plot:
+        plt.plot(ra_offsets, label="RA offset")
+        plt.plot(dec_offsets, label="Dec offset")
+        plt.legend()
+        plt.xlabel("Cutout number")
+        plt.ylabel(r"$\delta$ [arcsec]")
+        plt.show()
+
+    # if offsets are > 1 arcsec and all within 1" from each other, then apply offsets
+    # to source coordinates
+    if (
+        (np.abs(ra_offsets.mean()) > 1 * u.arcsec)
+        and (np.abs(dec_offsets.mean()) > 1 * u.arcsec)
+        and (np.abs(ra_offsets - ra_offsets.mean()) < 1 * u.arcsec).all()
+        and (np.abs(dec_offsets - dec_offsets.mean()) < 1 * u.arcsec).all()
+    ):
+        print("All offsets are > 1'' and in the same direction")
+        sources.ra += ra_offsets.mean().to("deg")
+        sources.dec += dec_offsets.mean().to("deg")
+
+    return sources
 
 
 def buildKeplerPRFDatabase(fnames):
