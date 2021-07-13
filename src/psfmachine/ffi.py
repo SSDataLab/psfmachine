@@ -196,7 +196,14 @@ class FFIMachine(Machine):
         )
         if correct_offsets:
             sources = check_coordinate_offsets(
-                ra, dec, row, column, flux[0], sources, plot=True
+                ra,
+                dec,
+                row,
+                column,
+                flux[0],
+                sources,
+                plot=True,
+                cutout_size=100,
             )
             sources["column"], sources["row"] = wcs.all_world2pix(
                 sources.loc[:, ["ra", "dec"]].values, 0.0
@@ -1015,7 +1022,7 @@ def _remove_overscan(telescope, imgs):
 def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
 
     if plot:
-        fig, ax = plt.subplots(1, 3, figsize=(17, 4))
+        fig, ax = plt.subplots(1, 3, figsize=(15, 4))
         ax[0].pcolormesh(
             ra,
             dec,
@@ -1060,7 +1067,7 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     A = _make_A_cartesian(
         dra.value[tmp_mask],
         ddec.value[tmp_mask],
-        radius=np.percentile(source_rad, 70) / 3600,
+        radius=np.percentile(r[tmp_mask], 90) / 3600,
         n_knots=8,
     )
     prior_sigma = np.ones(A.shape[1]) * 10
@@ -1086,7 +1093,7 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     # flux model
     flx_mdl = A.dot(w)
     # mask flux values from model to be used as weights
-    k = flx_mdl > np.percentile(flx_mdl, 85)
+    k = flx_mdl > np.percentile(flx_mdl, 90)
 
     # compute centroid offsets in arcseconds
     ra_offset = np.average(dra[tmp_mask][k], weights=np.sqrt(flx_mdl[k])).to("arcsec")
@@ -1099,20 +1106,20 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
             ddec[tmp_mask] * 3600,
             c=np.log10(flx),
             s=2,
-            vmin=2.2,
+            vmin=2.5,
             vmax=3,
         )
-        plt.colorbar(im, ax=ax[1], shrink=0.7, location="right")
+        # plt.colorbar(im, ax=ax[1], shrink=0.7, location="right")
 
         im = ax[2].scatter(
             dra[tmp_mask][k] * 3600,
             ddec[tmp_mask][k] * 3600,
             c=np.log10(flx_mdl[k]),
             s=2,
-            vmin=2.2,
-            vmax=3,
+            # vmin=2,
+            # vmax=2.5,
         )
-        plt.colorbar(im, ax=ax[2], shrink=0.7, location="right")
+        # plt.colorbar(im, ax=ax[2], shrink=0.7, location="right")
         ax[1].set_xlim(-30, 30)
         ax[1].set_ylim(-30, 30)
         ax[2].set_xlim(-30, 30)
