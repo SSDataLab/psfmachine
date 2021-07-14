@@ -1214,7 +1214,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
 
     # diagnostic plots
     if plot:
-        im = ax[1].scatter(
+        ax[1].scatter(
             dra[tmp_mask] * 3600,
             ddec[tmp_mask] * 3600,
             c=np.log10(flx),
@@ -1223,7 +1223,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
             vmax=3,
         )
 
-        im = ax[2].scatter(
+        ax[2].scatter(
             dra[tmp_mask][k] * 3600,
             ddec[tmp_mask][k] * 3600,
             c=np.log10(flx_mdl[k]),
