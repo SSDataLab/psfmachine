@@ -40,6 +40,9 @@ class FFIMachine(Machine):
         limit_radius=32.0,
         n_r_knots=10,
         n_phi_knots=15,
+        n_time_knots=10,
+        n_time_points=200,
+        time_radius=8,
         cut_r=6,
         rmin=1,
         rmax=16,
@@ -82,7 +85,8 @@ class FFIMachine(Machine):
         wcs : astropy.wcs
             World coordinates system solution for the FFI. Used for plotting.
         flux_2d : numpy.ndarray
-            2D image representation of the FFI, used for plotting.
+            2D image representation of the FFI, used for plotting. Has shape [n_times,
+            image_height, image_width]
         image_shape : tuple
             Shape of 2D image
         """
@@ -117,9 +121,13 @@ class FFIMachine(Machine):
             self.row,
             n_r_knots=n_r_knots,
             n_phi_knots=n_phi_knots,
+            n_time_knots=n_time_knots,
+            n_time_points=n_time_points,
+            time_radius=time_radius,
             cut_r=cut_r,
             rmin=rmin,
             rmax=rmax,
+            # hardcoded to work for Kepler and TESS FFIs
             sparse_dist_lim=40 if meta["TELESCOP"] == "Kepler" else 210,
         )
         self.meta = meta
@@ -138,26 +146,33 @@ class FFIMachine(Machine):
         **kwargs,
     ):
         """
-        Reads data from files and initiates a new FFIMachine class.
+        Reads data from files and initiates a new object of FFIMachine class.
 
         Parameters
         ----------
-        fname : str
-            Filename of the FFI file
+        fname : str or list of strings
+            File name or list of file names of the FFI files.
         extension : int
-            Number of HDU extension to use, for Kepler FFIs this corresponds to the channel
+            Number of HDU extension to be used, for Kepler FFIs this corresponds to the
+            channel number. For TESS FFIs, it correspond to the HDU extension containing
+            the image data (1).
         cutout_size : int
-            Size of the cutout in pixels, assumed to be square
-        cutout_origin : tuple
+            Size of the cutout in pixels, assumed to be squared
+        cutout_origin : tuple of ints
             Origin pixel coordinates where to start the cut out. Follows matrix indexing
+        correct_offsets : boolean
+            Check and correct for coordinate offset due to wrong WCS. It is off by
+            default.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `machine` class object.
+            See `psfmachine.Machine` for details.
 
         Returns
         -------
         FFIMachine : Machine object
             A Machine class object built from the FFI.
         """
+        # load FITS files and parse arrays
         (
             wcs,
             time,
@@ -169,8 +184,9 @@ class FFIMachine(Machine):
             row,
             metadata,
         ) = _load_file(fname, extension=extension)
+        # create cutouts if asked
         if cutout_size is not None:
-            flux, flux_err, ra, dec, column, row = do_image_cutout(
+            flux, flux_err, ra, dec, column, row = _do_image_cutout(
                 flux,
                 flux_err,
                 ra,
@@ -180,10 +196,13 @@ class FFIMachine(Machine):
                 cutout_size=cutout_size,
                 cutout_origin=cutout_origin,
             )
+        # hardcoded: the grid size to do the Gaia tiled query. This is different for
+        # cutouts and full channel. TESS and Kepler also need different grid sizes.
         if metadata["TELESCOP"] == "Kepler":
             ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
         else:
             ngrid = (5, 5) if flux.shape[1] < 500 else (10, 10)
+        # query Gaia and clean sources.
         sources = _get_sources(
             ra,
             dec,
@@ -194,21 +213,20 @@ class FFIMachine(Machine):
             dr=3,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
+        # correct coordinate offset if necessary.
         if correct_offsets:
-            sources = check_coordinate_offsets(
+            ra, dec, sources = _check_coordinate_offsets(
                 ra,
                 dec,
                 row,
                 column,
                 flux[0],
                 sources,
+                wcs,
                 plot=True,
                 cutout_size=100,
             )
-            sources["column"], sources["row"] = wcs.all_world2pix(
-                sources.loc[:, ["ra", "dec"]].values, 0.0
-            ).T
-        # return wcs, time, flux, flux_err, ra, dec, column, row, sources
+
         return FFIMachine(
             time.jd,
             flux,
@@ -278,7 +296,16 @@ class FFIMachine(Machine):
         table.writeto(output, checksum=True, overwrite=True)
 
     def load_shape_model(self, input=None, plot=False):
-        """Loads a PRF"""
+        """
+        Loads a PRF model from disk
+
+        Parameters
+        ----------
+        input : str, None
+            Input file name. If None, one will be generated.
+        plot : boolean
+            Plot the PRF mean model loaded from disk
+        """
         if input is None:
             raise NotImplementedError(
                 "Loading default model not implemented. Please provide input file."
@@ -335,13 +362,16 @@ class FFIMachine(Machine):
         return
 
     def save_flux_values(self, output=None, format="fits"):
-        """Saves the flux values of all sources to a file
+        """
+        Saves the flux values of all sources to a file. For FITS output files a multi-
+        extension file is created with each extension containing a single cadence/frame.
+
         Parameters
         ----------
         output : str, None
             Output file name. If None, one will be generated.
         format : str
-            Something like a format, maybe feather, csv, fits?
+            Format of the output file. Only FITS is supported for now.
         """
         # check if model was fitted
         if not hasattr(self, "ws"):
@@ -417,12 +447,12 @@ class FFIMachine(Machine):
         """
         Background removal. It models the background using a median estimator, rejects
         flux values with sigma clipping. It modiffies the attributes `flux` and
-        `flux_2d`.
+        `flux_2d`. The background model are stored in the `background_model` attribute.
 
         Parameters
         ----------
         mask : numpy.ndarray of booleans
-            Mask to reject pixels containing source flux. Default None.
+            Mask to reject pixels containing sources. Default None.
         """
         # model background for all cadences
         self.background_model = np.array(
@@ -498,7 +528,7 @@ class FFIMachine(Machine):
 
     def _bright_sources_mask(self, magnitude_limit=8, tolerance=30):
         """
-        Finds and mask pixels with halos produced by bright stars (<8 mag).
+        Finds and mask pixels with halos produced by bright stars (e.g. <8 mag).
 
         Parameters
         ----------
@@ -524,7 +554,7 @@ class FFIMachine(Machine):
 
     def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=8):
         """
-        Mask saturated pixels and halo/difraction from bright sources.
+        Mask saturated pixels and halo/difraction pattern from bright sources.
 
         Parameters
         ----------
@@ -554,14 +584,20 @@ class FFIMachine(Machine):
 
     def residuals(self, plot=False, zoom=False, metric="residuals"):
         """
-        Get the residuals (model - image) and compute statistics
+        Get the residuals (model - image) and compute statistics. It creates a model
+        of the full image using the `mean_model` and the weights computed when fitting
+        the shape model.
 
         Parameters
         ----------
         plot : bool
             Do plotting
         zoom : bool
-            Zoom into a section of the image for better visualization
+            If plot is True then zoom into a section of the image for better
+            visualization.
+        metric : string
+            Type of metric used to plot. Default is "residuals", "chi2" is also
+            available.
 
         Return
         ------
@@ -665,19 +701,18 @@ class FFIMachine(Machine):
                 ax[1, 0].set_ylim(self.row.min(), self.row.min() + 100)
 
             return fig
-
         return
 
     def plot_image(self, ax=None, sources=False):
         """
-        Function to plot the Full Frame Image and the Gaia Sources
+        Function to plot the Full Frame Image and Gaia sources.
 
         Parameters
         ----------
         ax : matplotlib.axes
-            Matlotlib axis can be provided, if not one will be created and returned
+            Matlotlib axis can be provided, if not one will be created and returned.
         sources : boolean
-            Whether to overplot or not the source catalog
+            Whether to overplot or not the source catalog.
 
         Returns
         -------
@@ -725,22 +760,21 @@ class FFIMachine(Machine):
                 linewidths=0.5 if self.sources.shape[0] > 1000 else 1,
                 alpha=0.9,
             )
-
         return ax
 
     def plot_pixel_masks(self, ax=None):
         """
-        Function to plot the mask used to reject saturated and bright pixels
+        Function to plot the mask used to reject saturated and bright pixels.
 
         Parameters
         ----------
         ax : matplotlib.axes
-            Matlotlib axis can be provided, if not one will be created and returned
+            Matlotlib axis can be provided, if not one will be created and returned.
 
         Returns
         -------
         ax : matplotlib.axes
-            Matlotlib axis with the figure
+            Matlotlib axis with the figure.
         """
         row_2d, col_2d = np.mgrid[: self.flux_2d.shape[1], : self.flux_2d.shape[2]]
 
@@ -775,7 +809,9 @@ class FFIMachine(Machine):
 
 def _load_file(fname, extension=1):
     """
-    Helper function to load FFI files and parse data.
+    Helper function to load FFI files and parse data. It parses the FITS files to
+    extract the image data and metadata. It checks that all files provided in fname
+    correspond to FFIs from the same mission.
 
     Parameters
     ----------
@@ -859,7 +895,7 @@ def _load_file(fname, extension=1):
     if len(set(quarters)) != 1:
         raise ValueError("All FFIs must be of same quarter/campaign/sector.")
 
-    # collect meta data, I get everthing from one header.
+    # collect meta data, get everthing from one header.
     attrs = [
         "TELESCOP",
         "INSTRUME",
@@ -873,20 +909,27 @@ def _load_file(fname, extension=1):
         "BACKAPP",
     ]
     meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
+    # we use "EXTENSION" to combine channel/camera keywords and "QUARTERS" to refer to
+    # Kepler quarters and TESS campaigns
     meta.update({"EXTENSION": extensions[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
 
-    # sort by times
+    # sort by times in case fnames aren't
     times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
 
+    # remove overscan of image
     row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(imgs)[tdx])
+    # kepler FFIs have uncent maps stored in different files, so we use Poison noise as
+    # flux error for now.
     flux_err_2d = np.sqrt(np.abs(flux_2d))
 
     # convert to RA and Dec
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
+    # some Kepler Channels/Modules have image data but no WCS (e.g. ch 5-8). If the WCS
+    # doesn't exist or is wrong, it could produce RA Dec values out of bound.
     if ra.min() < 0.0 or ra.max() > 360 or dec.min() < -90 or dec.max() > 90:
         raise ValueError("WCS lead to out of bound RA and Dec coordinates.")
     ra_2d = ra.reshape(flux_2d.shape[1:])
@@ -922,9 +965,9 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
     wcs : astropy.wcs
         World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
     img_limits :
-        Image limits in pixel numbers to remove sources outside the CCD
+        Image limits in pixel numbers to remove sources outside the CCD.
     **kwargs
-        Keyword arguments to be passed to `do_tiled_query`.
+        Keyword arguments to be passed to `psfmachine.utils.do_tiled_query()`.
 
     Returns
     -------
@@ -948,18 +991,45 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
     return sources
 
 
-def do_image_cutout(
+def _do_image_cutout(
     flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
 ):
     """
-    Creates a cutout of the full image
+    Creates a cutout of the full image. Return data arrays corresponding to the cutout.
 
     Parameters
     ----------
+    flux : numpy.ndarray
+        Data array with Flux values, correspond to full size image.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values, correspond to full size image.
+    ra : numpy.ndarray
+        Data array with RA values, correspond to full size image.
+    dec : numpy.ndarray
+        Data array with Dec values, correspond to full size image.
+    column : numpy.ndarray
+        Data array with pixel column values, correspond to full size image.
+    row : numpy.ndarray
+        Data array with pixel raw values, correspond to full size image.
     cutout_size : int
-        Size in pixels of the cutout
-    cutout_origin : list
-        Origin of the cutout following matrix indexing
+        Size in pixels of the cutout, assumedto be squared. Default is 100.
+    cutout_origin : tuple of ints
+        Origin of the cutout following matrix indexing. Default is [0 ,0].
+
+    Returns
+    -------
+    flux : numpy.ndarray
+        Data array with Flux values of the cutout.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values of the cutout.
+    ra : numpy.ndarray
+        Data array with RA values of the cutout.
+    dec : numpy.ndarray
+        Data array with Dec values of the cutout.
+    column : numpy.ndarray
+        Data array with pixel column values of the cutout.
+    row : numpy.ndarray
+        Data array with pixel raw values of the cutout.
     """
     if cutout_size + cutout_origin[0] < np.minimum(*flux.shape[1:]):
         column = column[
@@ -995,7 +1065,26 @@ def do_image_cutout(
 
 
 def _remove_overscan(telescope, imgs):
-    """ Removes overscan of the CCD"""
+    """
+    Removes overscan of the CCD. Return the image data with overscan columns and rows
+    removed, also return 2D data arrays with pixel columns and row values.
+
+    Parameters
+    ----------
+    telescope : string
+        Name of the telescope.
+    imgs : numpy.ndarray
+        Array of 2D images to. Has shape of [n_times, image_height, image_width].
+
+    Returns
+    -------
+    row_2d : numpy.ndarray
+        Data array with pixel row values
+    col_2d : numpy.ndarray
+        Data array with pixel column values
+    flux_2d : numpy.ndarray
+        Data array with flux values
+    """
     if telescope == "Kepler":
         # CCD overscan for Kepler
         r_min = 20
@@ -1019,8 +1108,36 @@ def _remove_overscan(telescope, imgs):
     return row_2d, col_2d, flux_2d
 
 
-def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
+def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
+    """
+    Compute coordinate offsets if the RA Dec of objects in source catalog don't align
+    with the RA Dec values of the image.
+    How it works: first compute dra, ddec and radius of each pixel respect to the
+    objects listed in sources. Then masks out all pixels further than ~25 arcsecs around
+    each source. It uses spline basis to model the flux as a function of the spatial
+    coord and find the scene centroid offsets.
 
+    Parameters
+    ----------
+    ra : numpy.ndarray
+        Data array with pixel RA coordinates.
+    dec : numpy.ndarray
+        Data array with pixel Dec coordinates.
+    flux : numpy.ndarray
+        Data array with flux values.
+    sources : pandas DataFrame
+        Catalog with sources detected in the image.
+    plot : boolean
+        Create diagnostic plots.
+
+    Returns
+    -------
+    ra_offset : float
+        RA coordinate offset
+    dec_offset : float
+        Dec coordinate offset
+    """
+    # diagnostic plot
     if plot:
         fig, ax = plt.subplots(1, 3, figsize=(15, 4))
         ax[0].pcolormesh(
@@ -1041,7 +1158,7 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
             alpha=0.9,
         )
 
-    # create a temporal mask of 25 (6 pix) arcsec around each source
+    # create a temporal mask of ~25 (6 pix) arcsec around each source
     ra, dec, flux = ra.ravel(), dec.ravel(), flux.ravel()
     dra, ddec = np.asarray(
         [
@@ -1057,11 +1174,7 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     r = np.hypot(dra, ddec).to("arcsec")
     source_rad = 0.5 * np.log10(sources.phot_g_mean_flux) ** 1.5 + 25
     tmp_mask = r.value < source_rad.values[:, None]
-    flx = (
-        np.tile(
-            flux, (sources.shape[0], 1)
-        )  # / sources.phot_g_mean_flux.values[:, None]
-    )[tmp_mask]
+    flx = np.tile(flux, (sources.shape[0], 1))[tmp_mask]
 
     # design matrix in cartesian coord to model flux(dra, ddec)
     A = _make_A_cartesian(
@@ -1109,17 +1222,13 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
             vmin=2.5,
             vmax=3,
         )
-        # plt.colorbar(im, ax=ax[1], shrink=0.7, location="right")
 
         im = ax[2].scatter(
             dra[tmp_mask][k] * 3600,
             ddec[tmp_mask][k] * 3600,
             c=np.log10(flx_mdl[k]),
             s=2,
-            # vmin=2,
-            # vmax=2.5,
         )
-        # plt.colorbar(im, ax=ax[2], shrink=0.7, location="right")
         ax[1].set_xlim(-30, 30)
         ax[1].set_ylim(-30, 30)
         ax[2].set_xlim(-30, 30)
@@ -1140,13 +1249,40 @@ def compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     return ra_offset, dec_offset
 
 
-def check_coordinate_offsets(
-    ra, dec, row, column, flux, sources, cutout_size=50, plot=True
+def _check_coordinate_offsets(
+    ra, dec, row, column, flux, sources, wcs, cutout_size=50, plot=True
 ):
     """
     Checks if there is any offset between the pixel coordinates and the Gaia sources
     due to wrong WCS. It checks all 4 corners and image center, compute coordinates
-    offsets and sees if is consistent in all regions.
+    offsets and sees if offsets are consistent in all regions.
+
+    Parameters
+    ----------
+    ra : numpy.ndarray
+        Data array with pixel RA coordinates.
+    dec : numpy.ndarray
+        Data array with pixel Dec coordinates.
+    flux : numpy.ndarray
+        Data array with flux values.
+    sources : pandas DataFrame
+        Catalog with sources detected in the image.
+    wcs : astropy.wcs
+        World coordinates system solution for the FFI.
+    cutout_size : int
+        Size of the cutouts in each corner and center to be used to compute offsets.
+        Use larger cutouts for regions with low number of sources detected.
+    plot : boolean
+        Create diagnostic plots.
+
+    Returns
+    -------
+    ra : numpy.ndarray
+        Data arrays with corrected coordinates.
+    dec : numpy.ndarray
+        Data arrays with corrected coordinates.
+    sources : pandas DataFrame
+        Catalog with corrected pixel row and column coordinates.
     """
     # define cutout origins for corners and image center
     cutout_org = [
@@ -1183,12 +1319,11 @@ def check_coordinate_offsets(
         )
         sources_in = sources[inside].reset_index(drop=True)
 
-        ra_offset, dec_offset = compute_coordinate_offset(
+        ra_offset, dec_offset = _compute_coordinate_offset(
             cutout_ra, cutout_dec, cutout_f, sources_in, plot=plot
         )
         ra_offsets.append(ra_offset.value)
         dec_offsets.append(dec_offset.value)
-        # break
 
     ra_offsets = np.asarray(ra_offsets) * u.arcsec
     dec_offsets = np.asarray(dec_offsets) * u.arcsec
@@ -1211,10 +1346,21 @@ def check_coordinate_offsets(
         and (np.abs(dec_offsets - dec_offsets.mean()) < 1 * u.arcsec).all()
     ):
         print("All offsets are > 1'' and in the same direction")
-        sources.ra += ra_offsets.mean().to("deg")
-        sources.dec += dec_offsets.mean().to("deg")
+        # correct the pix coord of sources
+        sources["column"], sources["row"] = wcs.all_world2pix(
+            np.array(
+                [
+                    sources.ra + ra_offsets.mean().to("deg"),
+                    sources.dec + dec_offsets.mean().to("deg"),
+                ]
+            ).T,
+            0.0,
+        ).T
+        # correct the ra, dec grid with the offsets
+        ra -= ra_offsets.mean().to("deg").value
+        dec -= dec_offsets.mean().to("deg").value
 
-    return sources
+    return ra, dec, sources
 
 
 def buildKeplerPRFDatabase(fnames):
