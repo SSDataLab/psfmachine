@@ -407,6 +407,46 @@ class TPFMachine(Machine):
 
         return
 
+    def _aperture_mask_to_2d(self):
+        """
+        Convert 1D aperture mask into 2D to match the shape of TPFs.
+        Because a sources can be in more than one TPF, having 2D array masks per object
+        with the shape of a single TPF is not possibl.
+        Thus, `aperture_mask_2d` is a dictionary with key values as
+        'TPFindex_SOURCEindex', e.g. a source (idx=10) with multiple TPF
+        (TPF index 1 and 2) data will look '1_10' and '2_10'.
+        """
+        if not hasattr(self, "aperture_mask"):
+            raise AttributeError("No aperture masks")
+
+        self.aperture_mask_2d = {}
+        for k, tpf in enumerate(self.tpfs):
+            # find sources in tpf
+            sources_in = self.tpf_meta["sources"][k]
+            # row_col pix value of TPF
+            rc = [
+                "%i_%i" % (y, x)
+                for y in np.arange(tpf.row, tpf.row + tpf.shape[1])
+                for x in np.arange(tpf.column, tpf.column + tpf.shape[2])
+            ]
+            # iter sources in the TPF
+            for sdx in sources_in:
+                # row_col value of pixels inside aperture
+                rc_in = [
+                    "%i_%i"
+                    % (
+                        self.row[self.aperture_mask[sdx]][i],
+                        self.column[self.aperture_mask[sdx]][i],
+                    )
+                    for i in range(self.aperture_mask[sdx].sum())
+                ]
+                # create initial mask
+                mask = np.zeros(tpf.shape[1:], dtype=bool).ravel()
+                # populate mask with True when pixel is inside aperture
+                mask[np.in1d(rc, rc_in)] = True
+                mask = mask.reshape(tpf.shape[1:])
+                self.aperture_mask_2d["%i_%i" % (k, sdx)] = mask
+
     @staticmethod
     def from_TPFs(
         tpfs,

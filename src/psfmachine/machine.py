@@ -1246,6 +1246,65 @@ class Machine(object):
 
         return
 
+    # aperture photometry functions
+    def _create_aperture_mask(self, percentile=50):
+        """
+        Function to create the aperture mask of a given source for a given aperture
+        size. This function can compute aperutre mask for all sources in the scene.
+
+        Parameters
+        ----------
+        percentile : float
+            Percentile value that defines the isophote from the distribution of values
+            in the PRF model of the source
+
+        Returns
+        -------
+        """
+        # compute isophot limit
+        mean_model_dense = self.mean_model.toarray()
+        cut = np.nanpercentile(
+            np.where(mean_model_dense == 0, np.nan, mean_model_dense),
+            percentile,
+            axis=1,
+        )
+        del mean_model_dense
+        # create aperture mask
+        self.aperture_mask = np.array(self.mean_model > cut[::, None])
+        # compute flux metrics
+        self.FLFRCSAP = compute_FLFRCSAP(self.mean_model, self.aperture_mask)
+        self.CROWDSAP = compute_CROWDSAP(self.mean_model, self.aperture_mask)
+
+    def compute_aperture_photometry(self, aperture_size="optimal"):
+        """
+        Computes aperture photometry for all sources in the scene.
+
+        Parameters
+        ----------
+        aperture_size : string or int
+            Size of the aperture to be used. If "optimal" the aperture will be optimized
+            using the flux metric targets. If int between [0, 100], then the boundaries
+            of the aperture are calculated from the normalized flux value of the ith
+            percentile.
+        """
+        if not hasattr(self, "aperture_mask"):
+            if aperture_size == "optimal":
+                raise NotImplementedError
+            else:
+                self._create_aperture_mask(percentile=aperture_size)
+
+        self.sap_flux = np.zeros((self.sources.shape[0], self.flux.shape[0]))
+        self.sap_flux_err = np.zeros((self.sources.shape[0], self.flux.shape[0]))
+
+        for sdx in tqdm(range(len(self.aperture_mask)), desc="SAP", leave=True):
+            self.sap_flux[sdx, :] = self.flux[:, self.aperture_mask[sdx]].sum(axis=1)
+            self.sap_flux_err[sdx, :] = (
+                np.power(self.flux_err[:, self.aperture_mask[sdx]], 2).sum(axis=1)
+                ** 0.5
+            )
+
+        return
+
 
 def sparse_lessthan(arr, limit):
     """
@@ -1290,3 +1349,51 @@ def sparse_lessthan(arr, limit):
         shape=arr.shape,
     ).astype(bool)
     return masked_arr
+
+
+def compute_FLFRCSAP(psf_models, aperture_mask):
+    """
+    Compute fraction of target flux enclosed in the optimal aperture to total flux
+    for a given source (flux completeness).
+    Parameters
+    ----------
+    psf_models: numpy.ndarray
+        Array with the PSF model for the target source. It has shape of
+        [n_sources, n_pixels].
+    aperture_mask: numpy.ndarray
+        Array of boolean indicating the aperture for the target source. It has shape of
+        [n_sources, n_pixels].
+
+    Returns
+    -------
+    FLFRCSAP: numpy.ndarray
+        Completeness metric
+    """
+    return np.array(
+        psf_models.multiply(aperture_mask.astype(float)).sum(axis=1)
+        / psf_models.sum(axis=1)
+    ).ravel()
+
+
+def compute_CROWDSAP(psf_models, aperture_mask):
+    """
+    Compute the ratio of target flux relative to flux from all sources within
+    the photometric aperture (i.e. 1 - Crowdeness).
+    Parameters
+    ----------
+    psf_models: numpy.ndarray
+        Array with the PSF models for all targets in the cutout. It has shape
+        [n_sources, n_pixels].
+    aperture_mask: numpy.ndarray
+        Array of boolean indicating the aperture for the target source. It has shape of
+        [n_sources, n_pixels].
+
+    Returns
+    -------
+    CROWDSAP: numpy.ndarray
+        Crowdeness metric
+    """
+    ratio = psf_models.multiply(1 / psf_models.sum(axis=0)).tocsr()
+    return np.array(
+        ratio.multiply(aperture_mask.astype(float)).sum(axis=1)
+    ).ravel() / aperture_mask.sum(axis=1)
