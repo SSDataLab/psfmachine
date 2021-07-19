@@ -96,6 +96,10 @@ class Machine(object):
             The minimum radius for the PRF model to be fit. (arcseconds)
         rmax: float
             The maximum radius for the PRF model to be fit. (arcseconds)
+        sparse_dist_lim : float
+            Radial distance used to include pixels around sources when creating delta
+            arrays (dra, ddec, r, and phi) as sparse matrices for efficiency.
+            Default is 40" (recommended for kepler). (arcseconds)
 
         Attributes
         ----------
@@ -151,7 +155,7 @@ class Machine(object):
         self.rmin = rmin
         self.rmax = rmax
         self.cut_r = cut_r
-        self.sparse_dist_lim = sparse_dist_lim / 3600
+        self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -162,7 +166,9 @@ class Machine(object):
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
 
-        # sparse implementation is efficient when (JMP profile this):
+        # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
+        # (JMP profile this)
+        # https://github.com/SSDataLab/psfmachine/pull/17#issuecomment-866382898
         if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays()
         else:
@@ -228,8 +234,8 @@ class Machine(object):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
             ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
             box_mask = sparse.csr_matrix(
-                (np.abs(dra_aux) <= self.sparse_dist_lim)
-                & (np.abs(ddec_aux) <= self.sparse_dist_lim)
+                (np.abs(dra_aux) <= self.sparse_dist_lim.to("deg").value)
+                & (np.abs(ddec_aux) <= self.sparse_dist_lim.to("deg").value)
             )
             dra.append(box_mask.multiply(dra_aux))
             ddec.append(box_mask.multiply(ddec_aux))
@@ -354,6 +360,9 @@ class Machine(object):
             The flux at which we assume as source is saturated
         lower_flux_limit: float
             The flux at which we assume a source is too faint to model
+        correct_centroid_offset: bool
+            Correct the dra, ddec arrays from centroid offsets. If centroid offsets are
+            larger than 1 arcsec, `source_mask` will be also updated.
         plot: bool
             Whether to show diagnostic plot. Default is False
         """
@@ -510,6 +519,9 @@ class Machine(object):
             self._get_centroids()
             # print(self.ra_centroid_avg.to("arcsec"), self.dec_centroid_avg.to("arcsec"))
             # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
+            # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
+            # (JMP profile this)
+            # https://github.com/SSDataLab/psfmachine/pull/17#issuecomment-866382898
             if self.nsources * self.npixels < 1e7:
                 self._create_delta_arrays(
                     centroid_offset=[
