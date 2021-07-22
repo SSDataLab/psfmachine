@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 import astropy.units as u
-from tqdm.auto import tqdm
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
