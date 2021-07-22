@@ -323,7 +323,7 @@ class TPFMachine(Machine):
             raise ValueError(
                 "Wrong shape model: file is for mission '%s',"
                 % (hdu[1].header["mission"])
-                + " it should be '%s.''" % (self.tpf_meta["mission"][0])
+                + " it should be '%s'." % (self.tpf_meta["mission"][0])
             )
         if hdu[1].header["quarter"] != self.tpf_meta["quarter"][0]:
             raise ValueError(
@@ -997,9 +997,8 @@ def _clean_source_list(sources, ra, dec):
 
     # Keep track of sources that we removed
     sources.loc[:, "clean_flag"] = 0
-    sources.loc[:, "clean_flag"][~inside] = 2 ** 0  # outside TPF
-    # sources.loc[:, "clean_flag"][unresolved] += 2 ** 1  # close contaminant
-
+    # to avoid pandas SettingWithCopyWarning
+    sources.clean_flag.where(inside, 2 ** 0, inplace=True)
     # combine 2 source masks
     clean = sources.clean_flag == 0
     removed_sources = sources[~clean].reset_index(drop=True)

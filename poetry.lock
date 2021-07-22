@@ -1007,7 +1007,7 @@ mkdocs-material = ">=5.0.0"
 
 [[package]]
 name = "mkdocstrings"
-version = "0.15.1"
+version = "0.15.2"
 description = "Automatic documentation from sources, for MkDocs."
 category = "dev"
 optional = false
@@ -1017,7 +1017,7 @@ python-versions = ">=3.6,<4.0"
 Jinja2 = ">=2.11.1,<4.0"
 Markdown = ">=3.3,<4.0"
 MarkupSafe = ">=1.1,<3.0"
-mkdocs = ">=1.1,<2.0"
+mkdocs = ">=1.1.1,<2.0.0"
 mkdocs-autorefs = ">=0.1,<0.3"
 pymdown-extensions = ">=6.3,<9.0"
 pytkdocs = ">=0.2.0,<0.12.0"
@@ -1266,6 +1266,23 @@ python-versions = "*"
 
 [package.dependencies]
 ptyprocess = ">=0.5"
+
+[[package]]
+name = "photutils"
+version = "1.1.0"
+description = "An Astropy package for source detection and photometry"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.dependencies]
+astropy = ">=4.0"
+numpy = ">=1.17"
+
+[package.extras]
+all = ["scipy", "matplotlib (>=2.2)", "scikit-image (>=0.14.2)", "scikit-learn", "gwcs (>=0.12)"]
+docs = ["scipy", "sphinx-astropy", "matplotlib (>=2.2)", "scikit-image (>=0.14.2)", "scikit-learn", "gwcs (>=0.12)"]
+test = ["pytest-astropy"]
 
 [[package]]
 name = "pickleshare"
@@ -1888,7 +1905,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "bbea37b424454d29db8eeed4cd706f780de34729a564f7da9c0156c6f942ea89"
+content-hash = "039ee5d6b61e92767596a66d53cf286f24245ac6aaecc7a2db8391f2d186a4ec"
 
 [metadata.files]
 aesara-theano-fallback = [
@@ -2408,8 +2425,8 @@ mkdocs-material-extensions = [
     {file = "mkdocs_material_extensions-1.0.1-py3-none-any.whl", hash = "sha256:d90c807a88348aa6d1805657ec5c0b2d8d609c110e62b9dce4daf7fa981fa338"},
 ]
 mkdocstrings = [
-    {file = "mkdocstrings-0.15.1-py3-none-any.whl", hash = "sha256:e5ee5c4199bad77d6f6d6a7e6771ad796bb3cd81ea2dc984bdf4773a9944ac7e"},
-    {file = "mkdocstrings-0.15.1.tar.gz", hash = "sha256:32d10df8a38c133772fd322008cd531831aac7ea7fc40a6831d696a262c1659e"},
+    {file = "mkdocstrings-0.15.2-py3-none-any.whl", hash = "sha256:8d6cbe64c07ae66739010979ca01d49dd2f64d1a45009f089d217b9cd2a65e36"},
+    {file = "mkdocstrings-0.15.2.tar.gz", hash = "sha256:c2fee9a3a644647c06eb2044fdfede1073adfd1a55bf6752005d3db10705fe73"},
 ]
 mypy-extensions = [
     {file = "mypy_extensions-0.4.3-py2.py3-none-any.whl", hash = "sha256:090fedd75945a69ae91ce1303b5824f428daf5a028d2f6ab8a299250a846f15d"},
@@ -2556,6 +2573,30 @@ patsy = [
 pexpect = [
     {file = "pexpect-4.8.0-py2.py3-none-any.whl", hash = "sha256:0b48a55dcb3c05f3329815901ea4fc1537514d6ba867a152b581d69ae3710937"},
     {file = "pexpect-4.8.0.tar.gz", hash = "sha256:fc65a43959d153d0114afe13997d439c22823a27cefceb5ff35c2178c6784c0c"},
+]
+photutils = [
+    {file = "photutils-1.1.0-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:feeb998fed4567b822ea4736da09daa6a03e1c935a7fc04461caaeed8ff791f5"},
+    {file = "photutils-1.1.0-cp37-cp37m-manylinux1_i686.whl", hash = "sha256:1e824b817b63c3fedb8ff35b991c2bf9f1be9e4898d8ef9566cec183d124503b"},
+    {file = "photutils-1.1.0-cp37-cp37m-manylinux1_x86_64.whl", hash = "sha256:a57058cd35a0de175810fabb5b22ea390a26bf2f33a24e83fed1487691f49c09"},
+    {file = "photutils-1.1.0-cp37-cp37m-manylinux2010_i686.whl", hash = "sha256:9d6fcd27cc18d839991dfe38bd988dd236d72cf2a4cf3dbb0ff80a47570c86ab"},
+    {file = "photutils-1.1.0-cp37-cp37m-manylinux2010_x86_64.whl", hash = "sha256:a3abf74394e1c940a490550ae8d232ffe1176e582bf08bf2f3b0d455f91c99b7"},
+    {file = "photutils-1.1.0-cp37-cp37m-win32.whl", hash = "sha256:d2cb256ae97e0b908c43cebea76c7aa540c10101e2dfa9a534e94c4026d93921"},
+    {file = "photutils-1.1.0-cp37-cp37m-win_amd64.whl", hash = "sha256:a8f5ae1c79347147e3bc3272b395a80b47908d837b692ea24021236cd49a697a"},
+    {file = "photutils-1.1.0-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:4cd7643fa36dac6ac0bea1febf8dcdd110e0f3bf6f1124b2ea2bc9c71b8b845e"},
+    {file = "photutils-1.1.0-cp38-cp38-manylinux1_i686.whl", hash = "sha256:fab46fb370d5b180e36e6261a527ea8d50703bbba3a5b00a299f7ce2bf1ae800"},
+    {file = "photutils-1.1.0-cp38-cp38-manylinux1_x86_64.whl", hash = "sha256:d0c671e65a9057aff5f72a1c71a9a26401c44154d8fc82f149614e17e9204a68"},
+    {file = "photutils-1.1.0-cp38-cp38-manylinux2010_i686.whl", hash = "sha256:abdc5a64e440f385e7b5abee64e0baa2f1f8c1b28dac90c27b9a473c3c0a6bdb"},
+    {file = "photutils-1.1.0-cp38-cp38-manylinux2010_x86_64.whl", hash = "sha256:1bb15b188d8614df5f8c8e0dc3a530f43081c557a5a36b1aeef30c15dc420289"},
+    {file = "photutils-1.1.0-cp38-cp38-win32.whl", hash = "sha256:7785549ad0ad02fc2de1a3674c616df9d5ce816bfb3cbe532b0fd43565a24ad6"},
+    {file = "photutils-1.1.0-cp38-cp38-win_amd64.whl", hash = "sha256:d893609cfc31ae4a15f40526baa83cda752cd6195c67c624ef523804b65b09af"},
+    {file = "photutils-1.1.0-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:ec310a7c7048dd64c132d6dd64e7a0a8abeec6078da38152555f09ff84342513"},
+    {file = "photutils-1.1.0-cp39-cp39-manylinux1_i686.whl", hash = "sha256:4d6b9c403d8f3f4e5bed4a7ff5cdc9658e2b37c4da48be2be877d6097bf16be6"},
+    {file = "photutils-1.1.0-cp39-cp39-manylinux1_x86_64.whl", hash = "sha256:1925ba1e4d719b3dd4dfb998708cd61a7a988d3a00860da3a00c34a576670d7d"},
+    {file = "photutils-1.1.0-cp39-cp39-manylinux2010_i686.whl", hash = "sha256:402dc7d708c7e2f0a526e83b4eaed9e68d767a19f7af69dbb3cbe52f11ffbec7"},
+    {file = "photutils-1.1.0-cp39-cp39-manylinux2010_x86_64.whl", hash = "sha256:3ab82aceae741a96ea72d6d5359a9fc928f6bd2505edd9447fc7175539b7e8ad"},
+    {file = "photutils-1.1.0-cp39-cp39-win32.whl", hash = "sha256:c4e4c1b2dd76a1a79b0296a502959845c1f5e6c0a959adb8a53b094733881f77"},
+    {file = "photutils-1.1.0-cp39-cp39-win_amd64.whl", hash = "sha256:886bfea3ca151645bde3000d69df6822d45fd8725e02c0ec1053e3a0098f35eb"},
+    {file = "photutils-1.1.0.tar.gz", hash = "sha256:1a71cac2db730af69ae31f1ff5f4671e7da816da93003ddcab7123c9df2935d3"},
 ]
 pickleshare = [
     {file = "pickleshare-0.7.5-py2.py3-none-any.whl", hash = "sha256:9649af414d74d4df115d5d718f82acb59c9d418196b7b4290ed47a12ce62df56"},

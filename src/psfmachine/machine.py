@@ -46,6 +46,7 @@ class Machine(object):
         rmin=1,
         rmax=16,
         cut_r=6,
+        sparse_dist_lim=40,
     ):
         """
         Class for calculating fast PRF photometry on a collection of images and
@@ -95,6 +96,10 @@ class Machine(object):
             The minimum radius for the PRF model to be fit. (arcseconds)
         rmax: float
             The maximum radius for the PRF model to be fit. (arcseconds)
+        sparse_dist_lim : float
+            Radial distance used to include pixels around sources when creating delta
+            arrays (dra, ddec, r, and phi) as sparse matrices for efficiency.
+            Default is 40" (recommended for kepler). (arcseconds)
 
         Attributes
         ----------
@@ -150,6 +155,7 @@ class Machine(object):
         self.rmin = rmin
         self.rmax = rmax
         self.cut_r = cut_r
+        self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -160,7 +166,9 @@ class Machine(object):
         self.nt = len(self.time)
         self.npixels = self.flux.shape[1]
 
-        # sparse implementation is efficient when (JMP profile this):
+        # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
+        # (JMP profile this)
+        # https://github.com/SSDataLab/psfmachine/pull/17#issuecomment-866382898
         if self.nsources * self.npixels < 1e7:
             self._create_delta_arrays()
         else:
@@ -219,7 +227,6 @@ class Machine(object):
             Default is [0, 0].
         """
         # convert to degrees
-        dist_lim /= 3600
         # iterate over sources to only keep pixels within dist_lim
         # this is inefficient, could be done in a tiled manner? only for squared data
         dra, ddec, sparse_mask = [], [], []
@@ -227,7 +234,8 @@ class Machine(object):
             dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
             ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
             box_mask = sparse.csr_matrix(
-                (np.abs(dra_aux) <= dist_lim) & (np.abs(ddec_aux) <= dist_lim)
+                (np.abs(dra_aux) <= self.sparse_dist_lim.to("deg").value)
+                & (np.abs(ddec_aux) <= self.sparse_dist_lim.to("deg").value)
             )
             dra.append(box_mask.multiply(dra_aux))
             ddec.append(box_mask.multiply(ddec_aux))
@@ -334,6 +342,7 @@ class Machine(object):
         lower_radius_limit=4.5,
         upper_flux_limit=2e5,
         lower_flux_limit=100,
+        correct_centroid_offset=True,
         plot=False,
     ):
         """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
@@ -351,6 +360,9 @@ class Machine(object):
             The flux at which we assume as source is saturated
         lower_flux_limit: float
             The flux at which we assume a source is too faint to model
+        correct_centroid_offset: bool
+            Correct the dra, ddec arrays from centroid offsets. If centroid offsets are
+            larger than 1 arcsec, `source_mask` will be also updated.
         plot: bool
             Whether to show diagnostic plot. Default is False
         """
@@ -502,30 +514,36 @@ class Machine(object):
         self._get_uncontaminated_pixel_mask()
 
         # Now we can update the r and phi estimates, allowing for a slight centroid
-        # offset not necessary to take values from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra),
-            self.uncontaminated_source_mask.multiply(self.ddec),
-        )
-        dx = dx.data
-        dy = dy.data
-
-        mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(self.flux[self.time_mask].mean(axis=0))
-            .multiply(1 / self.source_flux_estimates[:, None])
-            .data
-        )
-
-        k = np.isfinite(mean_f)
-        ra_cent = np.average(dx[k], weights=mean_f[k])
-        dec_cent = np.average(dy[k], weights=mean_f[k])
-
-        # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
-        if self.nsources * self.npixels < 1e7:
-            self._create_delta_arrays(centroid_offset=[ra_cent, dec_cent])
-        else:
-            self._create_delta_sparse_arrays(centroid_offset=[ra_cent, dec_cent])
+        # calculate image centroids and correct dra,ddec for offset.
+        if correct_centroid_offset:
+            self._get_centroids()
+            # print(self.ra_centroid_avg.to("arcsec"), self.dec_centroid_avg.to("arcsec"))
+            # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
+            # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
+            # (JMP profile this)
+            # https://github.com/SSDataLab/psfmachine/pull/17#issuecomment-866382898
+            if self.nsources * self.npixels < 1e7:
+                self._create_delta_arrays(
+                    centroid_offset=[
+                        self.ra_centroid_avg.value,
+                        self.dec_centroid_avg.value,
+                    ]
+                )
+            else:
+                self._create_delta_sparse_arrays(
+                    centroid_offset=[
+                        self.ra_centroid_avg.value,
+                        self.dec_centroid_avg.value,
+                    ]
+                )
+            # if centroid offset id larger than 1" then we need to recalculate the
+            # source mask to include/reject correct pixels.
+            # this 1 arcsec limit only works for Kepler/K2
+            if (
+                np.abs(self.ra_centroid_avg.to("arcsec").value) > 1
+                or np.abs(self.dec_centroid_avg.to("arcsec").value) > 1
+            ):
+                self._get_source_mask(correct_centroid_offset=False)
 
         if plot:
             k = np.isfinite(f_temp_mask)
@@ -594,12 +612,18 @@ class Machine(object):
         # centroids are astropy quantities
         self.ra_centroid = np.zeros(self.nt)
         self.dec_centroid = np.zeros(self.nt)
-        dra_m = self.source_mask.multiply(self.dra).data
-        ddec_m = self.source_mask.multiply(self.ddec).data
+        dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
+        ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
         for t in range(self.nt):
-            wgts = self.source_mask.multiply(self.flux[t]).data
-            self.ra_centroid[t] = np.average(dra_m, weights=wgts)
-            self.dec_centroid[t] = np.average(ddec_m, weights=wgts)
+            wgts = self.uncontaminated_source_mask.multiply(
+                np.sqrt(np.abs(self.flux[t]))
+            ).data
+            # mask out non finite values and background pixels
+            k = (np.isfinite(wgts)) & (
+                self.uncontaminated_source_mask.multiply(self.flux[t]).data > 100
+            )
+            self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
+            self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
         del dra_m, ddec_m
         self.ra_centroid *= u.deg
         self.dec_centroid *= u.deg
@@ -1083,6 +1107,19 @@ class Machine(object):
             xlim=(-radius, radius),
             ylim=(-radius, radius),
         )
+        # arrow to show centroid offset correction
+        if hasattr(self, "ra_centroid_avg"):
+            ax[0, 0].arrow(
+                0,
+                0,
+                self.ra_centroid_avg.to("arcsec").value,
+                self.dec_centroid_avg.to("arcsec").value,
+                width=1e-6,
+                shape="full",
+                head_width=0.05,
+                head_length=0.1,
+                color="tab:red",
+            )
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
         im = ax[0, 1].scatter(
