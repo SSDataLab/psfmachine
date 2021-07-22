@@ -409,9 +409,10 @@ class TPFMachine(Machine):
 
     def _aperture_mask_to_2d(self):
         """
-        Convert 1D aperture mask into 2D to match the shape of TPFs.
+        Convert 1D aperture mask into 2D to match the shape of TPFs. This 2D aperture
+        masks are useful to plot them with lightkurve TPF plot.
         Because a sources can be in more than one TPF, having 2D array masks per object
-        with the shape of a single TPF is not possibl.
+        with the shape of a single TPF is not possible.
         Thus, `aperture_mask_2d` is a dictionary with key values as
         'TPFindex_SOURCEindex', e.g. a source (idx=10) with multiple TPF
         (TPF index 1 and 2) data will look '1_10' and '2_10'.
