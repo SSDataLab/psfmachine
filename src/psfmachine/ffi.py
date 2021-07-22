@@ -143,6 +143,7 @@ class FFIMachine(Machine):
         cutout_size=None,
         cutout_origin=[0, 0],
         correct_offsets=False,
+        plot_offsets=False,
         **kwargs,
     ):
         """
@@ -163,6 +164,8 @@ class FFIMachine(Machine):
         correct_offsets : boolean
             Check and correct for coordinate offset due to wrong WCS. It is off by
             default.
+        plot_offsets : boolean
+            Create diagnostic plot for oordinate offset correction.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `machine` class object.
             See `psfmachine.Machine` for details.
@@ -223,7 +226,7 @@ class FFIMachine(Machine):
                 flux[0],
                 sources,
                 wcs,
-                plot=True,
+                plot=plot_offsets,
                 cutout_size=100,
             )
 
@@ -1250,7 +1253,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
 
 
 def _check_coordinate_offsets(
-    ra, dec, row, column, flux, sources, wcs, cutout_size=50, plot=True
+    ra, dec, row, column, flux, sources, wcs, cutout_size=50, plot=False
 ):
     """
     Checks if there is any offset between the pixel coordinates and the Gaia sources
