@@ -1320,7 +1320,8 @@ class Machine(object):
         self, aperture_size="optimal", target_complet=0.9, target_crowd=0.9
     ):
         """
-        Computes aperture photometry for all sources in the scene.
+        Computes aperture photometry for all sources in the scene. The aperture shapes
+        follow the PRF profile.
 
         Parameters
         ----------
@@ -1329,21 +1330,25 @@ class Machine(object):
             using the flux metric targets. If int between [0, 100], then the boundaries
             of the aperture are calculated from the normalized flux value of the ith
             percentile.
+        target_complet : float
+            Target flux completeness metric (FLFRCSAP) used if aperture_size is "optimal"
+        target_crowd : float
+            Target flux crowding metric (CROWDSAP) used if aperture_size is "optimal"
         """
         if aperture_size == "optimal":
-            raise NotImplementedError
-            # self._optimize_aperture(
-            #     target_complet=target_complet, target_crowd=target_crowd
-            # )
+            # raise NotImplementedError
+            self._optimize_aperture(
+                target_complet=target_complet, target_crowd=target_crowd
+            )
         else:
             self._create_aperture_mask(percentile=[aperture_size])
 
-        self.sap_flux = np.zeros((self.sources.shape[0], self.flux.shape[0]))
-        self.sap_flux_err = np.zeros((self.sources.shape[0], self.flux.shape[0]))
+        self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
+        self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))
 
         for sdx in tqdm(range(len(self.aperture_mask)), desc="SAP", leave=True):
-            self.sap_flux[sdx, :] = self.flux[:, self.aperture_mask[sdx]].sum(axis=1)
-            self.sap_flux_err[sdx, :] = (
+            self.sap_flux[:, sdx] = self.flux[:, self.aperture_mask[sdx]].sum(axis=1)
+            self.sap_flux_err[:, sdx] = (
                 np.power(self.flux_err[:, self.aperture_mask[sdx]], 2).sum(axis=1)
                 ** 0.5
             )
