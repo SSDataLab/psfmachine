@@ -7,6 +7,7 @@ from astropy.time import Time
 from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
+from matplotlib import patches
 
 from .utils import get_gaia_sources
 from .machine import Machine
@@ -83,7 +84,12 @@ class TPFMachine(Machine):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
     def fit_lightcurves(
-        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=False
+        self,
+        plot=False,
+        fit_va=True,
+        iter_negative=True,
+        load_shape_model=False,
+        sap=True,
     ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
@@ -106,6 +112,12 @@ class TPFMachine(Machine):
             flux values, we can clip these targets out of the analysis and rerun the model.
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
+        load_shape_model : bool
+            Load PRF shape model from disk or not. Default models were computed from FFI
+            of the same channel and quarter.
+        sap : boolean
+            Compute or not Simple Aperture Photometry. See `machine.compute_aperture_photometry()`
+            for further details.
         """
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
@@ -125,6 +137,10 @@ class TPFMachine(Machine):
                 idx += 1
                 if idx >= 3:
                     break
+        if sap:
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complet=1, target_crowd=1
+            )
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
@@ -144,7 +160,7 @@ class TPFMachine(Machine):
 
             meta = {
                 "ORIGIN": "PSFMACHINE",
-                "APERTURE": "PSF",
+                "APERTURE": "PSF + SAP" if sap else "PSF",
                 "LABEL": label,
                 "TARGETID": targetid,
                 "MISSION": mission,
@@ -156,6 +172,9 @@ class TPFMachine(Machine):
                 "GMAG": s.phot_g_mean_mag,
                 "RPMAG": s.phot_rp_mean_mag,
                 "BPMAG": s.phot_bp_mean_mag,
+                "SAP": "optimal" if sap else "None",
+                "FLFRCSAP": self.FLFRCSAP[idx] if sap else np.nan,
+                "CROWDSAP": self.CROWDSAP[idx] if sap else np.nan,
             }
 
             attrs = [
@@ -191,11 +210,15 @@ class TPFMachine(Machine):
                 meta=meta,
                 time_format="jd",
             )
+
             if fit_va:
-                lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
-                lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+                lc["psf_flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
+                lc["psf_flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+            if sap:
+                lc["sap_flux"] = (self.sap_flux[:, idx]) * u.electron / u.second
+                lc["sap_flux_err"] = (self.sap_flux_err[:, idx]) * u.electron / u.second
             self.lcs.append(lc)
-            self.lcs = lk.LightCurveCollection(self.lcs)
+        self.lcs = lk.LightCurveCollection(self.lcs)
         return
 
     def to_fits():
@@ -213,7 +236,7 @@ class TPFMachine(Machine):
         ldx = self.tpf_meta["sources"][tpf_number]
         return lk.LightCurveCollection([self.lcs[l] for l in ldx])
 
-    def plot_tpf(self, tdx):
+    def plot_tpf(self, tdx, sap=True):
         """
         Make a diagnostic plot of a given TPF in the stack
 
@@ -227,7 +250,7 @@ class TPFMachine(Machine):
             Index of the TPF to plot
         """
         tpf = self.tpfs[tdx]
-        ax_tpf = tpf.plot(scale="log")
+        ax_tpf = tpf.plot(aperture_mask="pipeline" if sap else None)
         sources = self.sources.loc[self.tpf_meta["sources"][tdx]]
 
         img_extent = (
@@ -267,9 +290,33 @@ class TPFMachine(Machine):
                 _ = plt.subplots(figsize=(10, 3))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
                 lc.errorbar(ax=ax, c="k", lw=0.3, ls="-")
+                if hasattr(lc, "sap_flux") and sap:
+                    lc.errorbar(
+                        column="sap_flux",
+                        ax=ax,
+                        c="tab:red",
+                        lw=0.3,
+                        ls="-",
+                        label="SAP",
+                    )
                 kdx += 1
                 ax = plt.subplot2grid((1, 4), (0, 3))
                 lk.utils.plot_image(mod, extent=img_extent, ax=ax)
+                # Overlay the aperture mask if given
+                if hasattr(self, "aperture_mask_2d") and sap:
+                    aperture_mask = self.aperture_mask_2d["%i_%i" % (tdx, sdx)]
+                    for i in range(r.shape[0]):
+                        for j in range(r.shape[1]):
+                            if aperture_mask[i, j]:
+                                rect = patches.Rectangle(
+                                    xy=(j + tpf.column - 0.5, i + tpf.row - 0.5),
+                                    width=1,
+                                    height=1,
+                                    color="tab:red",
+                                    fill=False,
+                                    hatch="//",
+                                )
+                                ax.add_patch(rect)
             col, row = tpf.wcs.all_world2pix([[s.ra, s.dec]], 0)[0]
             if (
                 (col < -3)
