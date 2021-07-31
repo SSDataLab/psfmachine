@@ -89,6 +89,7 @@ class TPFMachine(Machine):
         fit_va=True,
         iter_negative=True,
         load_shape_model=False,
+        shape_model_file=None,
         sap=True,
     ):
         """
@@ -115,13 +116,15 @@ class TPFMachine(Machine):
         load_shape_model : bool
             Load PRF shape model from disk or not. Default models were computed from FFI
             of the same channel and quarter.
+        shape_model_file : string
+            PRF shape model file path.
         sap : boolean
             Compute or not Simple Aperture Photometry. See `machine.compute_aperture_photometry()`
             for further details.
         """
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
-            self.load_shape_model(plot=plot)
+            self.load_shape_model(input=shape_model_file, plot=plot)
         else:
             self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
