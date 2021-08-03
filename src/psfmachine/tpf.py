@@ -498,6 +498,66 @@ class TPFMachine(Machine):
                 mask = mask.reshape(tpf.shape[1:])
                 self.aperture_mask_2d["%i_%i" % (k, sdx)] = mask
 
+    def get_source_centroids(self):
+        """
+        Compute centroids from Aperture photometry if available, if not converts
+        gaia RA and Dec coordinates into pixels using `all_world2pix()` and applying
+        `poss_corr` or scene centroids from `machine._get_centroids`.
+        """
+        # use aperture mask for moments centroids
+        self.estimate_source_centroids_aperture()
+        # source centroids using pos_corr
+        # if True:
+        #     # get pixel coord from catalog RA, Dec and tpf WCS solution
+        #     col, row = (
+        #         self.tpfs[0]
+        #         .wcs.all_world2pix(self.sources.loc[:, ["ra", "dec"]].values, 0)
+        #         .T
+        #     )
+        #     col += self.tpfs[0].column
+        #     row += self.tpfs[0].row
+        #
+        #     cadno_index = np.in1d(self.tpfs[0].time.jd, self.time)
+        #     self.source_centroids_column_poscor = []
+        #     self.source_centroids_row_poscor = []
+        #     for i in range(self.nsources):
+        #         tpf_idx = [
+        #             k for k, ss in enumerate(self.tpf_meta["sources"]) if i in ss
+        #         ][0]
+        #         # apply poss_corr from TPF cadences
+        #         self.source_centroids_column_poscor.append(
+        #             col[i] + self.tpfs[tpf_idx].pos_corr1[cadno_index]
+        #         )
+        #         self.source_centroids_row_poscor.append(
+        #             row[i] + self.tpfs[tpf_idx].pos_corr2[cadno_index]
+        #         )
+        #     self.source_centroids_column_poscor = (
+        #         np.array(self.source_centroids_column_poscor) * u.pixel
+        #     )
+        #     self.source_centroids_row_poscor = (
+        #         np.array(self.source_centroids_row_poscor) * u.pixel
+        #     )
+        # use gaia coordinates and scene centroids
+        centr_ra = np.tile(self.sources.ra.values, (self.nt, 1)).T + np.tile(
+            self.ra_centroid.value, (self.nsources, 1)
+        )
+        centr_dec = np.tile(self.sources.dec.values, (self.nt, 1)).T + np.tile(
+            self.dec_centroid.value, (self.nsources, 1)
+        )
+
+        self.source_centroids_column, self.source_centroids_row = (
+            self.tpfs[0]
+            .wcs.all_world2pix(np.array([centr_ra.ravel(), centr_dec.ravel()]).T, 0)
+            .T
+        )
+        self.source_centroids_column = (
+            self.source_centroids_column.reshape(self.nsources, self.nt)
+            + self.tpfs[0].column
+        ) * u.pixel
+        self.source_centroids_row = (
+            self.source_centroids_row.reshape(self.nsources, self.nt) + self.tpfs[0].row
+        ) * u.pixel
+
     @staticmethod
     def from_TPFs(
         tpfs,
