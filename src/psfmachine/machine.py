@@ -1516,6 +1516,38 @@ class Machine(object):
         ax.legend()
         return ax
 
+    def estimate_source_centroids_aperture(self):
+        """
+        Computes the centroid via 2D moments methods for all sources all times.
+        It needs `aperture_mask` to be computed first.
+
+        `self.centroid_column` and `self.centroid_row` are of shape [nsources, ntimes]
+        """
+        if not hasattr(self, "aperture_mask"):
+            raise AttributeError("No aperture masks")
+
+        centr_col, centr_row = [], []
+        for idx in range(self.nsources):
+            total_flux = np.nansum(self.flux[:, self.aperture_mask[idx]], axis=1)
+            centr_col.append(
+                np.nansum(
+                    np.tile(self.column[self.aperture_mask[idx]], (self.nt, 1))
+                    * self.flux[:, self.aperture_mask[idx]],
+                    axis=1,
+                )
+                / total_flux
+            )
+            centr_row.append(
+                np.nansum(
+                    np.tile(self.row[self.aperture_mask[idx]], (self.nt, 1))
+                    * self.flux[:, self.aperture_mask[idx]],
+                    axis=1,
+                )
+                / total_flux
+            )
+        self.source_centroids_column_ap = np.array(centr_col) * u.pixel
+        self.source_centroids_row_ap = np.array(centr_row) * u.pixel
+
 
 def sparse_lessthan(arr, limit):
     """
