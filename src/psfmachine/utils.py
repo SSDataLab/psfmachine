@@ -333,7 +333,9 @@ def solve_linear_model(
         sigma_w_inv += np.diag(1 / prior_sigma ** 2)
         B += prior_mu / prior_sigma ** 2
 
-    if isinstance(sigma_w_inv, (sparse.csr_matrix, sparse.csc_matrix, np.matrix)):
+    if isinstance(sigma_w_inv, (sparse.csr_matrix, sparse.csc_matrix)):
+        sigma_w_inv = sigma_w_inv.toarray()
+    if isinstance(sigma_w_inv, np.matrix):
         sigma_w_inv = np.asarray(sigma_w_inv)
 
     w = np.linalg.solve(sigma_w_inv, B)
