@@ -273,3 +273,71 @@ def wrapped_spline(input_vector, order=2, nknots=10):
     for idx in np.arange(-order, 0):
         folded_basis[idx, :] += np.copy(basis)[nt // 2 + idx, len(x) :]
     return folded_basis
+
+
+def solve_linear_model(
+    A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None, errors=False
+):
+    """
+            Solves a linear model with design matrix A and observations y:
+                Aw = y
+            return the solutions w for the system assuming Gaussian priors.
+            Alternatively the observation errors, priors, and a boolean mask for the
+            observations (row axis) can be provided.
+
+            Adapted from Luger, Foreman-Mackey & Hogg, 2017
+            (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+
+            Parameters
+            ----------
+            A: numpy ndarray or scipy sparce csr matrix
+                Desging matrix with solution basis
+                shape n_observations x n_basis
+            y: numpy ndarray
+                Observations
+                shape n_observations
+            y_err: numpy ndarray, optional
+                Observation errors
+                shape n_observations
+            prior_mu: float, optional
+                Mean of Gaussian prior values for the weights (w)
+            prior_sigma: float, optional
+                Standard deviation of Gaussian prior values for the weights (w)
+            k: boolean, numpy ndarray, optional
+                Mask that sets the observations to be used to solve the system
+                shape n_observations
+            errors: boolean
+                Whether to return error estimates of the best fitting weights
+
+            Returns
+            -------
+            w: numpy ndarray
+                Array with the estimations for the weights
+                shape n_basis
+            werrs: numpy ndarray
+                Array with the error estimations for the weights, returned if `error`
+    is True
+                shape n_basis
+    """
+    if k is None:
+        k = np.ones(len(y), dtype=bool)
+
+    if y_err is not None:
+        sigma_w_inv = A[k].T.dot(A[k].multiply(1 / y_err[k, None] ** 2))
+        B = A[k].T.dot((y[k] / y_err[k] ** 2))
+    else:
+        sigma_w_inv = A[k].T.dot(A[k])
+        B = A[k].T.dot(y[k])
+
+    if prior_mu is not None and prior_sigma is not None:
+        sigma_w_inv += np.diag(1 / prior_sigma ** 2)
+        B += prior_mu / prior_sigma ** 2
+
+    if isinstance(sigma_w_inv, (sparse.csr_matrix, sparse.csc_matrix, np.matrix)):
+        sigma_w_inv = np.asarray(sigma_w_inv)
+
+    w = np.linalg.solve(sigma_w_inv, B)
+    if errors is True:
+        w_err = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+        return w, w_err
+    return w
