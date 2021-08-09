@@ -14,7 +14,8 @@ from astropy.stats import sigma_clip
 from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query, _make_A_cartesian
+from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+
 from .machine import Machine
 from .version import __version__
 
@@ -1188,7 +1189,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     )
     prior_sigma = np.ones(A.shape[1]) * 10
     prior_mu = np.zeros(A.shape[1]) + 10
-    w = Machine._solve_linear_model(
+    w = solve_linear_model(
         A,
         flx,
         y_err=np.sqrt(np.abs(flx)),
@@ -1198,7 +1199,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     # iterate to reject outliers from nearby sources using (data - model)
     for k in range(3):
         bad = sigma_clip(flx - A.dot(w), sigma=3).mask
-        w = Machine._solve_linear_model(
+        w = solve_linear_model(
             A,
             flx,
             y_err=np.sqrt(np.abs(flx)),
