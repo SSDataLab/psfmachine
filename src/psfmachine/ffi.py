@@ -14,7 +14,8 @@ from astropy.stats import sigma_clip
 from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query, _make_A_cartesian
+from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+
 from .machine import Machine
 from .version import __version__
 
@@ -143,6 +144,7 @@ class FFIMachine(Machine):
         cutout_size=None,
         cutout_origin=[0, 0],
         correct_offsets=False,
+        plot_offsets=False,
         **kwargs,
     ):
         """
@@ -163,6 +165,8 @@ class FFIMachine(Machine):
         correct_offsets : boolean
             Check and correct for coordinate offset due to wrong WCS. It is off by
             default.
+        plot_offsets : boolean
+            Create diagnostic plot for oordinate offset correction.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `machine` class object.
             See `psfmachine.Machine` for details.
@@ -223,7 +227,7 @@ class FFIMachine(Machine):
                 flux[0],
                 sources,
                 wcs,
-                plot=True,
+                plot=plot_offsets,
                 cutout_size=100,
             )
 
@@ -1185,7 +1189,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     )
     prior_sigma = np.ones(A.shape[1]) * 10
     prior_mu = np.zeros(A.shape[1]) + 10
-    w = Machine._solve_linear_model(
+    w = solve_linear_model(
         A,
         flx,
         y_err=np.sqrt(np.abs(flx)),
@@ -1195,7 +1199,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
     # iterate to reject outliers from nearby sources using (data - model)
     for k in range(3):
         bad = sigma_clip(flx - A.dot(w), sigma=3).mask
-        w = Machine._solve_linear_model(
+        w = solve_linear_model(
             A,
             flx,
             y_err=np.sqrt(np.abs(flx)),
@@ -1250,7 +1254,7 @@ def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
 
 
 def _check_coordinate_offsets(
-    ra, dec, row, column, flux, sources, wcs, cutout_size=50, plot=True
+    ra, dec, row, column, flux, sources, wcs, cutout_size=50, plot=False
 ):
     """
     Checks if there is any offset between the pixel coordinates and the Gaia sources

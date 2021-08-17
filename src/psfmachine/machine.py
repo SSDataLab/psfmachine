@@ -6,11 +6,11 @@ import pandas as pd
 from scipy import sparse
 from scipy import optimize
 import astropy.units as u
-from tqdm.auto import tqdm
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
-from .utils import _make_A_polar, _make_A_cartesian
+from .utils import _make_A_polar, _make_A_cartesian, solve_linear_model
 
 __all__ = ["Machine"]
 
@@ -195,17 +195,25 @@ class Machine(object):
             Default is [0, 0].
         """
         # The distance in ra & dec from each source to each pixel
-        self.dra, self.ddec = np.asarray(
-            [
+        # when centroid offset is 0 (i.e. first time creating arrays) create delta
+        # arrays from scratch
+        if centroid_offset[0] == centroid_offset[1] == 0:
+            self.dra, self.ddec = np.asarray(
                 [
-                    self.ra - self.sources["ra"][idx] - centroid_offset[0],
-                    self.dec - self.sources["dec"][idx] - centroid_offset[1],
+                    [
+                        self.ra - self.sources["ra"][idx] - centroid_offset[0],
+                        self.dec - self.sources["dec"][idx] - centroid_offset[1],
+                    ]
+                    for idx in range(len(self.sources))
                 ]
-                for idx in range(len(self.sources))
-            ]
-        ).transpose(1, 0, 2)
-        self.dra = self.dra * (u.deg)
-        self.ddec = self.ddec * (u.deg)
+            ).transpose(1, 0, 2)
+            self.dra = self.dra * (u.deg)
+            self.ddec = self.ddec * (u.deg)
+        # when offsets are != 0 (i.e. updating dra and ddec arrays) we just substract
+        # the ofsets avoiding the for loop
+        else:
+            self.dra -= centroid_offset[0] * u.deg
+            self.ddec -= centroid_offset[1] * u.deg
 
         # convertion to polar coordinates
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
@@ -229,27 +237,51 @@ class Machine(object):
             Centroid offset for [ra, dec] to be included in dra and ddec computation.
             Default is [0, 0].
         """
-        # convert to degrees
-        # iterate over sources to only keep pixels within dist_lim
-        # this is inefficient, could be done in a tiled manner? only for squared data
-        dra, ddec, sparse_mask = [], [], []
-        for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
-            dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
-            ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
-            box_mask = sparse.csr_matrix(
-                (np.abs(dra_aux) <= self.sparse_dist_lim.to("deg").value)
-                & (np.abs(ddec_aux) <= self.sparse_dist_lim.to("deg").value)
-            )
-            dra.append(box_mask.multiply(dra_aux))
-            ddec.append(box_mask.multiply(ddec_aux))
-            sparse_mask.append(box_mask)
+        # If not centroid offsets or  centroid correction are larget than a pixel,
+        # then we need to compute the sparse delta arrays from scratch
+        if (centroid_offset[0] == centroid_offset[1] == 0) or (
+            np.maximum(*np.abs(centroid_offset)) > 4 / 3600
+        ):
+            # iterate over sources to only keep pixels within dist_lim
+            # this is inefficient, could be done in a tiled manner? only for squared data
+            dra, ddec, sparse_mask = [], [], []
+            for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
+                dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
+                ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
+                box_mask = sparse.csr_matrix(
+                    (np.abs(dra_aux) <= self.sparse_dist_lim.to("deg").value)
+                    & (np.abs(ddec_aux) <= self.sparse_dist_lim.to("deg").value)
+                )
+                dra.append(box_mask.multiply(dra_aux))
+                ddec.append(box_mask.multiply(ddec_aux))
+                sparse_mask.append(box_mask)
 
-        del dra_aux, ddec_aux, box_mask
-        # we stack dra, ddec of each object to create a [nsources, npixels] matrices
-        self.dra = sparse.vstack(dra, "csr")
-        self.ddec = sparse.vstack(ddec, "csr")
-        sparse_mask = sparse.vstack(sparse_mask, "csr")
-        sparse_mask.eliminate_zeros()
+            del dra_aux, ddec_aux, box_mask
+            # we stack dra, ddec of each object to create a [nsources, npixels] matrices
+            self.dra = sparse.vstack(dra, "csr")
+            self.ddec = sparse.vstack(ddec, "csr")
+            sparse_mask = sparse.vstack(sparse_mask, "csr")
+            sparse_mask.eliminate_zeros()
+        # if centroid correction is less than 1 pixel, then we just update dra and ddec
+        # sparse arrays arrays and r and phi.
+        else:
+            self.dra = self.dra - sparse.csr_matrix(
+                (
+                    np.repeat(centroid_offset[0], self.dra.data.shape),
+                    (self.dra.nonzero()),
+                ),
+                shape=self.dra.shape,
+                dtype=float,
+            )
+            self.ddec = self.ddec - sparse.csr_matrix(
+                (
+                    np.repeat(centroid_offset[1], self.ddec.data.shape),
+                    (self.ddec.nonzero()),
+                ),
+                shape=self.ddec.shape,
+                dtype=float,
+            )
+            sparse_mask = self.dra.astype(bool)
 
         # convertion to polar coordinates. We can't apply np.hypot or np.arctan2 to
         # sparse arrays. We keep track of non-zero index, do math in numpy space,
@@ -270,74 +302,6 @@ class Machine(object):
         )
         del r_vals, phi_vals, nnz_inds, sparse_mask
         return
-
-    @staticmethod
-    def _solve_linear_model(
-        A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None, errors=False
-    ):
-        """
-                Solves a linear model with design matrix A and observations y:
-                    Aw = y
-                return the solutions w for the system assuming Gaussian priors.
-                Alternatively the observation errors, priors, and a boolean mask for the
-                observations (row axis) can be provided.
-
-                Adapted from Luger, Foreman-Mackey & Hogg, 2017
-                (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
-
-                Parameters
-                ----------
-                A: numpy ndarray or scipy sparce csr matrix
-                    Desging matrix with solution basis
-                    shape n_observations x n_basis
-                y: numpy ndarray
-                    Observations
-                    shape n_observations
-                y_err: numpy ndarray, optional
-                    Observation errors
-                    shape n_observations
-                prior_mu: float, optional
-                    Mean of Gaussian prior values for the weights (w)
-                prior_sigma: float, optional
-                    Standard deviation of Gaussian prior values for the weights (w)
-                k: boolean, numpy ndarray, optional
-                    Mask that sets the observations to be used to solve the system
-                    shape n_observations
-                errors: boolean
-                    Whether to return error estimates of the best fitting weights
-
-                Returns
-                -------
-                w: numpy ndarray
-                    Array with the estimations for the weights
-                    shape n_basis
-                werrs: numpy ndarray
-                    Array with the error estimations for the weights, returned if `error`
-        is True
-                    shape n_basis
-        """
-        if k is None:
-            k = np.ones(len(y), dtype=bool)
-
-        if y_err is not None:
-            sigma_w_inv = A[k].T.dot(A[k].multiply(1 / y_err[k, None] ** 2))
-            B = A[k].T.dot((y[k] / y_err[k] ** 2))
-        else:
-            sigma_w_inv = A[k].T.dot(A[k])
-            B = A[k].T.dot(y[k])
-
-        if prior_mu is not None and prior_sigma is not None:
-            sigma_w_inv += np.diag(1 / prior_sigma ** 2)
-            B += prior_mu / prior_sigma ** 2
-
-        if isinstance(sigma_w_inv, (sparse.csr_matrix, sparse.csc_matrix, np.matrix)):
-            sigma_w_inv = np.asarray(sigma_w_inv)
-
-        w = np.linalg.solve(sigma_w_inv, B)
-        if errors is True:
-            w_err = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
-            return w, w_err
-        return w
 
     def _get_source_mask(
         self,
@@ -964,7 +928,7 @@ class Machine(object):
         nan_mask = np.isfinite(mean_f_b.ravel())
 
         # we solve for A * psf_w = mean_f_b
-        psf_w, psf_w_err = self._solve_linear_model(
+        psf_w, psf_w_err = solve_linear_model(
             A,
             y=mean_f_b.ravel(),
             #            y_err=mean_f_err.ravel(),
@@ -976,7 +940,7 @@ class Machine(object):
 
         bad = sigma_clip(mean_f_b.ravel() - A.dot(psf_w), sigma=5).mask
 
-        psf_w, psf_w_err = self._solve_linear_model(
+        psf_w, psf_w_err = solve_linear_model(
             A,
             y=mean_f_b.ravel(),
             #            y_err=mean_f_err.ravel(),
