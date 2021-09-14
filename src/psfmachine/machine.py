@@ -1251,22 +1251,27 @@ class Machine(object):
         return
 
     # aperture photometry functions
-    def _create_aperture_mask(self, percentile=[50]):
+    def _create_aperture_mask(self, percentile=50):
         """
         Function to create the aperture mask of a given source for a given aperture
         size. This function can compute aperutre mask for all sources in the scene.
 
         Parameters
         ----------
-        percentile : float
-            Percentile value that defines the isophote from the distribution of values
-            in the PRF model of the source
+        percentile : float or list of floats
+            Percentile value that defines the isophote from the distribution
+            of values in the PRF model of the source. If float, then
+            all sources will use the same percentile value. If list, then it has to
+            have lenght that matches `self.nsources`, then each source has its own
+            percentile value.
 
         Returns
         -------
         """
-        if len(percentile) == 1:
-            percentile = percentile * self.nsources
+        if type(percentile) == int:
+            percentile = [percentile] * self.nsources
+        if len(percentile) != self.nsources:
+            raise ValueError("Lenght of percentile doesn't match number of sources.")
         # compute isophot limit allowing for different source percentile
         cut = np.array(
             [
@@ -1284,7 +1289,7 @@ class Machine(object):
         self, aperture_size="optimal", target_complet=0.9, target_crowd=0.9
     ):
         """
-        Computes aperture photometry for all sources in the scene. The aperture shapes
+        Computes aperture photometry for all sources in the scene. The aperture shape
         follow the PRF profile.
 
         Parameters
@@ -1292,12 +1297,13 @@ class Machine(object):
         aperture_size : string or int
             Size of the aperture to be used. If "optimal" the aperture will be optimized
             using the flux metric targets. If int between [0, 100], then the boundaries
-            of the aperture are calculated from the normalized flux value of the ith
-            percentile.
+            of the aperture are calculated from the normalized flux value of the given
+            ith percentile.
         target_complet : float
-            Target flux completeness metric (FLFRCSAP) used if aperture_size is "optimal"
+            Target flux completeness metric (FLFRCSAP) used if aperture_size is
+             "optimal".
         target_crowd : float
-            Target flux crowding metric (CROWDSAP) used if aperture_size is "optimal"
+            Target flux crowding metric (CROWDSAP) used if aperture_size is "optimal".
         """
         if aperture_size == "optimal":
             # raise NotImplementedError
@@ -1305,7 +1311,7 @@ class Machine(object):
                 target_complet=target_complet, target_crowd=target_crowd
             )
         else:
-            self._create_aperture_mask(percentile=[aperture_size])
+            self._create_aperture_mask(percentile=aperture_size)
 
         self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
         self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))
@@ -1327,16 +1333,14 @@ class Machine(object):
         percentile_bounds=[0, 100],
     ):
         """
-        Function to optimize the aperture mask for a given source. There are two
-        special cases:
-            * Isolated sources, the optimal aperture is the full aperture.
-            * If optimizing for one single metric.
-        For these last two case, no actual optimization if performed, and we use the
-        results from `diagnose_metrics()`.
+        Function to optimize the aperture mask for a given source.
 
         The optimization is done using scipy Brent's algorithm and it uses a custom
-        loss function that uses a Leaky ReLU term to achive the target value for
-        both metrics.
+        loss function `_goodness_metric_obj_fun` that uses a Leaky ReLU term to
+        achive the target value for both metrics.
+
+        It creates a new attribute with the percentile value to defines the "optimal"
+        aperture for each source.
 
         Parameters
         ----------
@@ -1346,6 +1350,9 @@ class Machine(object):
             Value of the target crowdeness metric.
         max_iter : int
             Numer of maximum iterations to be performed by the optimizer.
+        percentile_bounds : tuple
+            Tuple of minimun and maximun values for allowed percentile values during
+            the optimization. Default is the widest range of [0, 100].
         """
         # optimize percentile cut for every source
         optim_percentile = []
@@ -1379,7 +1386,7 @@ class Machine(object):
         percentile : int
             Percentile of the normalized flux distribution that defines the isophote.
         optim_params : dictionary
-            Dictionary with the variables needed for evaluate the metric:
+            Dictionary with the variables needed to evaluate the metric:
                 psf_models
                 sdx
                 target_complet
@@ -1387,7 +1394,7 @@ class Machine(object):
 
         Returns
         -------
-        penalty : int
+        penalty : float
             Value of the objective function to be used for optiization.
         """
         psf_models = optim_params["psf_models"]
@@ -1443,7 +1450,7 @@ class Machine(object):
         The flux metrics are computed by taking into account the PSF models of
         neighbor sources.
 
-        This function is meant to be used only to generate the diagnostic.
+        This function is meant to be used only to generate diagnostic figures.
 
         Parameters
         ----------
@@ -1452,8 +1459,6 @@ class Machine(object):
             number between 0 and psf_models.shape[0].
         ax : matplotlib.axes
             Axis to be used to plot the figure
-        plot : boolean
-            Plot the metrics values.
 
         Returns
         -------
@@ -1485,7 +1490,8 @@ class Machine(object):
         Computes the centroid via 2D moments methods for all sources all times.
         It needs `aperture_mask` to be computed first.
 
-        `self.centroid_column` and `self.centroid_row` are of shape [nsources, ntimes]
+        Attributes `self.centroid_column_ap` and `self.centroid_row_ap` are of shape
+        [nsources, ntimes].
         """
         if not hasattr(self, "aperture_mask"):
             raise AttributeError("No aperture masks")
@@ -1562,10 +1568,11 @@ def compute_FLFRCSAP(psf_models, aperture_mask):
     """
     Compute fraction of target flux enclosed in the optimal aperture to total flux
     for a given source (flux completeness).
+    Follows definition by Kinemuchi at al. 2012.
     Parameters
     ----------
-    psf_models: numpy.ndarray
-        Array with the PSF model for the target source. It has shape of
+    psf_models : scipy.sparce.csr_matrix
+        Sparse matrix with the PSF models for all targets in the scene. It has shape
         [n_sources, n_pixels].
     aperture_mask: numpy.ndarray
         Array of boolean indicating the aperture for the target source. It has shape of
@@ -1586,18 +1593,19 @@ def compute_CROWDSAP(psf_models, aperture_mask, idx=None):
     """
     Compute the ratio of target flux relative to flux from all sources within
     the photometric aperture (i.e. 1 - Crowdeness).
+    Follows definition by Kinemuchi at al. 2012.
     Parameters
     ----------
-    psf_models: numpy.ndarray
-        Array with the PSF models for all targets in the cutout. It has shape
+    psf_models : scipy.sparce.csr_matrix
+        Sparse matrix with the PSF models for all targets in the scene. It has shape
         [n_sources, n_pixels].
-    aperture_mask: numpy.ndarray
+    aperture_mask : numpy.ndarray
         Array of boolean indicating the aperture for the target source. It has shape of
         [n_sources, n_pixels].
 
     Returns
     -------
-    CROWDSAP: numpy.ndarray
+    CROWDSAP : numpy.ndarray
         Crowdeness metric
     """
     ratio = psf_models.multiply(1 / psf_models.sum(axis=0)).tocsr()

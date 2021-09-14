@@ -99,7 +99,8 @@ class TPFMachine(Machine):
         ----------
         plot : bool
             Whether or not to show some diagnostic plots. These can be helpful
-            for a user to see if the PRF and time dependent models are being calculated correctly.
+            for a user to see if the PRF and time dependent models are being calculated
+            correctly.
         fit_va : bool
             Whether or not to fit Velocity Aberration (which implicitly will try to fit
             other kinds of time variability). This will try to fit the "long term"
@@ -108,19 +109,21 @@ class TPFMachine(Machine):
             find you do not need this to be set to True. If you have the time, it
             is recommended to run it.
         iter_negative : bool
-            When fitting light curves, it isn't possible to force the flux to be positive.
-            As such, when we find there are light curves that deviate into negative
-            flux values, we can clip these targets out of the analysis and rerun the model.
+            When fitting light curves, it isn't possible to force the flux to be
+            positive.
+            As such, when we find there are light curves that deviate into negative flux
+            values, we can clip these targets out of the analysis and rerun the model.
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
         load_shape_model : bool
-            Load PRF shape model from disk or not. Default models were computed from FFI
-            of the same channel and quarter.
+            Load PRF shape model from disk or not. Default models were computed from
+            FFI of the same channel and quarter.
         shape_model_file : string
-            PRF shape model file path.
+            Path to PRF model file to be passed to `load_shape_model(input)`. If None,
+            then precomputed models will be download from Zenodo repo.
         sap : boolean
-            Compute or not Simple Aperture Photometry. See `machine.compute_aperture_photometry()`
-            for further details.
+            Compute or not Simple Aperture Photometry. See
+            `Machine.compute_aperture_photometry()` for further details.
         """
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
@@ -251,6 +254,8 @@ class TPFMachine(Machine):
         ----------
         tdx : int
             Index of the TPF to plot
+        sap : boolean
+            Overplot the pixel mask used for aperture photometry.
         """
         tpf = self.tpfs[tdx]
         ax_tpf = tpf.plot(aperture_mask="pipeline" if sap else None)
@@ -290,9 +295,10 @@ class TPFMachine(Machine):
                 if np.nansum(mod) == 0:
                     kdx += 1
                     continue
-                _ = plt.subplots(figsize=(10, 3))
+                _ = plt.subplots(figsize=(12, 4))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
                 lc.errorbar(ax=ax, c="k", lw=0.3, ls="-")
+                # plot SAP lc
                 if hasattr(lc, "sap_flux") and sap:
                     lc.errorbar(
                         column="sap_flux",
@@ -305,7 +311,7 @@ class TPFMachine(Machine):
                 kdx += 1
                 ax = plt.subplot2grid((1, 4), (0, 3))
                 lk.utils.plot_image(mod, extent=img_extent, ax=ax)
-                # Overlay the aperture mask if given
+                # Overlay the aperture mask if asked
                 if hasattr(self, "aperture_mask_2d") and sap:
                     aperture_mask = self.aperture_mask_2d["%i_%i" % (tdx, sdx)]
                     for i in range(r.shape[0]):
@@ -498,11 +504,28 @@ class TPFMachine(Machine):
                 mask = mask.reshape(tpf.shape[1:])
                 self.aperture_mask_2d["%i_%i" % (k, sdx)] = mask
 
-    def get_source_centroids(self, method="scene"):
+    def get_source_centroids(self, method="poscor"):
         """
-        Compute centroids from Aperture photometry if available, if not converts
-        gaia RA and Dec coordinates into pixels using `all_world2pix()` and applying
-        `poss_corr` or scene centroids from `machine._get_centroids`.
+        Compute centroids for sources in pixel coordinates.
+
+        Parameters
+        ----------
+        method : string
+            What type of corrected centroid will be computed.
+            If "aperture" it computes
+            centroids from moments `Machine.estimate_source_centroids_aperture()`. This
+            needs the aperture masks to becomputed in advance with
+            `Machine.compute_aperture_photometry`. Note that for sources with partial
+            data (i.e. near TPF edges) the this method is illdefined. It creates
+            attributes `source_centroids_[column/row]_ap`.
+            If "poscor" (default) it uses Gaia RA and Dec coordinates converted to pixel
+            space  using the TPFs WCS solution and the apply each TPF 'pos_corr'
+            correction. It creates attributes `source_centroids_[column/row]_poscor`.
+            If "scene" uses Gaia coordinates again, but correction is computed from
+            the TPF scene jitter using 'Machine._get_centroids()'. It creates
+            attributes `source_centroids_[column/row]_scene`.
+
+            Note: "poscor" and "scene" show consistent results below 10th of a pixel.
         """
         # use aperture mask for moments centroids
         if method == "aperture":
