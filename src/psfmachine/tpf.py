@@ -7,10 +7,13 @@ from astropy.time import Time
 from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
+import urllib.request
+import tarfile
 
 from .utils import get_gaia_sources
 from .machine import Machine
 from .version import __version__
+from psfmachine import PACKAGEDIR
 
 
 __all__ = ["TPFMachine"]
@@ -300,14 +303,34 @@ class TPFMachine(Machine):
             Plot or not the mean model.
         """
         # By default we will load PRF model from FFI when this are ok.
-        # for now this function only works when a file is provided
         if input is None:
-            raise NotImplementedError(
-                "Loading default model not implemented. Please provide input file."
+            # raise NotImplementedError(
+            #     "Loading default model not implemented. Please provide input file."
+            # )
+            input = "%s/data/ffi/ch%02i/%s_ffi_shape_model_ch%02i_q%02i.fits" % (
+                PACKAGEDIR,
+                self.tpf_meta["channel"][0],
+                self.tpf_meta["mission"][0],
+                self.tpf_meta["channel"][0],
+                self.tpf_meta["quarter"][0],
             )
+            if not os.path.isfile(input):
+                # if dile doesnt exist, download file bundle from zenodo:
+                tar_file = "%s/data/Kepler_FFI_PRFmodels_v1.0.tar.gz" % PACKAGEDIR
+                if not os.path.isfile(tar_file):
+                    url = "https://zenodo.org/record/5504503/files/Kepler_FFI_PRFmodels_v1.0.tar.gz?download=1"
+                    print("Downloading bundle files from: ", url)
+                    with urllib.request.urlopen(url) as response, open(
+                        tar_file, "wb"
+                    ) as out_file:
+                        out_file.write(response.read())
+                # unpack
+                with tarfile.open(tar_file) as f:
+                    f.extractall("%s/data/ffi/" % (PACKAGEDIR))
         # check if file exists and is the right format
         if not os.path.isfile(input):
             raise FileNotFoundError("No shape file: %s" % input)
+        print("Using shape model from: ", input)
         if not input.endswith(".fits"):
             # should use a custom exception for wrong file format
             raise ValueError("File format not suported. Please provide a FITS file.")
