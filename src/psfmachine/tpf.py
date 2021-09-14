@@ -299,6 +299,8 @@ class TPFMachine(Machine):
         input : string
             Name of the file containing the shape parameters and weights. The file
             has to be FITS format.
+            If None, then previously computed shape model from Kepler's FFI will be
+            download from https://zenodo.org/record/5504503/ and used as default.
         plot : boolean
             Plot or not the mean model.
         """
