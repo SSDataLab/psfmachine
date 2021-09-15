@@ -563,6 +563,8 @@ class TPFMachine(Machine):
             )
         # use gaia coordinates and scene centroids
         if method == "scene":
+            if not hasattr(self, "ra_centroid"):
+                self._get_source_mask()
             centr_ra = np.tile(self.sources.ra.values, (self.nt, 1)).T + np.tile(
                 self.ra_centroid.value, (self.nsources, 1)
             )
@@ -640,7 +642,8 @@ class TPFMachine(Machine):
         if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
-        # CH: all these internal functions should be put in another and from_tpfs should be in another helper module
+        # CH: all these internal functions should be put in another and from_tpfs
+        # should be in another helper module
         attrs = [
             "ra",
             "dec",
