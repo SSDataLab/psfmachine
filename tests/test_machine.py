@@ -72,3 +72,46 @@ def test_create_delta_sparse_arrays():
     assert (non_sparse_arr["ddec"][mask].value == sparse_arr["ddec"].data).all()
     assert (non_sparse_arr["r"][mask].value == sparse_arr["r"].data).all()
     assert (non_sparse_arr["phi"][mask].value == sparse_arr["phi"].data).all()
+
+
+@pytest.mark.remote_data
+def test_compute_aperture_photometry():
+    # it tests aperture mask creation and flux metric computation
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
+    # load FFI shape model from file
+    machine.load_shape_model(
+        input=get_pkg_data_filename(f"data/shape_model_ffi.fits"),
+        plot=False,
+    )
+    # compute max aperture
+    machine._create_aperture_mask(percentile=0)
+    assert machine.aperture_mask.shape == (19, 285)
+    # some sources way outside the TPF can have 0-size aperture
+    assert (machine.aperture_mask.sum(axis=1) >= 0).all()
+    assert machine.FLFRCSAP.shape == (19,)
+    assert machine.CROWDSAP.shape == (19,)
+    # full apereture shoudl lead to FLFRCSAP = 1
+    assert np.allclose(machine.FLFRCSAP[np.isfinite(machine.FLFRCSAP)], 1)
+    assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] >= 0).all()
+    assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] <= 1).all()
+
+    # compute min aperture, here CROWDSAP not always will be 1, e.g. 2 sources in the
+    # same pixel.
+    machine._create_aperture_mask(percentile=0)
+    assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] >= 0).all()
+    assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] <= 1).all()
+    assert (machine.FLFRCSAP[np.isfinite(machine.FLFRCSAP)] >= 0).all()
+    assert (machine.FLFRCSAP[np.isfinite(machine.FLFRCSAP)] <= 1).all()
+
+    machine.compute_aperture_photometry(aperture_size="optimal")
+    assert machine.aperture_mask.shape == (19, 285)
+    # some sources way outside the TPF can have 0-size aperture
+    assert (machine.aperture_mask.sum(axis=1) >= 0).all()
+    # check aperture size is within range
+    assert (machine.optimal_percentile >= 0).all() and (
+        machine.optimal_percentile <= 100
+    ).all()
+    assert machine.sap_flux.shape == (10, 19)
+    assert machine.sap_flux_err.shape == (10, 19)
+    assert (machine.sap_flux >= 0).all()
+    assert (machine.sap_flux_err >= 0).all()
