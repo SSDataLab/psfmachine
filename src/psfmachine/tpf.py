@@ -198,8 +198,8 @@ class TPFMachine(Machine):
         Auxiliar function that creates dictionarywith metadata for a given source in
         the catalog.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         idx : int
             Source index.
         s : pandas.Series
@@ -262,7 +262,8 @@ class TPFMachine(Machine):
         raise NotImplementedError
 
     def lcs_in_tpf(self, tpf_number):
-        """Returns the light curves from a given TPF as a lightkurve.LightCurveCollection.
+        """
+        Returns the light curves from a given TPF as a lightkurve.LightCurveCollection.
 
         Parameters
         ----------
@@ -443,7 +444,8 @@ class TPFMachine(Machine):
         return
 
     def save_shape_model(self, output=None):
-        """Saves the weights of a PRF fit to a file
+        """Saves the weights of a PRF fit to disk as a FITS file.
+
         Parameters
         ----------
         output : str, None
@@ -537,23 +539,26 @@ class TPFMachine(Machine):
     def get_source_centroids(self, method="poscor"):
         """
         Compute centroids for sources in pixel coordinates.
+        It implements three different methods to calculate centroids:
+            * "aperture": computes centroids from moments `
+            Machine.estimate_source_centroids_aperture()`. This needs the aperture
+            masks to becomputed in advance with `Machine.compute_aperture_photometry`.
+            Note that for sources with partial data (i.e. near TPF edges) the this
+            method is illdefined.
+            * "poscor": uses Gaia RA and Dec coordinates converted to pixel
+            space using the TPFs WCS solution and the apply each TPF 'pos_corr'
+            correction
+            * "scene": uses Gaia coordinates again, but correction is computed from
+            the TPF scene jitter using 'Machine._get_centroids()'.
 
         Parameters
         ----------
         method : string
             What type of corrected centroid will be computed.
-            If "aperture" it computes
-            centroids from moments `Machine.estimate_source_centroids_aperture()`. This
-            needs the aperture masks to becomputed in advance with
-            `Machine.compute_aperture_photometry`. Note that for sources with partial
-            data (i.e. near TPF edges) the this method is illdefined. It creates
-            attributes `source_centroids_[column/row]_ap`.
-            If "poscor" (default) it uses Gaia RA and Dec coordinates converted to pixel
-            space  using the TPFs WCS solution and the apply each TPF 'pos_corr'
-            correction. It creates attributes `source_centroids_[column/row]_poscor`.
-            If "scene" uses Gaia coordinates again, but correction is computed from
-            the TPF scene jitter using 'Machine._get_centroids()'. It creates
-            attributes `source_centroids_[column/row]_scene`.
+            If "aperture", it creates attributes `source_centroids_[column/row]_ap`.
+            If "poscor" (default), it creates attributes
+            `source_centroids_[column/row]_poscor`.
+            If "scene", it creates attributes `source_centroids_[column/row]_scene`.
 
             Note: "poscor" and "scene" show consistent results below 10th of a pixel.
         """

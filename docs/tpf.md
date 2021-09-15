@@ -9,6 +9,9 @@
         - fit_lightcurves
         - plot_tpf
         - lcs_in_tpf
+        - get_source_centroids
+        - load_shape_model
+        - save_shape_model
     rendering:
       show_root_heading: false
       show_source: false

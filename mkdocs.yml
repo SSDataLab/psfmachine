@@ -3,6 +3,7 @@ nav:
     - Home: index.md
     - Machine: machine.md
     - TPFMachine : tpf.md
+    - FFIMachine : ffi.md
 theme:
   name: "material"
 repo_url: https://github.com/SSDataLab/psfmachine

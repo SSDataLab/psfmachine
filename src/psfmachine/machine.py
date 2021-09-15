@@ -27,12 +27,10 @@ class Machine(object):
     Class for calculating fast PRF photometry on a collection of images and
     a list of in image sources.
 
-    This method is discussed in detail in
-    https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract
+    This method is discussed in detail in [Hedges et al. 2021](https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract).
 
     This method solves a linear model to assuming Gaussian priors on the weight of
-    each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
-    (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+    each linear components as explained by [Luger, Foreman-Mackey & Hogg, 2017](https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
     """
 
     def __init__(
@@ -58,17 +56,6 @@ class Machine(object):
         sparse_dist_lim=40,
     ):
         """
-        Class for calculating fast PRF photometry on a collection of images and
-        a list of in image sources.
-
-        This method is discussed in detail in
-        https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract
-
-        This method solves a linear model to assuming Gaussian priors on the weight of
-        each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
-        (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
-
-
         Parameters
         ----------
         time: numpy.ndarray
@@ -691,6 +678,17 @@ class Machine(object):
         return ta, tm, fm_raw, fm, fem
 
     def build_time_model(self, plot=False):
+        """
+        Builds a time model that moves the PRF model to account for the scene movement
+        due to velocity aberration.
+
+        Parameters
+        ----------
+        plot: boolean
+            Plot a diagnostic figure.
+        **kwargs
+            Keyword arguments to be passed to `_get_source_mask()`
+        """
         (
             time_original,
             time_binned,
@@ -770,6 +768,14 @@ class Machine(object):
         return
 
     def plot_time_model(self):
+        """
+        Diagnostic plot of time model.
+
+        Returns
+        -------
+        fig : matplotlib.Figure
+            Figure.
+        """
         (
             time_original,
             time_binned,
@@ -1055,7 +1061,19 @@ class Machine(object):
         self.mean_model = mean_model
 
     def plot_shape_model(self, radius=20):
-        """ Diagnostic plot of shape model..."""
+        """
+        Diagnostic plot of shape model.
+
+        Parameters
+        ----------
+        radius : float
+            Radius (in arcseconds) limit to be shown in the figure.
+
+        Returns
+        -------
+        fig : matplotlib.Figure
+            Figure.
+        """
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
@@ -1158,7 +1176,15 @@ class Machine(object):
         return fig
 
     def fit_model(self, fit_va=False):
-        """Finds the best fitting weights for every source, simultaneously"""
+        """
+        Finds the best fitting weights for every source, simultaneously
+
+        Parameters
+        ----------
+        fit_va : boolean
+            Fitting model accounting for velocity aberration. If `True`, then a time
+            model has to be built previously with `build_time_model`.
+        """
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
             np.ones(self.mean_model.shape[0])
@@ -1272,8 +1298,6 @@ class Machine(object):
             have lenght that matches `self.nsources`, then each source has its own
             percentile value.
 
-        Returns
-        -------
         """
         if type(percentile) == int:
             percentile = [percentile] * self.nsources
@@ -1498,10 +1522,10 @@ class Machine(object):
 
     def estimate_source_centroids_aperture(self):
         """
-        Computes the centroid via 2D moments methods for all sources all times.
-        It needs `aperture_mask` to be computed first.
+        Computes the centroid via 2D moment methods for all sources all times. It needs
+        `aperture_mask` to be computed first by runing `compute_aperture_photometry`.
 
-        Attributes `self.centroid_column_ap` and `self.centroid_row_ap` are of shape
+        Creates two attributes `centroid_column_ap` and `centroid_row_ap` of shape
         [nsources, ntimes].
         """
         if not hasattr(self, "aperture_mask"):
