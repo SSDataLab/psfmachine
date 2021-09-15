@@ -1281,9 +1281,13 @@ class Machine(object):
         )
         # create aperture mask
         self.aperture_mask = np.array(self.mean_model >= cut[::, None])
-        # compute flux metrics
-        self.FLFRCSAP = compute_FLFRCSAP(self.mean_model, self.aperture_mask)
-        self.CROWDSAP = compute_CROWDSAP(self.mean_model, self.aperture_mask)
+        # compute flux metrics. Have to round to 10th decimal due to floating point
+        self.FLFRCSAP = np.round(
+            compute_FLFRCSAP(self.mean_model, self.aperture_mask), 10
+        )
+        self.CROWDSAP = np.round(
+            compute_CROWDSAP(self.mean_model, self.aperture_mask), 10
+        )
 
     def compute_aperture_photometry(
         self, aperture_size="optimal", target_complet=0.9, target_crowd=0.9
