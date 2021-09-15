@@ -27,10 +27,12 @@ class Machine(object):
     Class for calculating fast PRF photometry on a collection of images and
     a list of in image sources.
 
-    This method is discussed in detail in [Hedges et al. 2021](https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract).
+    This method is discussed in detail in
+    [Hedges et al. 2021](https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract).
 
     This method solves a linear model to assuming Gaussian priors on the weight of
-    each linear components as explained by [Luger, Foreman-Mackey & Hogg, 2017](https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+    each linear components as explained by
+    [Luger, Foreman-Mackey & Hogg, 2017](https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
     """
 
     def __init__(
