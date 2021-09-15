@@ -150,54 +150,8 @@ class TPFMachine(Machine):
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
-            ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
-            mission = self.tpf_meta["mission"][ldx].lower()
-            if s.tpf_id is not None:
-                if mission == "kepler":
-                    label, targetid = f"KIC {int(s.tpf_id)}", int(s.tpf_id)
-                elif mission == "tess":
-                    label, targetid = f"TIC {int(s.tpf_id)}", int(s.tpf_id)
-                elif mission in ["k2", "ktwo"]:
-                    label, targetid = f"EPIC {int(s.tpf_id)}", int(s.tpf_id)
-                else:
-                    raise ValueError(f"can not parse mission `{mission}`")
-            else:
-                label, targetid = s.designation, int(s.designation.split(" ")[-1])
 
-            meta = {
-                "ORIGIN": "PSFMACHINE",
-                "APERTURE": "PSF + SAP" if sap else "PSF",
-                "LABEL": label,
-                "TARGETID": targetid,
-                "MISSION": mission,
-                "RA": s.ra,
-                "DEC": s.dec,
-                "PMRA": s.pmra / 1000,
-                "PMDEC": s.pmdec / 1000,
-                "PARALLAX": s.parallax,
-                "GMAG": s.phot_g_mean_mag,
-                "RPMAG": s.phot_rp_mean_mag,
-                "BPMAG": s.phot_bp_mean_mag,
-                "SAP": "optimal" if sap else "None",
-                "FLFRCSAP": self.FLFRCSAP[idx] if sap else np.nan,
-                "CROWDSAP": self.CROWDSAP[idx] if sap else np.nan,
-            }
-
-            attrs = [
-                "channel",
-                "module",
-                "ccd",
-                "camera",
-                "quarter",
-                "campaign",
-                "quarter",
-                "row",
-                "column",
-                "mission",
-            ]
-            for attr in attrs:
-                if attr in self.tpf_meta.keys():
-                    meta[attr.upper()] = self.tpf_meta[attr][ldx]
+            meta = self._make_meta_dict(idx, s, sap)
 
             if fit_va:
                 flux, flux_err = (
@@ -226,6 +180,70 @@ class TPFMachine(Machine):
             self.lcs.append(lc)
         self.lcs = lk.LightCurveCollection(self.lcs)
         return
+
+    def _make_meta_dict(self, idx, s, sap):
+        """
+        Auxiliar function that creates dictionarywith metadata for a given source in
+        the catalog.
+
+        Parameters:
+        -----------
+        idx : int
+            Source index.
+        s : pandas.Series
+            Row entry of the source in the source catalog.
+        sap : boolean
+            Add or not Simple Aperture Photometry metadata
+        """
+        ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
+        mission = self.tpf_meta["mission"][ldx].lower()
+        if s.tpf_id is not None:
+            if mission == "kepler":
+                label, targetid = f"KIC {int(s.tpf_id)}", int(s.tpf_id)
+            elif mission == "tess":
+                label, targetid = f"TIC {int(s.tpf_id)}", int(s.tpf_id)
+            elif mission in ["k2", "ktwo"]:
+                label, targetid = f"EPIC {int(s.tpf_id)}", int(s.tpf_id)
+            else:
+                raise ValueError(f"can not parse mission `{mission}`")
+        else:
+            label, targetid = s.designation, int(s.designation.split(" ")[-1])
+
+        meta = {
+            "ORIGIN": "PSFMACHINE",
+            "APERTURE": "PSF + SAP" if sap else "PSF",
+            "LABEL": label,
+            "TARGETID": targetid,
+            "MISSION": mission,
+            "RA": s.ra,
+            "DEC": s.dec,
+            "PMRA": s.pmra / 1000,
+            "PMDEC": s.pmdec / 1000,
+            "PARALLAX": s.parallax,
+            "GMAG": s.phot_g_mean_mag,
+            "RPMAG": s.phot_rp_mean_mag,
+            "BPMAG": s.phot_bp_mean_mag,
+            "SAP": "optimal" if sap else "None",
+            "FLFRCSAP": self.FLFRCSAP[idx] if sap else np.nan,
+            "CROWDSAP": self.CROWDSAP[idx] if sap else np.nan,
+        }
+
+        attrs = [
+            "channel",
+            "module",
+            "ccd",
+            "camera",
+            "quarter",
+            "campaign",
+            "quarter",
+            "row",
+            "column",
+            "mission",
+        ]
+        for attr in attrs:
+            if attr in self.tpf_meta.keys():
+                meta[attr.upper()] = self.tpf_meta[attr][ldx]
+        return meta
 
     def to_fits():
         """Save all the light curves to fits files."""
