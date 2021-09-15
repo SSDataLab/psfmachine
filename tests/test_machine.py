@@ -80,7 +80,7 @@ def test_compute_aperture_photometry():
     machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     # load FFI shape model from file
     machine.load_shape_model(
-        input=get_pkg_data_filename(f"data/shape_model_ffi.fits"),
+        input=get_pkg_data_filename("data/shape_model_ffi.fits"),
         plot=False,
     )
     # compute max aperture
