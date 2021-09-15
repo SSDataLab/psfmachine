@@ -10,7 +10,14 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
-from .utils import _make_A_polar, _make_A_cartesian, solve_linear_model
+from .utils import (
+    _make_A_polar,
+    _make_A_cartesian,
+    solve_linear_model,
+    sparse_lessthan,
+    compute_FLFRCSAP,
+    compute_CROWDSAP,
+)
 
 __all__ = ["Machine"]
 
@@ -1521,101 +1528,3 @@ class Machine(object):
             )
         self.source_centroids_column_ap = np.array(centr_col) * u.pixel
         self.source_centroids_row_ap = np.array(centr_row) * u.pixel
-
-
-def sparse_lessthan(arr, limit):
-    """
-    Compute less than operation on sparse array by evaluating only non-zero values
-    and reconstructing the sparse array. This function return a sparse array, which is
-    crutial to keep operating large matrices.
-
-    Notes: when doing `x < a` for a sparse array `x` and `a > 0` it effectively compares
-    all zero and non-zero values. Then we get a dense boolean array with `True` where
-    the condition is met but also `True` where the sparse array was zero.
-    To avoid this we evaluate the condition only for non-zero values in the sparse
-    array and later reconstruct the sparse array with the right shape and content.
-    When `x` is a [N * M] matrix and `a` is [N] array, and we want to evaluate the
-    condition per row, we need to iterate over rows to perform the evaluation and then
-    reconstruct the masked sparse array.
-
-    Parameters
-    ----------
-    arr : scipy.sparse
-        Sparse array to be masked, is a 2D matrix.
-    limit : float, numpy.array
-        Upper limit to evaluate less than. If float will do `arr < limit`. If array,
-        shape has to match first dimension of `arr` to do `arr < limi[:, None]`` and
-        evaluate the condition per row.
-
-    Returns
-    -------
-    masked_arr : scipy.sparse.csr_matrix
-        Sparse array after less than evaluation.
-    """
-    nonz_idx = arr.nonzero()
-    # apply condition for each row
-    if isinstance(limit, np.ndarray) and limit.shape[0] == arr.shape[0]:
-        mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
-        # flatten mask
-        mask = [x for sub in mask for x in sub]
-    else:
-        mask = arr.data < limit
-    # reconstruct sparse array
-    masked_arr = sparse.csr_matrix(
-        (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
-        shape=arr.shape,
-    ).astype(bool)
-    return masked_arr
-
-
-def compute_FLFRCSAP(psf_models, aperture_mask):
-    """
-    Compute fraction of target flux enclosed in the optimal aperture to total flux
-    for a given source (flux completeness).
-    Follows definition by Kinemuchi at al. 2012.
-    Parameters
-    ----------
-    psf_models : scipy.sparce.csr_matrix
-        Sparse matrix with the PSF models for all targets in the scene. It has shape
-        [n_sources, n_pixels].
-    aperture_mask: numpy.ndarray
-        Array of boolean indicating the aperture for the target source. It has shape of
-        [n_sources, n_pixels].
-
-    Returns
-    -------
-    FLFRCSAP: numpy.ndarray
-        Completeness metric
-    """
-    return np.array(
-        psf_models.multiply(aperture_mask.astype(float)).sum(axis=1)
-        / psf_models.sum(axis=1)
-    ).ravel()
-
-
-def compute_CROWDSAP(psf_models, aperture_mask, idx=None):
-    """
-    Compute the ratio of target flux relative to flux from all sources within
-    the photometric aperture (i.e. 1 - Crowdeness).
-    Follows definition by Kinemuchi at al. 2012.
-    Parameters
-    ----------
-    psf_models : scipy.sparce.csr_matrix
-        Sparse matrix with the PSF models for all targets in the scene. It has shape
-        [n_sources, n_pixels].
-    aperture_mask : numpy.ndarray
-        Array of boolean indicating the aperture for the target source. It has shape of
-        [n_sources, n_pixels].
-
-    Returns
-    -------
-    CROWDSAP : numpy.ndarray
-        Crowdeness metric
-    """
-    ratio = psf_models.multiply(1 / psf_models.sum(axis=0)).tocsr()
-    if idx is None:
-        return np.array(
-            ratio.multiply(aperture_mask.astype(float)).sum(axis=1)
-        ).ravel() / aperture_mask.sum(axis=1)
-    else:
-        return ratio[idx].toarray()[0][aperture_mask].sum() / aperture_mask.sum()
