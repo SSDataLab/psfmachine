@@ -94,6 +94,18 @@ class TPFMachine(Machine):
     ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
+        This function creates the `lcs` attribuite that contains a collection of light
+        curves in the form of `lightkurve.LightCurveCollection`. Each entry in the
+        collection is a `lightkurve.KeplerLightCurve` object with the different type
+        of photometry (SAP, PSF, and PSF velocity-aberration corrected). Also each
+        `lightkurve.KeplerLightCurve` object includes its asociated metadata.
+        The photometry can also be accessed independently from the following attribuites
+        that `fit_lightcurves` create:
+            * `ws` and `werrs` have the uncorrected PSF flux and flux errors.
+            * `ws_va` and `werrs_va` have the PSF flux and flux errors corrected by
+            velocity aberration.
+            * `sap_flux` and `sap_flux_err` have the flux and flux errors computed
+            using aperture mask.
 
         Parameters
         ----------
@@ -123,7 +135,7 @@ class TPFMachine(Machine):
             then precomputed models will be download from Zenodo repo.
         sap : boolean
             Compute or not Simple Aperture Photometry. See
-            `Machine.compute_aperture_photometry()` for further details.
+            `Machine.compute_aperture_photometry()` for details.
         """
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
