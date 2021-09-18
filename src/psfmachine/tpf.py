@@ -1,5 +1,6 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
 import os
+import logging
 import numpy as np
 import lightkurve as lk
 from astropy.coordinates import SkyCoord, match_coordinates_sky
@@ -15,7 +16,7 @@ from .machine import Machine
 from .version import __version__
 from psfmachine import PACKAGEDIR
 
-
+log = logging.getLogger(__name__)
 __all__ = ["TPFMachine"]
 
 
@@ -306,33 +307,36 @@ class TPFMachine(Machine):
         """
         # By default we will load PRF model from FFI when this are ok.
         if input is None:
-            # raise NotImplementedError(
-            #     "Loading default model not implemented. Please provide input file."
-            # )
-            input = "%s/data/ffi/ch%02i/%s_ffi_shape_model_ch%02i_q%02i.fits" % (
-                PACKAGEDIR,
-                self.tpf_meta["channel"][0],
-                self.tpf_meta["mission"][0],
-                self.tpf_meta["channel"][0],
-                self.tpf_meta["quarter"][0],
+            input = (
+                f"{PACKAGEDIR}/data/ffi/ch{self.tpf_meta['channel'][0]:02}/"
+                f"{self.tpf_meta['mission'][0]}_ffi_shape_model_"
+                f"ch{self.tpf_meta['channel'][0]:02}_"
+                f"q{self.tpf_meta['quarter'][0]:02}.fits"
             )
             if not os.path.isfile(input):
                 # if dile doesnt exist, download file bundle from zenodo:
-                tar_file = "%s/data/Kepler_FFI_PRFmodels_v1.0.tar.gz" % PACKAGEDIR
+                tar_file = (
+                    f"{PACKAGEDIR}/data/"
+                    f"{self.tpf_meta['mission'][0]}_FFI_PRFmodels_v1.0.tar.gz"
+                )
                 if not os.path.isfile(tar_file):
-                    url = "https://zenodo.org/record/5504503/files/Kepler_FFI_PRFmodels_v1.0.tar.gz?download=1"
-                    print("Downloading bundle files from: ", url)
+                    os.mkdir(f"{PACKAGEDIR}/data/")
+                    url = (
+                        f"https://zenodo.org/record/5504503/files/"
+                        f"{tar_file.split('/')[-1]}?download=1"
+                    )
+                    log.info(f"Downloading bundle files from: {url}")
                     with urllib.request.urlopen(url) as response, open(
                         tar_file, "wb"
                     ) as out_file:
                         out_file.write(response.read())
                 # unpack
                 with tarfile.open(tar_file) as f:
-                    f.extractall("%s/data/ffi/" % (PACKAGEDIR))
+                    f.extractall(f"{PACKAGEDIR}/data/ffi/")
         # check if file exists and is the right format
         if not os.path.isfile(input):
-            raise FileNotFoundError("No shape file: %s" % input)
-        print("Using shape model from: ", input)
+            raise FileNotFoundError(f"No shape file: {input}")
+        log.info(f"Using shape model from: {input}")
         if not input.endswith(".fits"):
             # should use a custom exception for wrong file format
             raise ValueError("File format not suported. Please provide a FITS file.")
