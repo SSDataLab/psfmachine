@@ -9,6 +9,7 @@ import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
 from astropy.time import Time
 
+from psfmachine import PACKAGEDIR
 from psfmachine import Machine, TPFMachine
 from psfmachine.tpf import (
     _parse_TPFs,
@@ -181,3 +182,27 @@ def test_load_save_shape_model():
     assert ((org_state["mean_model"] == new_state["mean_model"]).data).all()
     # remove shape model from disk
     os.remove(file_name)
+
+
+@pytest.mark.remote_data
+def test_load_shape_model_from_zenodo():
+    # instantiate a machine object
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
+
+    # load a FFI-PRF model from zenodo repo
+    machine.load_shape_model(plot=False, input=None)
+    state = machine.__dict__
+
+    # check that critical attributes match
+    assert state["n_r_knots"] == 10
+    assert state["n_phi_knots"] == 15
+    assert state["rmin"] == 1
+    assert state["rmax"] == 16
+    assert state["cut_r"] == 6
+    assert state["psf_w"].shape == (169,)
+
+    # check file is in directory for future use
+    assert os.path.isfile(
+        f"{PACKAGEDIR}/data/"
+        f"{machine.tpf_meta['mission'][0]}_FFI_PRFmodels_v1.0.tar.gz"
+    )

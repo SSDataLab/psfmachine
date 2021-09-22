@@ -302,6 +302,10 @@ class TPFMachine(Machine):
             has to be FITS format.
             If None, then previously computed shape model from Kepler's FFI will be
             download from https://zenodo.org/record/5504503/ and used as default.
+            The file download from Zenodo happens only the first time that shape models
+            of a given mission (e.g. Kepler, K2) are asked. Then, shape models for all
+            channels and quarters will be locally available for future use.
+            The file is stored in `psfmachine/src/psfmachine/data/`.
         plot : boolean
             Plot or not the mean model.
         """
@@ -314,13 +318,14 @@ class TPFMachine(Machine):
                 f"q{self.tpf_meta['quarter'][0]:02}.fits"
             )
             if not os.path.isfile(input):
-                # if dile doesnt exist, download file bundle from zenodo:
+                # if file doesnt exist, download file bundle from zenodo:
                 tar_file = (
                     f"{PACKAGEDIR}/data/"
                     f"{self.tpf_meta['mission'][0]}_FFI_PRFmodels_v1.0.tar.gz"
                 )
                 if not os.path.isfile(tar_file):
-                    os.mkdir(f"{PACKAGEDIR}/data/")
+                    if not os.path.isdir(f"{PACKAGEDIR}/data/"):
+                        os.makedirs(f"{PACKAGEDIR}/data/")
                     url = (
                         f"https://zenodo.org/record/5504503/files/"
                         f"{tar_file.split('/')[-1]}?download=1"
