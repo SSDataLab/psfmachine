@@ -1,5 +1,6 @@
 """Subclass of `Machine` that Specifically work with FFIs"""
 import os
+import logging
 import numpy as np
 
 import matplotlib.pyplot as plt
@@ -19,6 +20,7 @@ from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
 from .machine import Machine
 from .version import __version__
 
+log = logging.getLogger(__name__)
 __all__ = ["FFIMachine"]
 
 
@@ -257,7 +259,7 @@ class FFIMachine(Machine):
                 str(self.meta["EXTENSION"]),
                 str(self.meta["QUARTER"]),
             )
-            print("File name: ", output)
+            log.info(f"File name: {output}")
 
         # create data structure (DataFrame) to save the model params
         table = fits.BinTableHDU.from_columns(
@@ -385,7 +387,7 @@ class FFIMachine(Machine):
                 str(self.meta["QUARTER"]),
                 str(self.time[0]),
             )
-            print("File name: ", output)
+            log.info(f"File name: {output}")
 
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["object"] = ("Photometric Catalog", "Photometry")
@@ -1345,7 +1347,7 @@ def _check_coordinate_offsets(
         and (np.abs(ra_offsets - ra_offsets.mean()) < 1 * u.arcsec).all()
         and (np.abs(dec_offsets - dec_offsets.mean()) < 1 * u.arcsec).all()
     ):
-        print("All offsets are > 1'' and in the same direction")
+        log.info("All offsets are > 1'' and in the same direction")
         # correct the pix coord of sources
         sources["column"], sources["row"] = wcs.all_world2pix(
             np.array(
