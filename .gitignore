@@ -79,3 +79,6 @@ mastDownload
 .pytest_cache
 .vscode
 site/
+
+# shape models from FFI
+src/psfmachine/data
