@@ -155,6 +155,7 @@ class Machine(object):
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
+        self.use_poscorr = False
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -621,13 +622,18 @@ class Machine(object):
         splits = np.append(
             np.append(0, np.where(np.diff(self.time) > 0.1)[0]), len(self.time)
         )
+        # start 50 candences after the first datapoint
         splits_a = splits[:-1] + 100
         splits_b = splits[1:]
         dsplits = (splits_b - splits_a) // npoints
-        breaks = []
+        breaks = [50]
         for spdx in range(len(splits_a)):
             breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx] - 1) * npoints)
+        breaks.append(splits[-1] - 50)
         breaks = np.hstack(breaks)
+        breaks = np.arange(50, len(self.time), npoints)
+        to_remove = [np.where(breaks >= spl)[0][0] for spl in splits[1:-1]]
+        # breaks = np.delete(breaks, to_remove)
 
         # Time averaged
         tm = np.vstack(
@@ -677,6 +683,21 @@ class Machine(object):
 
         tm = ((tm - tm.mean()) / (tm.max() - tm.mean()))[:, None] * np.ones(fm.shape)
 
+        # poscor
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            pc1 = np.nanmedian(self.pos_corr1, axis=0)
+            pc2 = np.nanmedian(self.pos_corr2, axis=0)
+            pc1_b = np.vstack(
+                [t1.mean(axis=0) for t1 in np.array_split(pc1, breaks)]
+            ).ravel()
+            pc2_b = np.vstack(
+                [t1.mean(axis=0) for t1 in np.array_split(pc2, breaks)]
+            ).ravel()
+            pc1_b = pc1_b[:, None] * np.ones(fm.shape)
+            pc2_b = pc2_b[:, None] * np.ones(fm.shape)
+
+            return ta, tm, fm_raw, fm, fem, pc1_b, pc2_b
+
         return ta, tm, fm_raw, fm, fem
 
     def build_time_model(self, plot=False):
@@ -691,13 +712,24 @@ class Machine(object):
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
-        (
-            time_original,
-            time_binned,
-            flux_binned_raw,
-            flux_binned,
-            flux_err_binned,
-        ) = self._time_bin(npoints=self.n_time_points)
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            (
+                time_original,
+                time_binned,
+                flux_binned_raw,
+                flux_binned,
+                flux_err_binned,
+                poscorr1_binned,
+                poscorr2_binned,
+            ) = self._time_bin(npoints=self.n_time_points)
+        else:
+            (
+                time_original,
+                time_binned,
+                flux_binned_raw,
+                flux_binned,
+                flux_err_binned,
+            ) = self._time_bin(npoints=self.n_time_points)
 
         self._whitened_time = time_original
         # not necessary to take value from Quantity to do .multiply()
@@ -713,15 +745,29 @@ class Machine(object):
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
-        A3 = sparse.hstack(
-            [
-                A2,
-                A2.multiply(time_binned.ravel()[:, None]),
-                A2.multiply(time_binned.ravel()[:, None] ** 2),
-                A2.multiply(time_binned.ravel()[:, None] ** 3),
-            ],
-            format="csr",
-        )
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            print("using pos_corr")
+            # Cartesian spline with poscor dependence
+            A3 = sparse.hstack(
+                [
+                    A2,
+                    A2.multiply(poscorr1_binned.ravel()[:, None]),
+                    A2.multiply(poscorr2_binned.ravel()[:, None]),
+                    A2.multiply((poscorr1_binned * poscorr2_binned).ravel()[:, None]),
+                ],
+                format="csr",
+            )
+        else:
+            # Cartesian spline with time dependence
+            A3 = sparse.hstack(
+                [
+                    A2,
+                    A2.multiply(time_binned.ravel()[:, None]),
+                    A2.multiply(time_binned.ravel()[:, None] ** 2),
+                    A2.multiply(time_binned.ravel()[:, None] ** 3),
+                ],
+                format="csr",
+            )
 
         # No saturated pixels
         k = (
@@ -753,17 +799,17 @@ class Machine(object):
                 ((flux_binned.ravel() - 1) / flux_err_binned.ravel() ** 2)[k]
             )
             B += prior_mu / (prior_sigma ** 2)
-            velocity_aberration_w = np.linalg.solve(sigma_w_inv, B)
-            res = flux_binned - A3.dot(velocity_aberration_w).reshape(flux_binned.shape)
+            time_model_w = np.linalg.solve(sigma_w_inv, B)
+            res = flux_binned - A3.dot(time_model_w).reshape(flux_binned.shape)
             res = np.ma.masked_array(res, (~k).reshape(flux_binned.shape))
             bad_targets = sigma_clip(res, sigma=5).mask
             bad_targets = (
                 np.ones(flux_binned.shape, bool) & bad_targets.any(axis=0)
             ).ravel()
-            #    k &= ~sigma_clip(flux_binned.ravel() - A3.dot(velocity_aberration_w)).mask
+            #    k &= ~sigma_clip(flux_binned.ravel() - A3.dot(time_model_w)).mask
             k &= ~bad_targets
 
-        self.velocity_aberration_w = velocity_aberration_w
+        self.time_model_w = time_model_w
         self._time_masked = k
         if plot:
             return self.plot_time_model()
@@ -778,13 +824,24 @@ class Machine(object):
         fig : matplotlib.Figure
             Figure.
         """
-        (
-            time_original,
-            time_binned,
-            flux_binned_raw,
-            flux_binned,
-            flux_err_binned,
-        ) = self._time_bin(npoints=self.n_time_points)
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            (
+                time_original,
+                time_binned,
+                flux_binned_raw,
+                flux_binned,
+                flux_err_binned,
+                poscorr1_binned,
+                poscorr2_binned,
+            ) = self._time_bin(npoints=self.n_time_points)
+        else:
+            (
+                time_original,
+                time_binned,
+                flux_binned_raw,
+                flux_binned,
+                flux_err_binned,
+            ) = self._time_bin(npoints=self.n_time_points)
 
         # not necessary to take value from Quantity to do .multiply()
         dx, dy = (
@@ -797,17 +854,31 @@ class Machine(object):
         A_c = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
-        A3 = sparse.hstack(
-            [
-                A2,
-                A2.multiply(time_binned.ravel()[:, None]),
-                A2.multiply(time_binned.ravel()[:, None] ** 2),
-                A2.multiply(time_binned.ravel()[:, None] ** 3),
-            ],
-            format="csr",
-        )
+        # Cartesian spline with time dependence
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            # Cartesian spline with poscor dependence
+            A3 = sparse.hstack(
+                [
+                    A2,
+                    A2.multiply(poscorr1_binned.ravel()[:, None]),
+                    A2.multiply(poscorr2_binned.ravel()[:, None]),
+                    A2.multiply((poscorr1_binned * poscorr2_binned).ravel()[:, None]),
+                ],
+                format="csr",
+            )
+        else:
+            # Cartesian spline with time dependence
+            A3 = sparse.hstack(
+                [
+                    A2,
+                    A2.multiply(time_binned.ravel()[:, None]),
+                    A2.multiply(time_binned.ravel()[:, None] ** 2),
+                    A2.multiply(time_binned.ravel()[:, None] ** 3),
+                ],
+                format="csr",
+            )
 
-        model = A3.dot(self.velocity_aberration_w).reshape(flux_binned.shape) + 1
+        model = A3.dot(self.time_model_w).reshape(flux_binned.shape) + 1
         fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
         k1 = self._time_masked.reshape(flux_binned.shape)[0]
         k2 = self._time_masked.reshape(flux_binned.shape)[-1]
@@ -1200,7 +1271,7 @@ class Machine(object):
         self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
 
         if fit_va:
-            if not hasattr(self, "velocity_aberration_w"):
+            if not hasattr(self, "time_model_w"):
                 raise ValueError(
                     "Please use `build_time_model` before fitting with velocity aberration."
                 )
@@ -1219,6 +1290,10 @@ class Machine(object):
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
 
+            if hasattr(self, "pos_corr1") and self.use_poscorr:
+                median_pos_corr1 = np.nanmedian(self.pos_corr1, axis=0)
+                median_pos_corr2 = np.nanmedian(self.pos_corr2, axis=0)
+
             for tdx in tqdm(
                 range(self.nt), desc=f"Fitting {self.nsources} Sources (w. VA)"
             ):
@@ -1236,11 +1311,26 @@ class Machine(object):
 
                 # Divide through by expected velocity aberration
                 X = self.mean_model.copy()
-                t_mult = np.hstack(
-                    (self._whitened_time[tdx] ** np.arange(4))[:, None]
-                    * np.ones(A_cp3.shape[1] // 4)
-                )
-                X.data *= A_cp3.multiply(t_mult).dot(self.velocity_aberration_w) + 1
+                if hasattr(self, "pos_corr1") and self.use_poscorr:
+                    # use median pos_corr
+                    t_mult = np.hstack(
+                        np.array(
+                            [
+                                1,
+                                median_pos_corr1[tdx],
+                                median_pos_corr2[tdx],
+                                median_pos_corr1[tdx] * median_pos_corr2[tdx],
+                            ]
+                        )[:, None]
+                        * np.ones(A_cp3.shape[1] // 4)
+                    )
+                else:
+                    # use time
+                    t_mult = np.hstack(
+                        (self._whitened_time[tdx] ** np.arange(4))[:, None]
+                        * np.ones(A_cp3.shape[1] // 4)
+                    )
+                X.data *= A_cp3.multiply(t_mult).dot(self.time_model_w) + 1
                 X = X.T
 
                 sigma_w_inv = X.T.dot(
