@@ -193,7 +193,7 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
 
 
 def _make_A_cartesian(x, y, n_knots=10, radius=3.0):
-    x_knots = np.linspace(-radius, radius, n_knots)
+    x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots) ** 2
     x_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
@@ -202,7 +202,7 @@ def _make_A_cartesian(x, y, n_knots=10, radius=3.0):
             )
         )
     )
-    y_knots = np.linspace(-radius, radius, n_knots)
+    y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots) ** 2
     y_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
