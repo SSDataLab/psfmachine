@@ -156,6 +156,7 @@ class Machine(object):
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.use_poscorr = False
+        self.cartesian_knot_spacing = "sqrt"
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -741,7 +742,11 @@ class Machine(object):
         dy = dy.data * u.deg.to(u.arcsecond)
 
         A_c = _make_A_cartesian(
-            dx, dy, n_knots=self.n_time_knots, radius=self.time_radius
+            dx,
+            dy,
+            n_knots=self.n_time_knots,
+            radius=self.time_radius,
+            spacing=self.cartesian_knot_spacing,
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
@@ -851,7 +856,13 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
-        A_c = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
+        A_c = _make_A_cartesian(
+            dx,
+            dy,
+            n_knots=self.n_time_knots,
+            radius=8,
+            spacing=self.cartesian_knot_spacing,
+        )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         # Cartesian spline with time dependence
@@ -1284,7 +1295,13 @@ class Machine(object):
             dx = dx.data * u.deg.to(u.arcsecond)
             dy = dy.data * u.deg.to(u.arcsecond)
 
-            A_cp = _make_A_cartesian(dx, dy, n_knots=self.n_time_knots, radius=8)
+            A_cp = _make_A_cartesian(
+                dx,
+                dy,
+                n_knots=self.n_time_knots,
+                radius=8,
+                spacing=self.cartesian_knot_spacing,
+            )
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
 
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
