@@ -157,6 +157,7 @@ class Machine(object):
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.use_poscorr = False
         self.cartesian_knot_spacing = "sqrt"
+        self.quiet = False
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -243,7 +244,11 @@ class Machine(object):
             # iterate over sources to only keep pixels within dist_lim
             # this is inefficient, could be done in a tiled manner? only for squared data
             dra, ddec, sparse_mask = [], [], []
-            for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
+            for i in tqdm(
+                range(len(self.sources)),
+                desc="Creating delta arrays",
+                disable=self.quiet,
+            ):
                 dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
                 ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
                 box_mask = sparse.csr_matrix(
@@ -751,7 +756,6 @@ class Machine(object):
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         if hasattr(self, "pos_corr1") and self.use_poscorr:
-            print("using pos_corr")
             # Cartesian spline with poscor dependence
             A3 = sparse.hstack(
                 [
@@ -1312,7 +1316,9 @@ class Machine(object):
                 median_pos_corr2 = np.nanmedian(self.pos_corr2, axis=0)
 
             for tdx in tqdm(
-                range(self.nt), desc=f"Fitting {self.nsources} Sources (w. VA)"
+                range(self.nt),
+                desc=f"Fitting {self.nsources} Sources (w. VA)",
+                disable=self.quiet,
             ):
                 X = self.mean_model.copy()
                 X = X.T
@@ -1374,7 +1380,9 @@ class Machine(object):
             fe = self.flux_err
 
             for tdx in tqdm(
-                range(self.nt), desc=f"Fitting {self.nsources} Sources (No VA)"
+                range(self.nt),
+                desc=f"Fitting {self.nsources} Sources (No VA)",
+                disable=self.quiet,
             ):
                 sigma_w_inv = X.T.dot(X.multiply(1 / fe[tdx][:, None] ** 2)).toarray()
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
@@ -1460,7 +1468,12 @@ class Machine(object):
         self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
         self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))
 
-        for sdx in tqdm(range(len(self.aperture_mask)), desc="SAP", leave=True):
+        for sdx in tqdm(
+            range(len(self.aperture_mask)),
+            desc="SAP",
+            leave=True,
+            disable=self.quiet,
+        ):
             self.sap_flux[:, sdx] = self.flux[:, self.aperture_mask[sdx]].sum(axis=1)
             self.sap_flux_err[:, sdx] = (
                 np.power(self.flux_err[:, self.aperture_mask[sdx]], 2).sum(axis=1)
@@ -1500,7 +1513,11 @@ class Machine(object):
         """
         # optimize percentile cut for every source
         optim_percentile = []
-        for sdx in tqdm(range(self.nsources), desc="Optimizing apertures per source"):
+        for sdx in tqdm(
+            range(self.nsources),
+            desc="Optimizing apertures per source",
+            disable=self.quiet,
+        ):
             optim_params = {
                 "percentile_bounds": percentile_bounds,
                 "target_complet": target_complet,

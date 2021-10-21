@@ -49,6 +49,8 @@ class TPFMachine(Machine):
         pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
+        use_poscorr=False,
+        cartesian_knot_spacing="sqrt",
     ):
         super().__init__(
             time=time,
@@ -83,7 +85,8 @@ class TPFMachine(Machine):
         self.pos_corr1 = pos_corr1
         self.pos_corr2 = pos_corr2
         self.tpf_meta = tpf_meta
-        # self.use_poscorr = True
+        self.use_poscorr = use_poscorr
+        self.cartesian_knot_spacing = cartesian_knot_spacing
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
