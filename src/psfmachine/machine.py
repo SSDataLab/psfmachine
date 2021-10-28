@@ -4,6 +4,7 @@ Defines the main Machine object that fit a mean PRF model to sources
 import numpy as np
 import pandas as pd
 from scipy import sparse
+from scipy.ndimage import gaussian_filter1d
 from scipy import optimize
 import astropy.units as u
 from tqdm import tqdm
@@ -628,17 +629,18 @@ class Machine(object):
         splits = np.append(
             np.append(0, np.where(np.diff(self.time) > 0.1)[0]), len(self.time)
         )
-        # start 50 candences after the first datapoint
         splits_a = splits[:-1] + 100
         splits_b = splits[1:]
         dsplits = (splits_b - splits_a) // npoints
+        # first break is at cadance 50
         breaks = [50]
         for spdx in range(len(splits_a)):
             breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx] - 1) * npoints)
+        # we include 50-to-last cadecence
         breaks.append(splits[-1] - 50)
         breaks = np.hstack(breaks)
-        breaks = np.arange(50, len(self.time), npoints)
-        to_remove = [np.where(breaks >= spl)[0][0] for spl in splits[1:-1]]
+        # breaks = np.arange(50, len(self.time), npoints)
+        # to_remove = [np.where(breaks >= spl)[0][0] for spl in splits[1:-1]]
         # breaks = np.delete(breaks, to_remove)
 
         # Time averaged
@@ -1312,8 +1314,33 @@ class Machine(object):
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
 
             if hasattr(self, "pos_corr1") and self.use_poscorr:
-                median_pos_corr1 = np.nanmedian(self.pos_corr1, axis=0)
-                median_pos_corr2 = np.nanmedian(self.pos_corr2, axis=0)
+                # take the scene-median poscorr
+                m_poscorr1 = np.nanmedian(self.pos_corr1, axis=0)
+                m_poscorr2 = np.nanmedian(self.pos_corr2, axis=0)
+                # find focus-change breaks
+                splits = np.append(
+                    np.append(0, np.where(np.diff(self.time) > 0.1)[0]),
+                    len(self.time),
+                )
+                # we smooth the poscorr with a Gaussian kernel and 12 cadence window
+                # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
+                # of focus-change breaks
+                smooth_poscorr1 = []
+                smooth_poscorr2 = []
+                for i in range(1, len(splits)):
+                    smooth_poscorr1.extend(
+                        gaussian_filter1d(
+                            m_poscorr1[splits[i - 1] : splits[i]], 12, mode="reflect"
+                        )
+                    )
+                    smooth_poscorr2.extend(
+                        gaussian_filter1d(
+                            m_poscorr2[splits[i - 1] : splits[i]], 12, mode="reflect"
+                        )
+                    )
+                smooth_poscorr1 = np.array(smooth_poscorr1)
+                smooth_poscorr2 = np.array(smooth_poscorr2)
+                del m_poscorr1, m_poscorr2, splits
 
             for tdx in tqdm(
                 range(self.nt),
@@ -1340,9 +1367,9 @@ class Machine(object):
                         np.array(
                             [
                                 1,
-                                median_pos_corr1[tdx],
-                                median_pos_corr2[tdx],
-                                median_pos_corr1[tdx] * median_pos_corr2[tdx],
+                                smooth_poscorr1[tdx],
+                                smooth_poscorr2[tdx],
+                                smooth_poscorr1[tdx] * smooth_poscorr2[tdx],
                             ]
                         )[:, None]
                         * np.ones(A_cp3.shape[1] // 4)
