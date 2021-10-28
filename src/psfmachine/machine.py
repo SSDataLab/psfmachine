@@ -4,7 +4,6 @@ Defines the main Machine object that fit a mean PRF model to sources
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from scipy import optimize
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
