@@ -2,7 +2,7 @@
 Collection of aperture utils lifeted from Kepler-Apertures
 (https://github.com/jorgemarpa/kepler-apertures) and adapted to work with PSFMachine.
 
-All this functions inputs and operate on a `Machine` object bu we move them out of
+Some this functions inputs and operate on a `Machine` object but we move them out of
 `mahine.py` to keep the latter smowhow clean and short.
 
 """
@@ -60,11 +60,12 @@ def create_aperture_mask(machine, percentile=50):
 
 
 def optimize_aperture(
-    machine,
+    psf_model,
     target_complete=0.9,
     target_crowd=0.9,
     max_iter=100,
     percentile_bounds=[0, 100],
+    quiet=False,
 ):
     """
     Function to optimize the aperture mask for a given source.
@@ -73,13 +74,11 @@ def optimize_aperture(
     loss function `goodness_metric_obj_fun` that uses a Leaky ReLU term to
     achive the target value for both metrics.
 
-    It creates a new attribute `mahicne.optimal_percentile` with the percentile value
-    to defines the "optimal" aperture for each source.
-
     Parameters
     ----------
-    machine : object
-        An object of `Machine` class
+    psf_model : scipy.sparce.csr_matrix
+        Sparse matrix with the PSF models for all targets in the scene. It has shape
+        [n_sources, n_pixels].
     target_complete : float
         Value of the target completeness metric.
     target_crowd : float
@@ -89,20 +88,26 @@ def optimize_aperture(
     percentile_bounds : tuple
         Tuple of minimun and maximun values for allowed percentile values during
         the optimization. Default is the widest range of [0, 100].
+
+    Returns
+    -------
+    optimal_percentile : numpy.ndarray
+        An array with the percentile value to defines the "optimal" aperture for
+        each source.
     """
     # optimize percentile cut for every source
-    optim_percentile = []
+    optimal_percentile = []
     for sdx in tqdm(
-        range(machine.nsources),
+        range(psf_model.shape[0]),
         desc="Optimizing apertures per source",
-        disable=machine.quiet,
+        disable=quiet,
     ):
         optim_params = {
             "percentile_bounds": percentile_bounds,
             "target_complete": target_complete,
             "target_crowd": target_crowd,
             "max_iter": max_iter,
-            "psf_models": machine.mean_model,
+            "psf_models": psf_model,
             "sdx": sdx,
         }
         minimize_result = optimize.minimize_scalar(
@@ -112,9 +117,8 @@ def optimize_aperture(
             options={"maxiter": max_iter, "disp": False},
             args=(optim_params),
         )
-        optim_percentile.append(minimize_result.x)
-    create_aperture_mask(machine, percentile=optim_percentile)
-    machine.optimal_percentile = np.array(optim_percentile)
+        optimal_percentile.append(minimize_result.x)
+    return np.array(optimal_percentile)
 
 
 def goodness_metric_obj_fun(percentile, optim_params):
@@ -182,7 +186,7 @@ def goodness_metric_obj_fun(percentile, optim_params):
     return penalty
 
 
-def plot_flux_metric_diagnose(mean_model, idx=0, ax=None, optimal_percentile=None):
+def plot_flux_metric_diagnose(psf_model, idx=0, ax=None, optimal_percentile=None):
     """
     Function to evaluate the flux metrics for a single source as a function of
     the parameter that controls the aperture size.
@@ -193,8 +197,9 @@ def plot_flux_metric_diagnose(mean_model, idx=0, ax=None, optimal_percentile=Non
 
     Parameters
     ----------
-    mean_model : scipy.sparce.csr_matrix
-        Mean PSF model values per pixel used for PSF photometry
+    psf_model : scipy.sparce.csr_matrix
+        Sparse matrix with the PSF models for all targets in the scene. It has shape
+        [n_sources, n_pixels].
     idx : int
         Index of the source for which the metrcs will be computed. Has to be a
         number between 0 and psf_models.shape[0].
@@ -209,11 +214,9 @@ def plot_flux_metric_diagnose(mean_model, idx=0, ax=None, optimal_percentile=Non
     compl, crowd, cut = [], [], []
     for p in range(0, 101, 1):
         cut.append(p)
-        mask = (mean_model[idx] >= np.nanpercentile(mean_model[idx].data, p)).toarray()[
-            0
-        ]
-        crowd.append(compute_CROWDSAP(mean_model, mask, idx))
-        compl.append(compute_FLFRCSAP(mean_model[idx], mask))
+        mask = (psf_model[idx] >= np.nanpercentile(psf_model[idx].data, p)).toarray()[0]
+        crowd.append(compute_CROWDSAP(psf_model, mask, idx))
+        compl.append(compute_FLFRCSAP(psf_model[idx], mask))
 
     if ax is None:
         fig, ax = plt.subplots(1)

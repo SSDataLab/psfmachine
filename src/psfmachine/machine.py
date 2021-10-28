@@ -1315,9 +1315,14 @@ class Machine(object):
         """
         if aperture_size == "optimal":
             # raise NotImplementedError
-            optimize_aperture(
-                self, target_complete=target_complete, target_crowd=target_crowd
+            optimal_percentile = optimize_aperture(
+                self.mean_model,
+                target_complete=target_complete,
+                target_crowd=target_crowd,
+                quiet=self.quiet,
             )
+            create_aperture_mask(self, percentile=optimal_percentile)
+            self.optimal_percentile = optimal_percentile
         else:
             create_aperture_mask(self, percentile=aperture_size)
 
