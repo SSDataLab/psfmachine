@@ -8,6 +8,7 @@ import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
 
 from psfmachine import TPFMachine
+from psfmachine.aperture_utils import create_aperture_mask
 
 tpfs = []
 for idx in range(10):
@@ -84,7 +85,7 @@ def test_compute_aperture_photometry():
         plot=False,
     )
     # compute max aperture
-    machine._create_aperture_mask(percentile=0)
+    create_aperture_mask(machine, percentile=0)
     assert machine.aperture_mask.shape == (19, 285)
     # some sources way outside the TPF can have 0-size aperture
     assert (machine.aperture_mask.sum(axis=1) >= 0).all()
@@ -97,7 +98,7 @@ def test_compute_aperture_photometry():
 
     # compute min aperture, here CROWDSAP not always will be 1, e.g. 2 sources in the
     # same pixel.
-    machine._create_aperture_mask(percentile=0)
+    create_aperture_mask(machine, percentile=0)
     assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] >= 0).all()
     assert (machine.CROWDSAP[np.isfinite(machine.CROWDSAP)] <= 1).all()
     assert (machine.FLFRCSAP[np.isfinite(machine.FLFRCSAP)] >= 0).all()
