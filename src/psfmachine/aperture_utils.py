@@ -1,6 +1,7 @@
 """
-Collection of aperture utils lifeted from Kepler-Apertures
-(https://github.com/jorgemarpa/kepler-apertures) and adapted to work with PSFMachine.
+Collection of aperture utils lifted from
+[Kepler-Apertures](https://github.com/jorgemarpa/kepler-apertures) and adapted to work
+with PSFMachine.
 
 Some this functions inputs and operate on a `Machine` object but we move them out of
 `mahine.py` to keep the latter smowhow clean and short.
@@ -132,10 +133,10 @@ def goodness_metric_obj_fun(percentile, optim_params):
         Percentile of the normalized flux distribution that defines the isophote.
     optim_params : dictionary
         Dictionary with the variables needed to evaluate the metric:
-            psf_models
-            sdx
-            target_complete
-            target_crowd
+            * psf_models
+            * sdx
+            * target_complete
+            * target_crowd
 
     Returns
     -------
