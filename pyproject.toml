@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "psfmachine"
-version = "1.0.0"
+version = "1.1.0"
 description = "Tool to perform fast PSF photometry of primary and background targets from Kepler/K2 Target Pixel Files"
 authors = ["Christina Hedges <christina.l.hedges@nasa.gov>",
           "Jorge Martinez-Palomera <jorgemarpa@ug.uchile.cl>"]
