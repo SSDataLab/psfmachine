@@ -1317,10 +1317,19 @@ class Machine(object):
                 # take the scene-median poscorr
                 m_poscorr1 = np.nanmedian(self.pos_corr1, axis=0)
                 m_poscorr2 = np.nanmedian(self.pos_corr2, axis=0)
-                # find focus-change breaks
+                # find time discontinuity
                 splits = np.append(
-                    np.append(0, np.where(np.diff(self.time) > 0.1)[0]),
+                    np.append(0, np.where(np.diff(self.time) > 0.1)[0] + 1),
                     len(self.time),
+                )
+                # find poscorr discontinuity in each axis
+                grads1 = np.gradient(m_poscorr1, self.time)
+                grads2 = np.gradient(m_poscorr2, self.time)
+                splits1 = np.where(grads1 > 7 * grads1.std())[0]
+                splits2 = np.where(grads2 > 7 * grads2.std())[0]
+                # merging breaks
+                splits = np.unique(
+                    np.concatenate([splits, splits1[1::2], splits2[1::2]])
                 )
                 # we smooth the poscorr with a Gaussian kernel and 12 cadence window
                 # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
@@ -1330,17 +1339,17 @@ class Machine(object):
                 for i in range(1, len(splits)):
                     smooth_poscorr1.extend(
                         gaussian_filter1d(
-                            m_poscorr1[splits[i - 1] : splits[i]], 12, mode="reflect"
+                            m_poscorr1[splits[i - 1] : splits[i]], 12, mode="mirror"
                         )
                     )
                     smooth_poscorr2.extend(
                         gaussian_filter1d(
-                            m_poscorr2[splits[i - 1] : splits[i]], 12, mode="reflect"
+                            m_poscorr2[splits[i - 1] : splits[i]], 12, mode="mirror"
                         )
                     )
                 smooth_poscorr1 = np.array(smooth_poscorr1)
                 smooth_poscorr2 = np.array(smooth_poscorr2)
-                del m_poscorr1, m_poscorr2, splits
+                del m_poscorr1, m_poscorr2, grads1, grads2, splits, splits1, splits2
 
             for tdx in tqdm(
                 range(self.nt),
