@@ -15,7 +15,7 @@ from .utils import (
     solve_linear_model,
     sparse_lessthan,
 )
-from .aperture_utils import optimize_aperture, create_aperture_mask
+from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
 __all__ = ["Machine"]
 
@@ -73,7 +73,7 @@ class Machine(object):
         column: np.ndarray
             Data array containing the "columns" of the detector that each pixel is on.
         row: np.ndarray
-            Data array containing the "columns" of the detector that each pixel is on.
+            Data array containing the "rows" of the detector that each pixel is on.
         limit_radius: numpy.ndarray
             Radius limit in arcsecs to select stars to be used for PRF modeling
         time_mask:  np.ndarray of booleans
@@ -1293,6 +1293,48 @@ class Machine(object):
 
         return
 
+    # aperture photometry functions
+    def create_aperture_mask(self, percentile=50):
+        """
+        Function to create the aperture mask of a given source for a given aperture
+        size. This function can compute aperutre mask for all sources in the scene.
+
+        It creates three new attributes:
+            * `self.aperture_mask` has the aperture mask, shape is [n_surces, n_pixels]
+            * `self.FLFRCSAP` has the completeness metric, shape is [n_sources]
+            * `self.CROWDSAP` has the crowdeness metric, shape is [n_sources]
+
+        Parameters
+        ----------
+        percentile : float or list of floats
+            Percentile value that defines the isophote from the distribution
+            of values in the PRF model of the source. If float, then
+            all sources will use the same percentile value. If list, then it has to
+            have lenght that matches `self.nsources`, then each source has its own
+            percentile value.
+
+        """
+        if type(percentile) == int:
+            percentile = [percentile] * self.nsources
+        if len(percentile) != self.nsources:
+            raise ValueError("Lenght of percentile doesn't match number of sources.")
+        # compute isophot limit allowing for different source percentile
+        cut = np.array(
+            [
+                np.nanpercentile(obj.data, per)
+                for obj, per in zip(self.mean_model, percentile)
+            ]
+        )
+        # create aperture mask
+        self.aperture_mask = np.array(self.mean_model >= cut[::, None])
+        # compute flux metrics. Have to round to 10th decimal due to floating point
+        self.FLFRCSAP = np.round(
+            compute_FLFRCSAP(self.mean_model, self.aperture_mask), 10
+        )
+        self.CROWDSAP = np.round(
+            compute_CROWDSAP(self.mean_model, self.aperture_mask), 10
+        )
+
     def compute_aperture_photometry(
         self, aperture_size="optimal", target_complete=0.9, target_crowd=0.9
     ):
@@ -1321,10 +1363,10 @@ class Machine(object):
                 target_crowd=target_crowd,
                 quiet=self.quiet,
             )
-            create_aperture_mask(self, percentile=optimal_percentile)
+            self.create_aperture_mask(percentile=optimal_percentile)
             self.optimal_percentile = optimal_percentile
         else:
-            create_aperture_mask(self, percentile=aperture_size)
+            self.create_aperture_mask(percentile=aperture_size)
 
         self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
         self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))

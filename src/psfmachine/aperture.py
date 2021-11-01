@@ -10,54 +10,8 @@ Some this functions inputs and operate on a `Machine` object but we move them ou
 
 import numpy as np
 import matplotlib.pyplot as plt
-import astropy.units as u
 from scipy import optimize
 from tqdm import tqdm
-
-
-# aperture photometry functions
-def create_aperture_mask(machine, percentile=50):
-    """
-    Function to create the aperture mask of a given source for a given aperture
-    size. This function can compute aperutre mask for all sources in the scene.
-
-    It creates three new attributes for the `machine` object:
-        * `machine.aperture_mask` has the aperture mask, shape is [n_surces, n_pixels]
-        * `machine.FLFRCSAP` has the completeness metric, shape is [n_sources]
-        * `machine.CROWDSAP` has the crowdeness metric, shape is [n_sources]
-
-    Parameters
-    ----------
-    machine : object
-        An object of `Machine` class
-    percentile : float or list of floats
-        Percentile value that defines the isophote from the distribution
-        of values in the PRF model of the source. If float, then
-        all sources will use the same percentile value. If list, then it has to
-        have lenght that matches `machine.nsources`, then each source has its own
-        percentile value.
-
-    """
-    if type(percentile) == int:
-        percentile = [percentile] * machine.nsources
-    if len(percentile) != machine.nsources:
-        raise ValueError("Lenght of percentile doesn't match number of sources.")
-    # compute isophot limit allowing for different source percentile
-    cut = np.array(
-        [
-            np.nanpercentile(obj.data, per)
-            for obj, per in zip(machine.mean_model, percentile)
-        ]
-    )
-    # create aperture mask
-    machine.aperture_mask = np.array(machine.mean_model >= cut[::, None])
-    # compute flux metrics. Have to round to 10th decimal due to floating point
-    machine.FLFRCSAP = np.round(
-        compute_FLFRCSAP(machine.mean_model, machine.aperture_mask), 10
-    )
-    machine.CROWDSAP = np.round(
-        compute_CROWDSAP(machine.mean_model, machine.aperture_mask), 10
-    )
 
 
 def optimize_aperture(
@@ -231,45 +185,48 @@ def plot_flux_metric_diagnose(psf_model, idx=0, ax=None, optimal_percentile=None
     return ax
 
 
-def estimate_source_centroids_aperture(machine):
+def estimate_source_centroids_aperture(aperture_mask, flux, column, row):
     """
-    Computes the centroid via 2D moment methods for all sources all times. It needs
+    Computes the centroid via 2D moments methods for all sources all times. It needs
     `aperture_mask` to be computed first by runing `compute_aperture_photometry`.
-
-    Creates two attributes with the centroid coordinates, both with shape
-    [nsources, ntimes]:
-        * `machine.centroid_column_ap` has the column pixel number
-        * `machine.centroid_row_ap` has the row pixel number
 
     Parameters
     ----------
-    machine : object
-        An object of `Machine` class
+    aperture_mask : numpy.ndarray
+        Aperture mask, shape is [n_surces, n_pixels]
+    flux: numpy.ndarray
+        Flux values at each pixels and times in units of electrons / sec
+    column : numpy.ndarray
+        Data array containing the "columns" of the detector that each pixel is on.
+    row : numpy.ndarray
+        Data array containing the "rows" of the detector that each pixel is on.
+    Returns
+    -------
+    centroid_col : numpy.ndarray
+        Column pixel number of the moments centroid, shape is [nsources, ntimes].
+    centroid_row : numpy.ndarray
+        Row pixel number of the moments centroid, shape is [nsources, ntimes].
     """
-    if not hasattr(machine, "aperture_mask"):
-        raise AttributeError("No aperture masks")
-
-    centr_col, centr_row = [], []
-    for idx in range(machine.nsources):
-        total_flux = np.nansum(machine.flux[:, machine.aperture_mask[idx]], axis=1)
-        centr_col.append(
+    centroid_col, centroid_row = [], []
+    for idx in range(aperture_mask.shape[0]):
+        total_flux = np.nansum(flux[:, aperture_mask[idx]], axis=1)
+        centroid_col.append(
             np.nansum(
-                np.tile(machine.column[machine.aperture_mask[idx]], (machine.nt, 1))
-                * machine.flux[:, machine.aperture_mask[idx]],
+                np.tile(column[aperture_mask[idx]], (flux.shape[0], 1))
+                * flux[:, aperture_mask[idx]],
                 axis=1,
             )
             / total_flux
         )
-        centr_row.append(
+        centroid_row.append(
             np.nansum(
-                np.tile(machine.row[machine.aperture_mask[idx]], (machine.nt, 1))
-                * machine.flux[:, machine.aperture_mask[idx]],
+                np.tile(row[aperture_mask[idx]], (flux.shape[0], 1))
+                * flux[:, aperture_mask[idx]],
                 axis=1,
             )
             / total_flux
         )
-    machine.source_centroids_column_ap = np.array(centr_col) * u.pixel
-    machine.source_centroids_row_ap = np.array(centr_row) * u.pixel
+    return np.array(centroid_col), np.array(centroid_row)
 
 
 def compute_FLFRCSAP(psf_models, aperture_mask):
@@ -329,30 +286,35 @@ def compute_CROWDSAP(psf_models, aperture_mask, idx=None):
         return ratio[idx].toarray()[0][aperture_mask].sum() / aperture_mask.sum()
 
 
-def aperture_mask_to_2d(machine):
+def aperture_mask_to_2d(tpfs, sources, aperture_mask, column, row):
     """
     Convert 1D aperture mask into 2D to match the shape of TPFs. This 2D aperture
     masks are useful to plot them with lightkurve TPF plot.
     Because a sources can be in more than one TPF, having 2D array masks per object
     with the shape of a single TPF is not possible.
 
-    Creates the following attribuite:
-        *  `machine.aperture_mask_2d` is a dictionary with key values as
-        'TPFindex_SOURCEindex', e.g. a source (idx=10) with multiple TPF
-        (TPF index 1 and 2) data will look '1_10' and '2_10'
-
     Parameters
     ----------
-    machine : object
-        An object of `TPFMachine` class
+    tpfs: lightkurve TargetPixelFileCollection
+        Collection of Target Pixel files
+    tpfs_meta : list
+        List of source indices for every TPF in `tpfs`.
+    aperture_mask : numpy.ndarray
+        Aperture mask, shape is [n_surces, n_pixels]
+    column : numpy.ndarray
+        Data array containing the "columns" of the detector that each pixel is on.
+    row : numpy.ndarray
+        Data array containing the "rows" of the detector that each pixel is on.
+    Returns
+    -------
+    aperture_mask_2d : dictionary
+        Is a dictionary with key values as 'TPFindex_SOURCEindex', e.g. a source
+        (idx=10) with multiple TPF (TPF index 1 and 2) data will look '1_10' and '2_10'.
     """
-    if not hasattr(machine, "aperture_mask"):
-        raise AttributeError("No aperture masks")
-
-    machine.aperture_mask_2d = {}
-    for k, tpf in enumerate(machine.tpfs):
+    aperture_mask_2d = {}
+    for k, tpf in enumerate(tpfs):
         # find sources in tpf
-        sources_in = machine.tpf_meta["sources"][k]
+        sources_in = sources[k]
         # row_col pix value of TPF
         rc = [
             "%i_%i" % (y, x)
@@ -365,14 +327,16 @@ def aperture_mask_to_2d(machine):
             rc_in = [
                 "%i_%i"
                 % (
-                    machine.row[machine.aperture_mask[sdx]][i],
-                    machine.column[machine.aperture_mask[sdx]][i],
+                    row[aperture_mask[sdx]][i],
+                    column[aperture_mask[sdx]][i],
                 )
-                for i in range(machine.aperture_mask[sdx].sum())
+                for i in range(aperture_mask[sdx].sum())
             ]
             # create initial mask
             mask = np.zeros(tpf.shape[1:], dtype=bool).ravel()
             # populate mask with True when pixel is inside aperture
             mask[np.in1d(rc, rc_in)] = True
             mask = mask.reshape(tpf.shape[1:])
-            machine.aperture_mask_2d["%i_%i" % (k, sdx)] = mask
+            aperture_mask_2d["%i_%i" % (k, sdx)] = mask
+
+    return aperture_mask_2d

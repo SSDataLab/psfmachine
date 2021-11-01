@@ -13,7 +13,7 @@ import urllib.request
 import tarfile
 
 from .utils import get_gaia_sources
-from .aperture_utils import estimate_source_centroids_aperture
+from .aperture import estimate_source_centroids_aperture, aperture_mask_to_2d
 from .machine import Machine
 from .version import __version__
 from psfmachine import PACKAGEDIR
@@ -308,6 +308,16 @@ class TPFMachine(Machine):
         r += tpf.row
         c += tpf.column
 
+        # create 2D aperture mask for every source, for potting
+        if sap:
+            aperture_mask_2d = aperture_mask_to_2d(
+                self.tpfs,
+                self.tpf_meta["sources"],
+                self.aperture_mask,
+                self.column,
+                self.row,
+            )
+
         kdx = 0
         for sdx, s in sources.iterrows():
             if hasattr(self, "lcs"):
@@ -348,8 +358,8 @@ class TPFMachine(Machine):
                 ax = plt.subplot2grid((1, 4), (0, 3))
                 lk.utils.plot_image(mod, extent=img_extent, ax=ax)
                 # Overlay the aperture mask if asked
-                if hasattr(self, "aperture_mask_2d") and sap:
-                    aperture_mask = self.aperture_mask_2d["%i_%i" % (tdx, sdx)]
+                if sap:
+                    aperture_mask = aperture_mask_2d["%i_%i" % (tdx, sdx)]
                     for i in range(r.shape[0]):
                         for j in range(r.shape[1]):
                             if aperture_mask[i, j]:
@@ -558,7 +568,13 @@ class TPFMachine(Machine):
         """
         # use aperture mask for moments centroids
         if method == "aperture":
-            estimate_source_centroids_aperture(self)
+            if not hasattr(self, "aperture_mask"):
+                raise AttributeError("No aperture masks")
+            centroids = estimate_source_centroids_aperture(
+                self.aperture_mask, self.flux, self.column, self.row
+            )
+            self.source_centroids_column_ap = centroids[0] * u.pixel
+            self.source_centroids_row_ap = centroids[1] * u.pixel
         # source centroids using pos_corr
         if method == "poscor":
             # get pixel coord from catalog RA, Dec and tpf WCS solution
