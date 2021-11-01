@@ -49,7 +49,7 @@ class TPFMachine(Machine):
         pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
-        use_poscorr=False,
+        use_poscorr=True,
         cartesian_knot_spacing="sqrt",
     ):
         super().__init__(
