@@ -4,7 +4,6 @@
     handler: python
     selection:
       members:
-        - create_aperture_mask
         - optimize_aperture
         - goodness_metric_obj_fun
         - plot_flux_metric_diagnose
