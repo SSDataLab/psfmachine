@@ -309,7 +309,7 @@ class TPFMachine(Machine):
         c += tpf.column
 
         # create 2D aperture mask for every source, for potting
-        if sap:
+        if hasattr(self, "aperture_mask") and sap:
             aperture_mask_2d = aperture_mask_to_2d(
                 self.tpfs,
                 self.tpf_meta["sources"],
