@@ -16,9 +16,8 @@ from .utils import (
     _make_A_cartesian,
     solve_linear_model,
     sparse_lessthan,
-    compute_FLFRCSAP,
-    compute_CROWDSAP,
 )
+from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
 __all__ = ["Machine"]
 
@@ -76,7 +75,7 @@ class Machine(object):
         column: np.ndarray
             Data array containing the "columns" of the detector that each pixel is on.
         row: np.ndarray
-            Data array containing the "columns" of the detector that each pixel is on.
+            Data array containing the "rows" of the detector that each pixel is on.
         limit_radius: numpy.ndarray
             Radius limit in arcsecs to select stars to be used for PRF modeling
         time_mask:  np.ndarray of booleans
@@ -158,6 +157,7 @@ class Machine(object):
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.use_poscorr = False
         self.cartesian_knot_spacing = "sqrt"
+        # disble tqdm prgress bar when running in HPC
         self.quiet = False
 
         if time_mask is None:
@@ -1437,10 +1437,15 @@ class Machine(object):
         return
 
     # aperture photometry functions
-    def _create_aperture_mask(self, percentile=50):
+    def create_aperture_mask(self, percentile=50):
         """
         Function to create the aperture mask of a given source for a given aperture
         size. This function can compute aperutre mask for all sources in the scene.
+
+        It creates three new attributes:
+            * `self.aperture_mask` has the aperture mask, shape is [n_surces, n_pixels]
+            * `self.FLFRCSAP` has the completeness metric, shape is [n_sources]
+            * `self.CROWDSAP` has the crowdeness metric, shape is [n_sources]
 
         Parameters
         ----------
@@ -1474,7 +1479,7 @@ class Machine(object):
         )
 
     def compute_aperture_photometry(
-        self, aperture_size="optimal", target_complet=0.9, target_crowd=0.9
+        self, aperture_size="optimal", target_complete=0.9, target_crowd=0.9
     ):
         """
         Computes aperture photometry for all sources in the scene. The aperture shape
@@ -1487,7 +1492,7 @@ class Machine(object):
             using the flux metric targets. If int between [0, 100], then the boundaries
             of the aperture are calculated from the normalized flux value of the given
             ith percentile.
-        target_complet : float
+        target_complete : float
             Target flux completeness metric (FLFRCSAP) used if aperture_size is
              "optimal".
         target_crowd : float
@@ -1495,11 +1500,16 @@ class Machine(object):
         """
         if aperture_size == "optimal":
             # raise NotImplementedError
-            self._optimize_aperture(
-                target_complet=target_complet, target_crowd=target_crowd
+            optimal_percentile = optimize_aperture(
+                self.mean_model,
+                target_complete=target_complete,
+                target_crowd=target_crowd,
+                quiet=self.quiet,
             )
+            self.create_aperture_mask(percentile=optimal_percentile)
+            self.optimal_percentile = optimal_percentile
         else:
-            self._create_aperture_mask(percentile=aperture_size)
+            self.create_aperture_mask(percentile=aperture_size)
 
         self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
         self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))
@@ -1517,200 +1527,3 @@ class Machine(object):
             )
 
         return
-
-    def _optimize_aperture(
-        self,
-        target_complet=0.9,
-        target_crowd=0.9,
-        max_iter=100,
-        percentile_bounds=[0, 100],
-    ):
-        """
-        Function to optimize the aperture mask for a given source.
-
-        The optimization is done using scipy Brent's algorithm and it uses a custom
-        loss function `_goodness_metric_obj_fun` that uses a Leaky ReLU term to
-        achive the target value for both metrics.
-
-        It creates a new attribute with the percentile value to defines the "optimal"
-        aperture for each source.
-
-        Parameters
-        ----------
-        target_complet : float
-            Value of the target completeness metric.
-        target_crowd : float
-            Value of the target crowdeness metric.
-        max_iter : int
-            Numer of maximum iterations to be performed by the optimizer.
-        percentile_bounds : tuple
-            Tuple of minimun and maximun values for allowed percentile values during
-            the optimization. Default is the widest range of [0, 100].
-        """
-        # optimize percentile cut for every source
-        optim_percentile = []
-        for sdx in tqdm(
-            range(self.nsources),
-            desc="Optimizing apertures per source",
-            disable=self.quiet,
-        ):
-            optim_params = {
-                "percentile_bounds": percentile_bounds,
-                "target_complet": target_complet,
-                "target_crowd": target_crowd,
-                "max_iter": max_iter,
-                "psf_models": self.mean_model,
-                "sdx": sdx,
-            }
-            minimize_result = optimize.minimize_scalar(
-                self._goodness_metric_obj_fun,
-                method="Bounded",
-                bounds=percentile_bounds,
-                options={"maxiter": max_iter, "disp": False},
-                args=(optim_params),
-            )
-            optim_percentile.append(minimize_result.x)
-        self._create_aperture_mask(percentile=optim_percentile)
-        self.optimal_percentile = np.array(optim_percentile)
-
-    def _goodness_metric_obj_fun(self, percentile, optim_params):
-        """
-        The objective function to minimize with scipy.optimize.minimize_scalar called
-        during optimization of the photometric aperture.
-
-        Parameters
-        ----------
-        percentile : int
-            Percentile of the normalized flux distribution that defines the isophote.
-        optim_params : dictionary
-            Dictionary with the variables needed to evaluate the metric:
-                psf_models
-                sdx
-                target_complet
-                target_crowd
-
-        Returns
-        -------
-        penalty : float
-            Value of the objective function to be used for optiization.
-        """
-        psf_models = optim_params["psf_models"]
-        sdx = optim_params["sdx"]
-        # Find the value where to cut
-        cut = np.nanpercentile(psf_models[sdx].data, percentile)
-        # create "isophot" mask with current cut
-        mask = (psf_models[sdx] > cut).toarray()[0]
-
-        # Do not compute and ignore if target score < 0
-        if optim_params["target_complet"] > 0:
-            # compute_FLFRCSAP returns an array of size 1 when doing only one source
-            completMetric = compute_FLFRCSAP(psf_models[sdx], mask)[0]
-        else:
-            completMetric = 1.0
-
-        # Do not compute and ignore if target score < 0
-        if optim_params["target_crowd"] > 0:
-            crowdMetric = compute_CROWDSAP(psf_models, mask, idx=sdx)
-        else:
-            crowdMetric = 1.0
-
-        # Once we hit the target we want to ease-back on increasing the metric
-        # However, we don't want to ease-back to zero pressure, that will
-        # unconstrain the penalty term and cause the optmizer to run wild.
-        # So, use a "Leaky ReLU"
-        # metric' = threshold + (metric - threshold) * leakFactor
-        leakFactor = 0.01
-        if (
-            optim_params["target_complet"] > 0
-            and completMetric >= optim_params["target_complet"]
-        ):
-            completMetric = optim_params["target_complet"] + leakFactor * (
-                completMetric - optim_params["target_complet"]
-            )
-
-        if (
-            optim_params["target_crowd"] > 0
-            and crowdMetric >= optim_params["target_crowd"]
-        ):
-            crowdMetric = optim_params["target_crowd"] + leakFactor * (
-                crowdMetric - optim_params["target_crowd"]
-            )
-
-        penalty = -(completMetric + crowdMetric)
-
-        return penalty
-
-    def plot_flux_metric_diagnose(self, idx=0, ax=None):
-        """
-        Function to evaluate the flux metrics for a single source as a function of
-        the parameter that controls the aperture size.
-        The flux metrics are computed by taking into account the PSF models of
-        neighbor sources.
-
-        This function is meant to be used only to generate diagnostic figures.
-
-        Parameters
-        ----------
-        idx : int
-            Index of the source for which the metrcs will be computed. Has to be a
-            number between 0 and psf_models.shape[0].
-        ax : matplotlib.axes
-            Axis to be used to plot the figure
-
-        Returns
-        -------
-        ax : matplotlib.axes
-            Figure axes
-        """
-        compl, crowd, cut = [], [], []
-        for p in range(0, 101, 1):
-            cut.append(p)
-            mask = (
-                self.mean_model[idx] >= np.nanpercentile(self.mean_model[idx].data, p)
-            ).toarray()[0]
-            crowd.append(compute_CROWDSAP(self.mean_model, mask, idx))
-            compl.append(compute_FLFRCSAP(self.mean_model[idx], mask))
-
-        if ax is None:
-            fig, ax = plt.subplots(1)
-        ax.plot(cut, compl, label=r"FLFRCSAP", c="tab:blue")
-        ax.plot(cut, crowd, label=r"CROWDSAP", c="tab:green")
-        if hasattr(self, "optimal_percentile"):
-            ax.axvline(self.optimal_percentile[idx], c="tab:red", label="optimal")
-        ax.set_xlabel("Percentile")
-        ax.set_ylabel("Metric")
-        ax.legend()
-        return ax
-
-    def estimate_source_centroids_aperture(self):
-        """
-        Computes the centroid via 2D moment methods for all sources all times. It needs
-        `aperture_mask` to be computed first by runing `compute_aperture_photometry`.
-
-        Creates two attributes `centroid_column_ap` and `centroid_row_ap` of shape
-        [nsources, ntimes].
-        """
-        if not hasattr(self, "aperture_mask"):
-            raise AttributeError("No aperture masks")
-
-        centr_col, centr_row = [], []
-        for idx in range(self.nsources):
-            total_flux = np.nansum(self.flux[:, self.aperture_mask[idx]], axis=1)
-            centr_col.append(
-                np.nansum(
-                    np.tile(self.column[self.aperture_mask[idx]], (self.nt, 1))
-                    * self.flux[:, self.aperture_mask[idx]],
-                    axis=1,
-                )
-                / total_flux
-            )
-            centr_row.append(
-                np.nansum(
-                    np.tile(self.row[self.aperture_mask[idx]], (self.nt, 1))
-                    * self.flux[:, self.aperture_mask[idx]],
-                    axis=1,
-                )
-                / total_flux
-            )
-        self.source_centroids_column_ap = np.array(centr_col) * u.pixel
-        self.source_centroids_row_ap = np.array(centr_row) * u.pixel
