@@ -206,3 +206,42 @@ def test_load_shape_model_from_zenodo():
         f"{PACKAGEDIR}/data/"
         f"{machine.tpf_meta['mission'][0]}_FFI_PRFmodels_v1.0.tar.gz"
     )
+
+
+@pytest.mark.remote_data
+def test_get_source_centroids():
+    # test centroid fx
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
+    machine._get_source_mask()
+    machine.get_source_centroids(method="poscor")
+    # check centroid arrays have the right shape
+    assert machine.source_centroids_column_poscor.shape == (19, 10)
+    assert machine.source_centroids_row_poscor.shape == (19, 10)
+    machine.get_source_centroids(method="scene")
+    assert machine.source_centroids_column_scene.shape == (19, 10)
+    assert machine.source_centroids_row_scene.shape == (19, 10)
+
+    tpf_idx = []
+    for i in range(len(machine.sources)):
+        tpf_idx.append(
+            [k for k, ss in enumerate(machine.tpf_meta["sources"]) if i in ss]
+        )
+    # check centroids agree within a pixel for target sources when comparing vs
+    # pipeline aperture moments aperture TPF.estimate_centroids()
+    for i in range(machine.nsources):
+        if machine.sources.tpf_id[i]:
+            if len(tpf_idx[i]) > 1:
+                continue
+            col_cent, row_cent = tpfs[tpf_idx[i][0]].estimate_centroids()
+            assert (
+                np.abs(col_cent - machine.source_centroids_column_scene[i]).value < 1
+            ).all()
+            assert (
+                np.abs(row_cent - machine.source_centroids_row_scene[i]).value < 1
+            ).all()
+            assert (
+                np.abs(col_cent - machine.source_centroids_column_poscor[i]).value < 1
+            ).all()
+            assert (
+                np.abs(row_cent - machine.source_centroids_row_poscor[i]).value < 1
+            ).all()

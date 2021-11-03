@@ -52,8 +52,6 @@ class FFIMachine(Machine):
         meta=None,
     ):
         """
-        Class to work with FFI data.
-
         Parameters
         ----------
         time: numpy.ndarray
@@ -81,8 +79,6 @@ class FFIMachine(Machine):
 
         Attributes
         ----------
-        All attributes inherited from Machine.
-
         meta : dictionary
             Meta data information related to the FFI
         wcs : astropy.wcs
@@ -249,7 +245,7 @@ class FFIMachine(Machine):
 
     def save_shape_model(self, output=None):
         """
-        Saves the weights of a PRF fit to a disk.
+        Saves the weights of a PRF fit to disk.
 
         Parameters
         ----------
@@ -303,7 +299,7 @@ class FFIMachine(Machine):
 
     def load_shape_model(self, input=None, plot=False):
         """
-        Loads a PRF model from disk
+        Loads a PRF model from disk.
 
         Parameters
         ----------
@@ -597,7 +593,7 @@ class FFIMachine(Machine):
         Parameters
         ----------
         plot : bool
-            Do plotting
+            Do plotting.
         zoom : bool
             If plot is True then zoom into a section of the image for better
             visualization.
@@ -608,7 +604,7 @@ class FFIMachine(Machine):
         Return
         ------
         fig : matplotlib figure
-            Figure
+            Figure.
         """
         if not hasattr(self, "ws"):
             self.fit_model(fit_va=False)
@@ -723,7 +719,7 @@ class FFIMachine(Machine):
         Returns
         -------
         ax : matplotlib.axes
-            Matlotlib axis with the figure
+            Matlotlib axis with the figure.
         """
         if ax is None:
             fig, ax = plt.subplots(1, figsize=(10, 10))

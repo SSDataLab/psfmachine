@@ -9,7 +9,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
 
-from .utils import _make_A_polar, _make_A_cartesian, solve_linear_model
+from .utils import (
+    _make_A_polar,
+    _make_A_cartesian,
+    solve_linear_model,
+    sparse_lessthan,
+)
+from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
 __all__ = ["Machine"]
 
@@ -19,11 +25,12 @@ class Machine(object):
     Class for calculating fast PRF photometry on a collection of images and
     a list of in image sources.
 
-    This method is discussed in detail in CITATION
+    This method is discussed in detail in
+    [Hedges et al. 2021](https://ui.adsabs.harvard.edu/abs/2021arXiv210608411H/abstract).
 
     This method solves a linear model to assuming Gaussian priors on the weight of
-    each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
-    (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+    each linear components as explained by
+    [Luger, Foreman-Mackey & Hogg, 2017](https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
     """
 
     def __init__(
@@ -49,16 +56,6 @@ class Machine(object):
         sparse_dist_lim=40,
     ):
         """
-        Class for calculating fast PRF photometry on a collection of images and
-        a list of in image sources.
-
-        This method is discussed in detail in CITATION
-
-        This method solves a linear model to assuming Gaussian priors on the weight of
-        each linear components as explained by Luger, Foreman-Mackey & Hogg, 2017
-        (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
-
-
         Parameters
         ----------
         time: numpy.ndarray
@@ -76,7 +73,7 @@ class Machine(object):
         column: np.ndarray
             Data array containing the "columns" of the detector that each pixel is on.
         row: np.ndarray
-            Data array containing the "columns" of the detector that each pixel is on.
+            Data array containing the "rows" of the detector that each pixel is on.
         limit_radius: numpy.ndarray
             Radius limit in arcsecs to select stars to be used for PRF modeling
         time_mask:  np.ndarray of booleans
@@ -156,6 +153,8 @@ class Machine(object):
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
+        # disble tqdm prgress bar when running in HPC
+        self.quiet = False
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -242,7 +241,11 @@ class Machine(object):
             # iterate over sources to only keep pixels within dist_lim
             # this is inefficient, could be done in a tiled manner? only for squared data
             dra, ddec, sparse_mask = [], [], []
-            for i in tqdm(range(len(self.sources)), desc="Creating delta arrays"):
+            for i in tqdm(
+                range(len(self.sources)),
+                desc="Creating delta arrays",
+                disable=self.quiet,
+            ):
                 dra_aux = self.ra - self.sources["ra"].iloc[i] - centroid_offset[0]
                 ddec_aux = self.dec - self.sources["dec"].iloc[i] - centroid_offset[1]
                 box_mask = sparse.csr_matrix(
@@ -681,6 +684,17 @@ class Machine(object):
         return ta, tm, fm_raw, fm, fem
 
     def build_time_model(self, plot=False):
+        """
+        Builds a time model that moves the PRF model to account for the scene movement
+        due to velocity aberration.
+
+        Parameters
+        ----------
+        plot: boolean
+            Plot a diagnostic figure.
+        **kwargs
+            Keyword arguments to be passed to `_get_source_mask()`
+        """
         (
             time_original,
             time_binned,
@@ -760,6 +774,14 @@ class Machine(object):
         return
 
     def plot_time_model(self):
+        """
+        Diagnostic plot of time model.
+
+        Returns
+        -------
+        fig : matplotlib.Figure
+            Figure.
+        """
         (
             time_original,
             time_binned,
@@ -1045,7 +1067,19 @@ class Machine(object):
         self.mean_model = mean_model
 
     def plot_shape_model(self, radius=20):
-        """ Diagnostic plot of shape model..."""
+        """
+        Diagnostic plot of shape model.
+
+        Parameters
+        ----------
+        radius : float
+            Radius (in arcseconds) limit to be shown in the figure.
+
+        Returns
+        -------
+        fig : matplotlib.Figure
+            Figure.
+        """
 
         mean_f = np.log10(
             self.uncontaminated_source_mask.astype(float)
@@ -1148,7 +1182,15 @@ class Machine(object):
         return fig
 
     def fit_model(self, fit_va=False):
-        """Finds the best fitting weights for every source, simultaneously"""
+        """
+        Finds the best fitting weights for every source, simultaneously
+
+        Parameters
+        ----------
+        fit_va : boolean
+            Fitting model accounting for velocity aberration. If `True`, then a time
+            model has to be built previously with `build_time_model`.
+        """
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
             np.ones(self.mean_model.shape[0])
@@ -1182,7 +1224,9 @@ class Machine(object):
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
 
             for tdx in tqdm(
-                range(self.nt), desc=f"Fitting {self.nsources} Sources (w. VA)"
+                range(self.nt),
+                desc=f"Fitting {self.nsources} Sources (w. VA)",
+                disable=self.quiet,
             ):
                 X = self.mean_model.copy()
                 X = X.T
@@ -1229,7 +1273,9 @@ class Machine(object):
             fe = self.flux_err
 
             for tdx in tqdm(
-                range(self.nt), desc=f"Fitting {self.nsources} Sources (No VA)"
+                range(self.nt),
+                desc=f"Fitting {self.nsources} Sources (No VA)",
+                disable=self.quiet,
             ):
                 sigma_w_inv = X.T.dot(X.multiply(1 / fe[tdx][:, None] ** 2)).toarray()
                 sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
@@ -1247,47 +1293,91 @@ class Machine(object):
 
         return
 
+    # aperture photometry functions
+    def create_aperture_mask(self, percentile=50):
+        """
+        Function to create the aperture mask of a given source for a given aperture
+        size. This function can compute aperutre mask for all sources in the scene.
 
-def sparse_lessthan(arr, limit):
-    """
-    Compute less than operation on sparse array by evaluating only non-zero values
-    and reconstructing the sparse array. This function return a sparse array, which is
-    crutial to keep operating large matrices.
+        It creates three new attributes:
+            * `self.aperture_mask` has the aperture mask, shape is [n_surces, n_pixels]
+            * `self.FLFRCSAP` has the completeness metric, shape is [n_sources]
+            * `self.CROWDSAP` has the crowdeness metric, shape is [n_sources]
 
-    Notes: when doing `x < a` for a sparse array `x` and `a > 0` it effectively compares
-    all zero and non-zero values. Then we get a dense boolean array with `True` where
-    the condition is met but also `True` where the sparse array was zero.
-    To avoid this we evaluate the condition only for non-zero values in the sparse
-    array and later reconstruct the sparse array with the right shape and content.
-    When `x` is a [N * M] matrix and `a` is [N] array, and we want to evaluate the
-    condition per row, we need to iterate over rows to perform the evaluation and then
-    reconstruct the masked sparse array.
+        Parameters
+        ----------
+        percentile : float or list of floats
+            Percentile value that defines the isophote from the distribution
+            of values in the PRF model of the source. If float, then
+            all sources will use the same percentile value. If list, then it has to
+            have lenght that matches `self.nsources`, then each source has its own
+            percentile value.
 
-    Parameters
-    ----------
-    arr : scipy.sparse
-        Sparse array to be masked, is a 2D matrix.
-    limit : float, numpy.array
-        Upper limit to evaluate less than. If float will do `arr < limit`. If array,
-        shape has to match first dimension of `arr` to do `arr < limi[:, None]`` and
-        evaluate the condition per row.
+        """
+        if type(percentile) == int:
+            percentile = [percentile] * self.nsources
+        if len(percentile) != self.nsources:
+            raise ValueError("Lenght of percentile doesn't match number of sources.")
+        # compute isophot limit allowing for different source percentile
+        cut = np.array(
+            [
+                np.nanpercentile(obj.data, per)
+                for obj, per in zip(self.mean_model, percentile)
+            ]
+        )
+        # create aperture mask
+        self.aperture_mask = np.array(self.mean_model >= cut[::, None])
+        # compute flux metrics. Have to round to 10th decimal due to floating point
+        self.FLFRCSAP = np.round(
+            compute_FLFRCSAP(self.mean_model, self.aperture_mask), 10
+        )
+        self.CROWDSAP = np.round(
+            compute_CROWDSAP(self.mean_model, self.aperture_mask), 10
+        )
 
-    Returns
-    -------
-    masked_arr : scipy.sparse.csr_matrix
-        Sparse array after less than evaluation.
-    """
-    nonz_idx = arr.nonzero()
-    # apply condition for each row
-    if isinstance(limit, np.ndarray) and limit.shape[0] == arr.shape[0]:
-        mask = [arr[s].data < limit[s] for s in set(nonz_idx[0])]
-        # flatten mask
-        mask = [x for sub in mask for x in sub]
-    else:
-        mask = arr.data < limit
-    # reconstruct sparse array
-    masked_arr = sparse.csr_matrix(
-        (arr.data[mask], (nonz_idx[0][mask], nonz_idx[1][mask])),
-        shape=arr.shape,
-    ).astype(bool)
-    return masked_arr
+    def compute_aperture_photometry(
+        self, aperture_size="optimal", target_complete=0.9, target_crowd=0.9
+    ):
+        """
+        Computes aperture photometry for all sources in the scene. The aperture shape
+        follow the PRF profile.
+
+        Parameters
+        ----------
+        aperture_size : string or int
+            Size of the aperture to be used. If "optimal" the aperture will be optimized
+            using the flux metric targets. If int between [0, 100], then the boundaries
+            of the aperture are calculated from the normalized flux value of the given
+            ith percentile.
+        target_complete : float
+            Target flux completeness metric (FLFRCSAP) used if aperture_size is
+             "optimal".
+        target_crowd : float
+            Target flux crowding metric (CROWDSAP) used if aperture_size is "optimal".
+        """
+        if aperture_size == "optimal":
+            # raise NotImplementedError
+            optimal_percentile = optimize_aperture(
+                self.mean_model,
+                target_complete=target_complete,
+                target_crowd=target_crowd,
+                quiet=self.quiet,
+            )
+            self.create_aperture_mask(percentile=optimal_percentile)
+            self.optimal_percentile = optimal_percentile
+        else:
+            self.create_aperture_mask(percentile=aperture_size)
+
+        self.sap_flux = np.zeros((self.flux.shape[0], self.nsources))
+        self.sap_flux_err = np.zeros((self.flux.shape[0], self.nsources))
+
+        for sdx in tqdm(
+            range(len(self.aperture_mask)), desc="SAP", leave=True, disable=self.quiet
+        ):
+            self.sap_flux[:, sdx] = self.flux[:, self.aperture_mask[sdx]].sum(axis=1)
+            self.sap_flux_err[:, sdx] = (
+                np.power(self.flux_err[:, self.aperture_mask[sdx]], 2).sum(axis=1)
+                ** 0.5
+            )
+
+        return

@@ -8,10 +8,12 @@ from astropy.time import Time
 from astropy.io import fits
 import astropy.units as u
 import matplotlib.pyplot as plt
+from matplotlib import patches
 import urllib.request
 import tarfile
 
 from .utils import get_gaia_sources
+from .aperture import estimate_source_centroids_aperture, aperture_mask_to_2d
 from .machine import Machine
 from .version import __version__
 from psfmachine import PACKAGEDIR
@@ -87,16 +89,35 @@ class TPFMachine(Machine):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
     def fit_lightcurves(
-        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=False
+        self,
+        plot=False,
+        fit_va=True,
+        iter_negative=True,
+        load_shape_model=False,
+        shape_model_file=None,
+        sap=True,
     ):
         """
         Fit the sources inside the TPFs passed to `TPFMachine`.
+        This function creates the `lcs` attribuite that contains a collection of light
+        curves in the form of `lightkurve.LightCurveCollection`. Each entry in the
+        collection is a `lightkurve.KeplerLightCurve` object with the different type
+        of photometry (SAP, PSF, and PSF velocity-aberration corrected). Also each
+        `lightkurve.KeplerLightCurve` object includes its asociated metadata.
+        The photometry can also be accessed independently from the following attribuites
+        that `fit_lightcurves` create:
+            * `ws` and `werrs` have the uncorrected PSF flux and flux errors.
+            * `ws_va` and `werrs_va` have the PSF flux and flux errors corrected by
+            velocity aberration.
+            * `sap_flux` and `sap_flux_err` have the flux and flux errors computed
+            using aperture mask.
 
         Parameters
         ----------
         plot : bool
             Whether or not to show some diagnostic plots. These can be helpful
-            for a user to see if the PRF and time dependent models are being calculated correctly.
+            for a user to see if the PRF and time dependent models are being calculated
+            correctly.
         fit_va : bool
             Whether or not to fit Velocity Aberration (which implicitly will try to fit
             other kinds of time variability). This will try to fit the "long term"
@@ -105,15 +126,25 @@ class TPFMachine(Machine):
             find you do not need this to be set to True. If you have the time, it
             is recommended to run it.
         iter_negative : bool
-            When fitting light curves, it isn't possible to force the flux to be positive.
-            As such, when we find there are light curves that deviate into negative
-            flux values, we can clip these targets out of the analysis and rerun the model.
+            When fitting light curves, it isn't possible to force the flux to be
+            positive.
+            As such, when we find there are light curves that deviate into negative flux
+            values, we can clip these targets out of the analysis and rerun the model.
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round.
+        load_shape_model : bool
+            Load PRF shape model from disk or not. Default models were computed from
+            FFI of the same channel and quarter.
+        shape_model_file : string
+            Path to PRF model file to be passed to `load_shape_model(input)`. If None,
+            then precomputed models will be download from Zenodo repo.
+        sap : boolean
+            Compute or not Simple Aperture Photometry. See
+            `Machine.compute_aperture_photometry()` for details.
         """
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
-            self.load_shape_model(plot=plot)
+            self.load_shape_model(input=shape_model_file, plot=plot)
         else:
             self.build_shape_model(plot=plot)
         self.build_time_model(plot=plot)
@@ -129,54 +160,15 @@ class TPFMachine(Machine):
                 idx += 1
                 if idx >= 3:
                     break
+        if sap:
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complete=1, target_crowd=1
+            )
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
-            ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
-            mission = self.tpf_meta["mission"][ldx].lower()
-            if s.tpf_id is not None:
-                if mission == "kepler":
-                    label, targetid = f"KIC {int(s.tpf_id)}", int(s.tpf_id)
-                elif mission == "tess":
-                    label, targetid = f"TIC {int(s.tpf_id)}", int(s.tpf_id)
-                elif mission in ["k2", "ktwo"]:
-                    label, targetid = f"EPIC {int(s.tpf_id)}", int(s.tpf_id)
-                else:
-                    raise ValueError(f"can not parse mission `{mission}`")
-            else:
-                label, targetid = s.designation, int(s.designation.split(" ")[-1])
 
-            meta = {
-                "ORIGIN": "PSFMACHINE",
-                "APERTURE": "PSF",
-                "LABEL": label,
-                "TARGETID": targetid,
-                "MISSION": mission,
-                "RA": s.ra,
-                "DEC": s.dec,
-                "PMRA": s.pmra / 1000,
-                "PMDEC": s.pmdec / 1000,
-                "PARALLAX": s.parallax,
-                "GMAG": s.phot_g_mean_mag,
-                "RPMAG": s.phot_rp_mean_mag,
-                "BPMAG": s.phot_bp_mean_mag,
-            }
-
-            attrs = [
-                "channel",
-                "module",
-                "ccd",
-                "camera",
-                "quarter",
-                "campaign",
-                "quarter",
-                "row",
-                "column",
-                "mission",
-            ]
-            for attr in attrs:
-                if attr in self.tpf_meta.keys():
-                    meta[attr.upper()] = self.tpf_meta[attr][ldx]
+            meta = self._make_meta_dict(idx, s, sap)
 
             if fit_va:
                 flux, flux_err = (
@@ -195,19 +187,88 @@ class TPFMachine(Machine):
                 meta=meta,
                 time_format="jd",
             )
+
             if fit_va:
-                lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
-                lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+                lc["psf_flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
+                lc["psf_flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+            if sap:
+                lc["sap_flux"] = (self.sap_flux[:, idx]) * u.electron / u.second
+                lc["sap_flux_err"] = (self.sap_flux_err[:, idx]) * u.electron / u.second
             self.lcs.append(lc)
-            self.lcs = lk.LightCurveCollection(self.lcs)
+        self.lcs = lk.LightCurveCollection(self.lcs)
         return
+
+    def _make_meta_dict(self, idx, s, sap):
+        """
+        Auxiliar function that creates dictionarywith metadata for a given source in
+        the catalog.
+
+        Parameters
+        ----------
+        idx : int
+            Source index.
+        s : pandas.Series
+            Row entry of the source in the source catalog.
+        sap : boolean
+            Add or not Simple Aperture Photometry metadata
+        """
+        ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
+        mission = self.tpf_meta["mission"][ldx].lower()
+        if s.tpf_id is not None:
+            if mission == "kepler":
+                label, targetid = f"KIC {int(s.tpf_id)}", int(s.tpf_id)
+            elif mission == "tess":
+                label, targetid = f"TIC {int(s.tpf_id)}", int(s.tpf_id)
+            elif mission in ["k2", "ktwo"]:
+                label, targetid = f"EPIC {int(s.tpf_id)}", int(s.tpf_id)
+            else:
+                raise ValueError(f"can not parse mission `{mission}`")
+        else:
+            label, targetid = s.designation, int(s.designation.split(" ")[-1])
+
+        meta = {
+            "ORIGIN": "PSFMACHINE",
+            "APERTURE": "PSF + SAP" if sap else "PSF",
+            "LABEL": label,
+            "TARGETID": targetid,
+            "MISSION": mission,
+            "RA": s.ra,
+            "DEC": s.dec,
+            "PMRA": s.pmra / 1000,
+            "PMDEC": s.pmdec / 1000,
+            "PARALLAX": s.parallax,
+            "GMAG": s.phot_g_mean_mag,
+            "RPMAG": s.phot_rp_mean_mag,
+            "BPMAG": s.phot_bp_mean_mag,
+            "SAP": "optimal" if sap else "None",
+            "FLFRCSAP": self.FLFRCSAP[idx] if sap else np.nan,
+            "CROWDSAP": self.CROWDSAP[idx] if sap else np.nan,
+        }
+
+        attrs = [
+            "channel",
+            "module",
+            "ccd",
+            "camera",
+            "quarter",
+            "campaign",
+            "quarter",
+            "row",
+            "column",
+            "mission",
+        ]
+        for attr in attrs:
+            if attr in self.tpf_meta.keys():
+                meta[attr.upper()] = self.tpf_meta[attr][ldx]
+        return meta
 
     def to_fits():
         """Save all the light curves to fits files."""
         raise NotImplementedError
 
     def lcs_in_tpf(self, tpf_number):
-        """Returns the light curves from a given TPF as a lightkurve.LightCurveCollection.
+        """
+        Returns the light curves from a given TPF as a lightkurve.LightCurveCollection.
 
         Parameters
         ----------
@@ -217,7 +278,7 @@ class TPFMachine(Machine):
         ldx = self.tpf_meta["sources"][tpf_number]
         return lk.LightCurveCollection([self.lcs[l] for l in ldx])
 
-    def plot_tpf(self, tdx):
+    def plot_tpf(self, tdx, sap=True):
         """
         Make a diagnostic plot of a given TPF in the stack
 
@@ -229,9 +290,11 @@ class TPFMachine(Machine):
         ----------
         tdx : int
             Index of the TPF to plot
+        sap : boolean
+            Overplot the pixel mask used for aperture photometry.
         """
         tpf = self.tpfs[tdx]
-        ax_tpf = tpf.plot(scale="log")
+        ax_tpf = tpf.plot(aperture_mask="pipeline" if sap else None)
         sources = self.sources.loc[self.tpf_meta["sources"][tdx]]
 
         img_extent = (
@@ -244,6 +307,16 @@ class TPFMachine(Machine):
         r, c = np.mgrid[: tpf.shape[1], : tpf.shape[2]]
         r += tpf.row
         c += tpf.column
+
+        # create 2D aperture mask for every source, for potting
+        if hasattr(self, "aperture_mask") and sap:
+            aperture_mask_2d = aperture_mask_to_2d(
+                self.tpfs,
+                self.tpf_meta["sources"],
+                self.aperture_mask,
+                self.column,
+                self.row,
+            )
 
         kdx = 0
         for sdx, s in sources.iterrows():
@@ -268,12 +341,37 @@ class TPFMachine(Machine):
                 if np.nansum(mod) == 0:
                     kdx += 1
                     continue
-                _ = plt.subplots(figsize=(10, 3))
+                _ = plt.subplots(figsize=(12, 4))
                 ax = plt.subplot2grid((1, 4), (0, 0), colspan=3)
                 lc.errorbar(ax=ax, c="k", lw=0.3, ls="-")
+                # plot SAP lc
+                if hasattr(lc, "sap_flux") and sap:
+                    lc.errorbar(
+                        column="sap_flux",
+                        ax=ax,
+                        c="tab:red",
+                        lw=0.3,
+                        ls="-",
+                        label="SAP",
+                    )
                 kdx += 1
                 ax = plt.subplot2grid((1, 4), (0, 3))
                 lk.utils.plot_image(mod, extent=img_extent, ax=ax)
+                # Overlay the aperture mask if asked
+                if sap:
+                    aperture_mask = aperture_mask_2d["%i_%i" % (tdx, sdx)]
+                    for i in range(r.shape[0]):
+                        for j in range(r.shape[1]):
+                            if aperture_mask[i, j]:
+                                rect = patches.Rectangle(
+                                    xy=(j + tpf.column - 0.5, i + tpf.row - 0.5),
+                                    width=1,
+                                    height=1,
+                                    color="tab:red",
+                                    fill=False,
+                                    hatch="//",
+                                )
+                                ax.add_patch(rect)
             col, row = tpf.wcs.all_world2pix([[s.ra, s.dec]], 0)[0]
             if (
                 (col < -3)
@@ -391,7 +489,8 @@ class TPFMachine(Machine):
         return
 
     def save_shape_model(self, output=None):
-        """Saves the weights of a PRF fit to a file
+        """Saves the weights of a PRF fit to disk as a FITS file.
+
         Parameters
         ----------
         output : str, None
@@ -440,6 +539,97 @@ class TPFMachine(Machine):
         table.writeto(output, checksum=True, overwrite=True)
 
         return
+
+    def get_source_centroids(self, method="poscor"):
+        """
+        Compute centroids for sources in pixel coordinates.
+        It implements three different methods to calculate centroids:
+            * "aperture": computes centroids from moments `
+            Machine.estimate_source_centroids_aperture()`. This needs the aperture
+            masks to becomputed in advance with `Machine.compute_aperture_photometry`.
+            Note that for sources with partial data (i.e. near TPF edges) the this
+            method is illdefined.
+            * "poscor": uses Gaia RA and Dec coordinates converted to pixel
+            space using the TPFs WCS solution and the apply each TPF 'pos_corr'
+            correction
+            * "scene": uses Gaia coordinates again, but correction is computed from
+            the TPF scene jitter using 'Machine._get_centroids()'.
+
+        Parameters
+        ----------
+        method : string
+            What type of corrected centroid will be computed.
+            If "aperture", it creates attributes `source_centroids_[column/row]_ap`.
+            If "poscor" (default), it creates attributes
+            `source_centroids_[column/row]_poscor`.
+            If "scene", it creates attributes `source_centroids_[column/row]_scene`.
+
+            Note: "poscor" and "scene" show consistent results below 10th of a pixel.
+        """
+        # use aperture mask for moments centroids
+        if method == "aperture":
+            if not hasattr(self, "aperture_mask"):
+                raise AttributeError("No aperture masks")
+            centroids = estimate_source_centroids_aperture(
+                self.aperture_mask, self.flux, self.column, self.row
+            )
+            self.source_centroids_column_ap = centroids[0] * u.pixel
+            self.source_centroids_row_ap = centroids[1] * u.pixel
+        # source centroids using pos_corr
+        if method == "poscor":
+            # get pixel coord from catalog RA, Dec and tpf WCS solution
+            col, row = (
+                self.tpfs[0]
+                .wcs.all_world2pix(self.sources.loc[:, ["ra", "dec"]].values, 0)
+                .T
+            )
+            col += self.tpfs[0].column
+            row += self.tpfs[0].row
+
+            cadno_index = np.in1d(self.tpfs[0].time.jd, self.time)
+            self.source_centroids_column_poscor = []
+            self.source_centroids_row_poscor = []
+            for i in range(self.nsources):
+                tpf_idx = [
+                    k for k, ss in enumerate(self.tpf_meta["sources"]) if i in ss
+                ][0]
+                # apply poss_corr from TPF cadences
+                self.source_centroids_column_poscor.append(
+                    col[i] + self.tpfs[tpf_idx].pos_corr1[cadno_index]
+                )
+                self.source_centroids_row_poscor.append(
+                    row[i] + self.tpfs[tpf_idx].pos_corr2[cadno_index]
+                )
+            self.source_centroids_column_poscor = (
+                np.array(self.source_centroids_column_poscor) * u.pixel
+            )
+            self.source_centroids_row_poscor = (
+                np.array(self.source_centroids_row_poscor) * u.pixel
+            )
+        # use gaia coordinates and scene centroids
+        if method == "scene":
+            if not hasattr(self, "ra_centroid"):
+                self._get_source_mask()
+            centr_ra = np.tile(self.sources.ra.values, (self.nt, 1)).T + np.tile(
+                self.ra_centroid.value, (self.nsources, 1)
+            )
+            centr_dec = np.tile(self.sources.dec.values, (self.nt, 1)).T + np.tile(
+                self.dec_centroid.value, (self.nsources, 1)
+            )
+
+            self.source_centroids_column_scene, self.source_centroids_row_scene = (
+                self.tpfs[0]
+                .wcs.all_world2pix(np.array([centr_ra.ravel(), centr_dec.ravel()]).T, 0)
+                .T
+            )
+            self.source_centroids_column_scene = (
+                self.source_centroids_column_scene.reshape(self.nsources, self.nt)
+                + self.tpfs[0].column
+            ) * u.pixel
+            self.source_centroids_row_scene = (
+                self.source_centroids_row_scene.reshape(self.nsources, self.nt)
+                + self.tpfs[0].row
+            ) * u.pixel
 
     @staticmethod
     def from_TPFs(
@@ -497,7 +687,8 @@ class TPFMachine(Machine):
         if not isinstance(tpfs, lk.collections.TargetPixelFileCollection):
             raise TypeError("<tpfs> must be a of class Target Pixel Collection")
 
-        # CH: all these internal functions should be put in another and from_tpfs should be in another helper module
+        # CH: all these internal functions should be put in another and from_tpfs
+        # should be in another helper module
         attrs = [
             "ra",
             "dec",

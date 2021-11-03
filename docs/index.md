@@ -21,6 +21,7 @@ pip install psfmachine
 * using the *Gaia* archive to find all the sources in your images
 * building a Pixel Response Function (PRF) model based on all the sources
 * fitting the PRF to all the sources in an image stack, to find the best fitting flux of all sources, accounting for crowding and contamination
+* creating custom apertures masks that follow the PRF profile to performed aperture photometry
 * returning neat, [`lightkurve.LightCurve`](https://docs.lightkurve.org/) objects of all the sources in the images, with all the available meta data.
 
 # What does it look like?

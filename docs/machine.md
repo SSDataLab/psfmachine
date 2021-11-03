@@ -10,6 +10,8 @@
         - plot_shape_model
         - plot_time_model
         - fit_model
+        - create_aperture_mask
+        - compute_aperture_photometry
     rendering:
       show_root_heading: false
       show_source: false
