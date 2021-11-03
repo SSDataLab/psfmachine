@@ -10,7 +10,7 @@
       
       
       <link rel="icon" href="assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-7.1.5">
+      <meta name="generator" content="mkdocs-1.1.2, mkdocs-material-7.1.6">
     
     
       
@@ -18,10 +18,10 @@
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.bde7dde4.min.css">
+      <link rel="stylesheet" href="assets/stylesheets/main.875de78c.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ef6f36e2.min.css">
+        <link rel="stylesheet" href="assets/stylesheets/palette.f1a3b89f.min.css">
         
       
     
@@ -75,7 +75,7 @@
     <a href="." title="PSFMachine" class="md-header__button md-logo" aria-label="PSFMachine" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54z"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m5.8 21 1.6-7L2 9.2l7.2-.6L12 2l2.8 6.6 7.2.6-3.2 2.8H18c-3.1 0-5.6 2.3-6 5.3L5.8 21M17 14v3h-3v2h3v3h2v-3h3v-2h-3v-3h-2z"/></svg>
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -168,7 +168,7 @@
     <a href="." title="PSFMachine" class="md-nav__button md-logo" aria-label="PSFMachine" data-md-component="logo">
       
   
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54z"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m5.8 21 1.6-7L2 9.2l7.2-.6L12 2l2.8 6.6 7.2.6-3.2 2.8H18c-3.1 0-5.6 2.3-6 5.3L5.8 21M17 14v3h-3v2h3v3h2v-3h3v-2h-3v-3h-2z"/></svg>
 
     </a>
     PSFMachine
@@ -244,6 +244,36 @@
   
 
     
+      
+      
+      
+
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="ffi/" class="md-nav__link">
+        FFIMachine
+      </a>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="aperture/" class="md-nav__link">
+        Aperture Photometry
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -280,9 +310,9 @@
                 
                 <h1 id="psfmachine">PSFMachine</h1>
 <p><em>PRF photometry with Kepler</em></p>
-<p><a href="https://github.com/ssdatalab/psfmachine/workflows/tests.yml">
-      <img src="https://github.com/ssdatalab/psfmachine/workflows/pytest/badge.svg" alt="Test status"/>
-</a> <a href="https://pypi.python.org/pypi/tess-ephem"><img src="https://img.shields.io/pypi/v/tess-ephem", alt="pypi status"></a></p>
+<p><a href="https://github.com/ssdatalab/psfmachine/workflows/tests.yml"><img src="https://github.com/ssdatalab/psfmachine/workflows/pytest/badge.svg" alt="Test status"/></a>
+<a href="https://pypi.python.org/pypi/tess-ephem"><img src="https://img.shields.io/pypi/v/tess-ephem" alt="pypi status"></a>
+<a href="https://zenodo.org/record/4784073"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.4784073.svg"></a></p>
 <p><code>PSFMachine</code> is an open source Python tool for creating models of instrument effective Point Spread Functions (ePSFs), a.k.a Pixel Response Functions (PRFs). These models are then used to fit a scene in a stack of astronomical images. <code>PSFMachine</code> is able to quickly derive photometry from stacks of <em>Kepler</em> images and separate crowded sources.</p>
 <h1 id="installation">Installation</h1>
 <pre><code>pip install psfmachine
@@ -293,6 +323,7 @@
 <li>using the <em>Gaia</em> archive to find all the sources in your images</li>
 <li>building a Pixel Response Function (PRF) model based on all the sources</li>
 <li>fitting the PRF to all the sources in an image stack, to find the best fitting flux of all sources, accounting for crowding and contamination</li>
+<li>creating custom apertures masks that follow the PRF profile to performed aperture photometry</li>
 <li>returning neat, <a href="https://docs.lightkurve.org/"><code>lightkurve.LightCurve</code></a> objects of all the sources in the images, with all the available meta data.</li>
 </ul>
 <h1 id="what-does-it-look-like">What does it look like?</h1>
@@ -371,7 +402,7 @@ machine.fit_lightcurves()
     <script id="__config" type="application/json">{"base": ".", "features": [], "translations": {"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing"}, "search": "assets/javascripts/workers/search.d351de03.min.js", "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.a1609d9a.min.js"></script>
+      <script src="assets/javascripts/bundle.34eae1b6.min.js"></script>
       
     
   </body>
