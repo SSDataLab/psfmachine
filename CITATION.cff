@@ -31,7 +31,7 @@ preferred-citation:
     given-names: "Geert"
     orcid: "https://orcid.org/0000-0002-3306-3484"
   doi: "10.3847/1538-3881/ac0825"
-  url = https://doi.org/10.3847/1538-3881/ac0825
+  url: "https://doi.org/10.3847/1538-3881/ac0825"
   journal: "The Astronomical Journal"
   month: 10
   title: "Linearized Field Deblending: Point-spread Function Photometry for Impatient Astronomers"
