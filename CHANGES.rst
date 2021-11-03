@@ -4,7 +4,7 @@
 New Features
 ------------
 
-psfmachine.aperture_utils
+psfmachine.aperture
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 - Collection of functions that perform aperture photometry. It uses the PSF model to
