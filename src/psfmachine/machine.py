@@ -625,13 +625,29 @@ class Machine(object):
             The binned flux error, whitened by the mean of the flux
         """
 
-        # Where there are break points in the data
+        # Where there are break points in the time array
         splits = np.append(
-            np.append(0, np.where(np.diff(self.time) > 0.1)[0]), len(self.time)
+            np.append(0, np.where(np.diff(self.time) > 0.1)[0] + 1), len(self.time)
         )
+        # if using poscorr, find and add discontinuity in poscorr data
+        if hasattr(self, "pos_corr1") and self.use_poscorr:
+            # take the scene-median poscorr
+            mpc1 = np.nanmedian(self.pos_corr1, axis=0)
+            mpc2 = np.nanmedian(self.pos_corr2, axis=0)
+
+            # find poscorr discontinuity in each axis
+            grads1 = np.gradient(mpc1, self.time)
+            grads2 = np.gradient(mpc2, self.time)
+            splits1 = np.where(grads1 > 7 * grads1.std())[0]
+            splits2 = np.where(grads2 > 7 * grads2.std())[0]
+            # merging breaks
+            splits = np.unique(np.concatenate([splits, splits1[1::2], splits2[1::2]]))
+            del grads1, grads2, splits1, splits2
+
         splits_a = splits[:-1] + 100
         splits_b = splits[1:]
         dsplits = (splits_b - splits_a) // npoints
+        # breake has the bin centers
         # first break is at cadance 50
         breaks = [50]
         for spdx in range(len(splits_a)):
@@ -639,9 +655,7 @@ class Machine(object):
         # we include 50-to-last cadecence
         breaks.append(splits[-1] - 50)
         breaks = np.hstack(breaks)
-        # breaks = np.arange(50, len(self.time), npoints)
-        # to_remove = [np.where(breaks >= spl)[0][0] for spl in splits[1:-1]]
-        # breaks = np.delete(breaks, to_remove)
+        # breaks = np.unique(np.hstack([breaks, splits[1:-1]]))
 
         # Time averaged
         tm = np.vstack(
@@ -693,18 +707,44 @@ class Machine(object):
 
         # poscor
         if hasattr(self, "pos_corr1") and self.use_poscorr:
-            pc1 = np.nanmedian(self.pos_corr1, axis=0)
-            pc2 = np.nanmedian(self.pos_corr2, axis=0)
-            pc1_b = np.vstack(
-                [t1.mean(axis=0) for t1 in np.array_split(pc1, breaks)]
-            ).ravel()
-            pc2_b = np.vstack(
-                [t1.mean(axis=0) for t1 in np.array_split(pc2, breaks)]
-            ).ravel()
-            pc1_b = pc1_b[:, None] * np.ones(fm.shape)
-            pc2_b = pc2_b[:, None] * np.ones(fm.shape)
+            # we smooth the poscorr with a Gaussian kernel and 12 cadence window
+            # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
+            # of focus-change breaks
+            pc1_smooth = []
+            pc2_smooth = []
+            for i in range(1, len(splits)):
+                pc1_smooth.extend(
+                    gaussian_filter1d(
+                        mpc1[splits[i - 1] : splits[i]], 12, mode="mirror"
+                    )
+                )
+                pc2_smooth.extend(
+                    gaussian_filter1d(
+                        mpc2[splits[i - 1] : splits[i]], 12, mode="mirror"
+                    )
+                )
+            pc1_smooth = np.array(pc1_smooth)
+            pc2_smooth = np.array(pc2_smooth)
 
-            return ta, tm, fm_raw, fm, fem, pc1_b, pc2_b
+            # do poscorr binning
+            pc1_bin = np.vstack(
+                [np.median(t1, axis=0) for t1 in np.array_split(pc1_smooth, breaks)]
+            ).ravel()[:, None] * np.ones(fm.shape)
+            pc2_bin = np.vstack(
+                [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
+            ).ravel()[:, None] * np.ones(fm.shape)
+
+            return (
+                ta,
+                tm,
+                fm_raw,
+                fm,
+                fem,
+                pc1_smooth,
+                pc2_smooth,
+                pc1_bin,
+                pc2_bin,
+            )
 
         return ta, tm, fm_raw, fm, fem
 
@@ -727,9 +767,13 @@ class Machine(object):
                 flux_binned_raw,
                 flux_binned,
                 flux_err_binned,
+                poscorr1_smooth,
+                poscorr2_smooth,
                 poscorr1_binned,
                 poscorr2_binned,
             ) = self._time_bin(npoints=self.n_time_points)
+            self.pos_corr1_smooth = poscorr1_smooth
+            self.pos_corr2_smooth = poscorr2_smooth
         else:
             (
                 time_original,
@@ -842,6 +886,8 @@ class Machine(object):
                 flux_binned_raw,
                 flux_binned,
                 flux_err_binned,
+                poscorr1_smooth,
+                poscorr2_smooth,
                 poscorr1_binned,
                 poscorr2_binned,
             ) = self._time_bin(npoints=self.n_time_points)
@@ -1313,44 +1359,6 @@ class Machine(object):
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
 
-            if hasattr(self, "pos_corr1") and self.use_poscorr:
-                # take the scene-median poscorr
-                m_poscorr1 = np.nanmedian(self.pos_corr1, axis=0)
-                m_poscorr2 = np.nanmedian(self.pos_corr2, axis=0)
-                # find time discontinuity
-                splits = np.append(
-                    np.append(0, np.where(np.diff(self.time) > 0.1)[0] + 1),
-                    len(self.time),
-                )
-                # find poscorr discontinuity in each axis
-                grads1 = np.gradient(m_poscorr1, self.time)
-                grads2 = np.gradient(m_poscorr2, self.time)
-                splits1 = np.where(grads1 > 7 * grads1.std())[0]
-                splits2 = np.where(grads2 > 7 * grads2.std())[0]
-                # merging breaks
-                splits = np.unique(
-                    np.concatenate([splits, splits1[1::2], splits2[1::2]])
-                )
-                # we smooth the poscorr with a Gaussian kernel and 12 cadence window
-                # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
-                # of focus-change breaks
-                smooth_poscorr1 = []
-                smooth_poscorr2 = []
-                for i in range(1, len(splits)):
-                    smooth_poscorr1.extend(
-                        gaussian_filter1d(
-                            m_poscorr1[splits[i - 1] : splits[i]], 12, mode="mirror"
-                        )
-                    )
-                    smooth_poscorr2.extend(
-                        gaussian_filter1d(
-                            m_poscorr2[splits[i - 1] : splits[i]], 12, mode="mirror"
-                        )
-                    )
-                smooth_poscorr1 = np.array(smooth_poscorr1)
-                smooth_poscorr2 = np.array(smooth_poscorr2)
-                del m_poscorr1, m_poscorr2, grads1, grads2, splits, splits1, splits2
-
             for tdx in tqdm(
                 range(self.nt),
                 desc=f"Fitting {self.nsources} Sources (w. VA)",
@@ -1376,9 +1384,9 @@ class Machine(object):
                         np.array(
                             [
                                 1,
-                                smooth_poscorr1[tdx],
-                                smooth_poscorr2[tdx],
-                                smooth_poscorr1[tdx] * smooth_poscorr2[tdx],
+                                self.pos_corr1_smooth[tdx],
+                                self.pos_corr2_smooth[tdx],
+                                self.pos_corr1_smooth[tdx] * self.pos_corr2_smooth[tdx],
                             ]
                         )[:, None]
                         * np.ones(A_cp3.shape[1] // 4)
