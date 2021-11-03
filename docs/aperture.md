@@ -1,6 +1,6 @@
-# Documentation for `Aperture Utilities`
+# Documentation for `Aperture`
 
-::: psfmachine.aperture_utils
+::: psfmachine.aperture
     handler: python
     selection:
       members:
