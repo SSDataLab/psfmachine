@@ -876,6 +876,9 @@ class Machine(object):
         ----------
         flux_cut_off: float
             the flux in COUNTS at which to stop evaluating the model!
+        cadenceno : string or int
+            The cadence number used to build the shape model, if "mean" then use the
+            mean value across time
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
@@ -993,6 +996,9 @@ class Machine(object):
         ----------
         flux_cut_off : float
             Lower limit for the normalized flux predicted from the mean model.
+        cadenceno : string or int
+            The cadence number to be used, if "mean" then use the
+            mean value across time
         """
 
         # Re-estimate source flux
@@ -1075,6 +1081,9 @@ class Machine(object):
         ----------
         radius : float
             Radius (in arcseconds) limit to be shown in the figure.
+        cadenceno : string or int
+            The cadence number used to plot the shape model, if "mean" then use the
+            mean value across time
 
         Returns
         -------
