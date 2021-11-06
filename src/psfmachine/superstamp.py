@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-import matplotlib.animation as animation
+import imageio
 from ipywidgets import interact
 
 from astropy.io import fits
@@ -43,17 +43,17 @@ class SSMachine(FFIMachine):
         n_time_knots=10,
         n_time_points=200,
         time_radius=8,
-        cut_r=6,
         rmin=1,
         rmax=16,
+        cut_r=6,
         meta=None,
     ):
         """
-        Class to work with FFI data.
-        Parameters
-        ----------
-        Attributes
-        ----------
+        Class to work with K2 Supersampts produces by
+        [Cody et al. 2018](https://archive.stsci.edu/prepds/k2superstamp/)
+
+        Parameters and sttributes are the same as `FFIMachine`.
+
         """
         # init `FFImachine` object
         super().__init__(
@@ -72,17 +72,56 @@ class SSMachine(FFIMachine):
             n_time_knots=n_time_knots,
             n_time_points=n_time_points,
             time_radius=time_radius,
-            cut_r=cut_r,
             rmin=rmin,
             rmax=rmax,
+            cut_r=cut_r,
             meta=meta,
         )
 
         self.meta["DCT_TYPE"] = "SuperStamp"
 
-    def fit_frame_models(self):
+    def build_frame_shape_model(self, plot=False, **kwargs):
         """
-        Fits shape model per frame (cadence)
+        Compute shape model for every cadence (frame) using `Machine.build_shape_model()`
+        If plot is True, will generate a movie with PRF model evolution.
+        """
+        self.mean_model_frame = []
+        images = []
+        self._get_source_mask()
+        self._get_uncontaminated_pixel_mask()
+        org_sm = self.source_mask
+        org_usm = self.uncontaminated_source_mask
+        for tdx in tqdm(range(self.nt), desc=f"Building shape model per frame"):
+            fig = self.build_shape_model(frame_index=tdx, plot=plot, **kwargs)
+            self.mean_model_frame.append(self.mean_model)
+            if plot:
+                fig.canvas.draw()  # draw the canvas, cache the renderer
+                image = np.frombuffer(fig.canvas.tostring_rgb(), dtype="uint8")
+                image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                images.append(image)
+                plt.close()
+            self.source_mask = org_sm
+            self.uncontaminated_source_mask = org_usm
+        if plot:
+            if hasattr(self, "meta"):
+                gif_name = "./shape_models_%s_%s_c%i.mp4" % (
+                    self.meta["MISSION"],
+                    self.meta["OBJECT"],
+                    self.meta["QUARTER"],
+                )
+            else:
+                gif_name = "./shape_models_%s_q%i.mp4" % (
+                    self.tpf_meta["mission"][0],
+                    self.tpf_meta["quarter"][0],
+                )
+            imageio.mimsave(gif_name, images, format="mp4", fps=24)
+
+    def fit_frame_model(self):
+        """
+        Fits shape model per frame (cadence). It creates two 3 attributes:
+            * `self.model_flux_frame` has the scene model at every cadence.
+            * `self.ws_frame` and `self.werrs_frame` have the flux values of all sources
+            at every cadence.
         """
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
@@ -114,62 +153,16 @@ class SSMachine(FFIMachine):
             self.ws_frame[tdx, nodata] *= np.nan
             self.werrs_frame[tdx, nodata] *= np.nan
 
-    def build_frames_shape_model(self, plot=False, **kwargs):
-        """
-        Compute shape model for every cadence (frame).
-        If plot is True, will generate a GIF file with PRF model evolution across
-        cadences.
-        """
-        self.mean_model_frame = []
-        images = []
-        self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
-        # check if the original source mask is the mean frame or an especific one
-        org_sm = self.source_mask
-        org_usm = self.uncontaminated_source_mask
-        fig = plt.figure(figsize=(9.5, 6.5))
-        for cno in tqdm(range(self.nt), desc=f"Building shape model per frame"):
-            img = self.build_shape_model(cadenceno=cno, plot=plot, **kwargs)
-            self.mean_model_frame.append(self.mean_model)
-            if plot:
-                # fig.canvas.draw()  # draw the canvas, cache the renderer
-                # image = np.frombuffer(fig.canvas.tostring_rgb(), dtype="uint8")
-                # image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-                # images.append(image)
-                # plt.close()
-                images.append([img])
-            self.source_mask = org_sm
-            self.uncontaminated_source_mask = org_usm
-        if plot:
-            if hasattr(self, "meta"):
-                gif_name = "./shape_models_%s_%s_c%i.mp4" % (
-                    self.meta["MISSION"],
-                    self.meta["OBJECT"],
-                    self.meta["QUARTER"],
-                )
-            else:
-                gif_name = "./shape_models_%s_q%i.mp4" % (
-                    self.tpf_meta["mission"][0],
-                    self.tpf_meta["quarter"][0],
-                )
-            # imageio.mimsave(gif_name, images, fps=24)
-            fig = plt.plot()
-            ani = animation.ArtistAnimation(
-                fig, images, interval=50, blit=True, repeat_delay=1000, repeat=True
-            )
-            plt.show()
-            # ani.save("dynamic_images.mp4")
-
     @staticmethod
-    def from_file(fname, magnitude_limit=18, **kwargs):
+    def from_file(fname, magnitude_limit=18, dr=3, **kwargs):
         """
         Reads data from files and initiates a new FFIMachine class.
         Parameters
         ----------
-        fname : str
-            Filename of the FFI file
+        fname : string or list of strings
+            Name of the FITS files to be parsed.
         **kwargs : dictionary
-            Keyword arguments that defines shape model in a `machine` class object.
+            Keyword arguments that defines shape model in a `Machine` object.
         Returns
         -------
         FFIMachine : Machine object
@@ -194,7 +187,7 @@ class SSMachine(FFIMachine):
             magnitude_limit=magnitude_limit,
             epoch=time.jyear.mean(),
             ngrid=(2, 2) if flux.shape[1] <= 500 else (5, 5),
-            dr=3,
+            dr=dr,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
 
@@ -213,55 +206,96 @@ class SSMachine(FFIMachine):
         )
 
     def fit_lightcurves(
-        self, plot=False, fit_va=True, iter_negative=True, load_shape_model=False
+        self,
+        plot=False,
+        iter_negative=False,
+        fit_mean_shape_model=False,
+        fit_va=False,
+        sap=False,
     ):
         """
-        Fit the sources inside the TPFs passed to `TPFMachine`.
+        Fit the sources in the data to get its light curves. By default it only
+        uses the per cadence PSF model to do the photometry.
+        Alternatively it can fit the mean-PSF and the mean-PSF with time model to
+        the data, this is the original method implemented in `PSFmachine` and described
+        in the paper. Aperture Photometry is also available by creating aperture masks
+        that follow the mean-PSF shape.
+
+        This function creates the `lcs` attribuite that contains a collection of light
+        curves in the form of `lightkurve.LightCurveCollection`. Each entry in the
+        collection is a `lightkurve.KeplerLightCurve` object with the different type
+        of photometry (PSF per cadence, SAP, mean-PSF, and mean-PSF velocity-aberration
+        corrected). Also each `lightkurve.KeplerLightCurve` object includes its
+        asociated metadata.
+        The photometry can also be accessed independently from the following attribuites
+        that `fit_lightcurves` create:
+            * `ws` and `werrs` have the uncorrected PSF flux and flux errors.
+            * `ws_va` and `werrs_va` have the PSF flux and flux errors corrected by
+            velocity aberration.
+            * `sap_flux` and `sap_flux_err` have the flux and flux errors computed
+            using aperture mask.
+            * `ws_frame` and `werrs_frame` have the flux from PSF at each cadence.
+
         Parameters
         ----------
         plot : bool
             Whether or not to show some diagnostic plots. These can be helpful
-            for a user to see if the PRF and time dependent models are being calculated correctly.
+            for a user to see if the PRF and time dependent models are being calculated
+            correctly.
+        iter_negative : bool
+            When fitting light curves, it isn't possible to force the flux to be
+            positive.
+            As such, when we find there are light curves that deviate into negative flux
+            values, we can clip these targets out of the analysis and rerun the model.
+            If iter_negative is True, PSFmachine will run up to 3 times, clipping out
+            any negative targets each round. This is used when
+            `fit_mean_shape_model` is `True`.
+        fit_mean_shape_model : bool
+            Will do PSF photmetry using the mean-PSF.
         fit_va : bool
             Whether or not to fit Velocity Aberration (which implicitly will try to fit
-            other kinds of time variability). This will try to fit the "long term"
+            other kinds of time variability). `fit_mean_shape_model` must set to `True`
+            ortherwise will be ignored. This will try to fit the "long term"
             trends in the dataset. If True, this will take slightly longer to fit.
             If you are interested in short term phenomena, like transits, you may
             find you do not need this to be set to True. If you have the time, it
             is recommended to run it.
-        iter_negative : bool
-            When fitting light curves, it isn't possible to force the flux to be positive.
-            As such, when we find there are light curves that deviate into negative
-            flux values, we can clip these targets out of the analysis and rerun the model.
-            If iter_negative is True, PSFmachine will run up to 3 times, clipping out
-            any negative targets each round.
+        sap : boolean
+            Compute or not Simple Aperture Photometry. See
+            `Machine.compute_aperture_photometry()` for details.
         """
-        # use PRF model from FFI or create one with TPF data
-        if load_shape_model:
-            self.load_shape_model(plot=plot)
-        else:
+
+        if fit_mean_shape_model:
             self.build_shape_model(plot=plot)
-        self.build_time_model(plot=plot)
-        self.fit_model(fit_va=fit_va)
-        if iter_negative:
-            # More than 2% negative cadences
-            negative_sources = (self.ws_va < 0).sum(axis=0) > (0.02 * self.nt)
-            idx = 1
-            while len(negative_sources) > 0:
-                self.mean_model[negative_sources] *= 0
-                self.fit_model(fit_va=fit_va)
-                negative_sources = np.where((self.ws_va < 0).all(axis=0))[0]
-                idx += 1
-                if idx >= 3:
-                    break
+            self.build_time_model(plot=plot)
+            # fit the OG time model
+            self.fit_model(fit_va=fit_va)
+            if iter_negative:
+                # More than 2% negative cadences
+                negative_sources = (self.ws_va < 0).sum(axis=0) > (0.02 * self.nt)
+                idx = 1
+                while len(negative_sources) > 0:
+                    self.mean_model[negative_sources] *= 0
+                    self.fit_model(fit_va=fit_va)
+                    negative_sources = np.where((self.ws_va < 0).all(axis=0))[0]
+                    idx += 1
+                    if idx >= 3:
+                        break
+        if sap:
+            self.build_shape_model(plot=plot)
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complete=1, target_crowd=1
+            )
+        # fit shape model at each cadence
+        self.build_frame_shape_model()
+        self.fit_frame_model()
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
             meta = {
                 "ORIGIN": "PSFMACHINE",
-                "APERTURE": "PSF",
+                "APERTURE": "PSF + SAP" if sap else "PSF",
                 "LABEL": s.designation,
-                # "TARGETID": targetid,
                 "MISSION": self.meta["MISSION"],
                 "RA": s.ra,
                 "DEC": s.dec,
@@ -289,28 +323,24 @@ class SSMachine(FFIMachine):
                 if attr in self.meta.keys():
                     meta[attr.upper()] = self.meta[attr]
 
-            if fit_va:
-                flux, flux_err = (
-                    (self.ws_va[:, idx]) * u.electron / u.second,
-                    self.werrs_va[:, idx] * u.electron / u.second,
-                )
-            else:
-                flux, flux_err = (
-                    (self.ws[:, idx]) * u.electron / u.second,
-                    self.werrs[:, idx] * u.electron / u.second,
-                )
             lc = lk.KeplerLightCurve(
                 time=(self.time) * u.d,
-                flux=flux,
-                flux_err=flux_err,
+                flux=self.ws_frame[:, idx] * (u.electron / u.second),
+                flux_err=self.werrs_frame[:, idx] * (u.electron / u.second),
                 meta=meta,
                 time_format="jd",
             )
+            lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
+            lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
             if fit_va:
-                lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
-                lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+                lc["flux_VA"] = (self.ws_va[:, idx]) * u.electron / u.second
+                lc["flux_err_VA"] = (self.werrs_va[:, idx]) * u.electron / u.second
+            if sap:
+                lc["flux_sap"] = (self.sap_flux[:, idx]) * u.electron / u.second
+                lc["flux_err_sap"] = (self.sap_flux_err[:, idx]) * u.electron / u.second
+
             self.lcs.append(lc)
-            self.lcs = lk.LightCurveCollection(self.lcs)
+        self.lcs = lk.LightCurveCollection(self.lcs)
         return
 
     def plot_image_interactive(self, ax=None, sources=False):
@@ -390,7 +420,7 @@ def _load_file(fname):
     Parameters
     ----------
     fname : string or list of strings
-        Name of the FFI files
+        Name of the FITS files to be parsed.
     Returns
     -------
     wcs : astropy.wcs
