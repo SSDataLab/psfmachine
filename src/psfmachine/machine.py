@@ -867,7 +867,9 @@ class Machine(object):
         cbar.set_label("Normalized Flux")
         return fig
 
-    def build_shape_model(self, plot=False, flux_cut_off=1, cadenceno="mean", **kwargs):
+    def build_shape_model(
+        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+    ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
         fitting each source pixels to estimate its PSF photometry
@@ -876,8 +878,8 @@ class Machine(object):
         ----------
         flux_cut_off: float
             the flux in COUNTS at which to stop evaluating the model!
-        cadenceno : string or int
-            The cadence number used to build the shape model, if "mean" then use the
+        frame_index : string or int
+            The frame index used to build the shape model, if "mean" then use the
             mean value across time
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
@@ -888,7 +890,8 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        self._get_source_mask(**kwargs)
+        if not hasattr(self, "source_mask"):
+            self._get_source_mask(**kwargs)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
@@ -896,10 +899,10 @@ class Machine(object):
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
 
-        if cadenceno == "mean":
+        if frame_index == "mean":
             f = (self.flux[self.time_mask]).mean(axis=0)
-        elif isinstance(cadenceno, int):
-            f = self.flux[cadenceno]
+        elif isinstance(frame_index, int):
+            f = self.flux[frame_index]
         # f, fe = (self.flux[self.time_mask]).mean(axis=0), (
         #     (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
         # ) / (self.nt)
@@ -975,14 +978,14 @@ class Machine(object):
         self._get_mean_model()
         # remove background pixels and recreate mean model
         self._update_source_mask_remove_bkg_pixels(
-            flux_cut_off=flux_cut_off, cadenceno=cadenceno
+            flux_cut_off=flux_cut_off, frame_index=frame_index
         )
 
         if plot:
-            return self.plot_shape_model(cadenceno=cadenceno)
+            return self.plot_shape_model(frame_index=frame_index)
         return
 
-    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, cadenceno="mean"):
+    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
         """
         Update the `source_mask` to remove pixels that do not contribuite to the PRF
         shape.
@@ -996,8 +999,8 @@ class Machine(object):
         ----------
         flux_cut_off : float
             Lower limit for the normalized flux predicted from the mean model.
-        cadenceno : string or int
-            The cadence number to be used, if "mean" then use the
+        frame_index : string or int
+            The frame index to be used, if "mean" then use the
             mean value across time
         """
 
@@ -1008,12 +1011,12 @@ class Machine(object):
             np.ones(self.mean_model.shape[0]) * 10 * self.source_flux_estimates
         )
 
-        if cadenceno == "mean":
+        if frame_index == "mean":
             f, fe = (self.flux).mean(axis=0), (
                 (self.flux_err ** 2).sum(axis=0) ** 0.5
             ) / (self.nt)
-        elif isinstance(cadenceno, int):
-            f, fe = self.flux[cadenceno], self.flux_err[cadenceno]
+        elif isinstance(frame_index, int):
+            f, fe = self.flux[frame_index], self.flux_err[frame_index]
 
         X = self.mean_model.copy()
         X = X.T
@@ -1073,7 +1076,7 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def plot_shape_model(self, radius=20, cadenceno="mean"):
+    def plot_shape_model(self, radius=20, frame_index="mean"):
         """
         Diagnostic plot of shape model.
 
@@ -1081,8 +1084,8 @@ class Machine(object):
         ----------
         radius : float
             Radius (in arcseconds) limit to be shown in the figure.
-        cadenceno : string or int
-            The cadence number used to plot the shape model, if "mean" then use the
+        frame_index : string or int
+            The frame index used to plot the shape model, if "mean" then use the
             mean value across time
 
         Returns
@@ -1091,17 +1094,17 @@ class Machine(object):
             Figure.
         """
 
-        if cadenceno == "mean":
+        if frame_index == "mean":
             mean_f = np.log10(
                 self.uncontaminated_source_mask.astype(float)
                 .multiply(self.flux[self.time_mask].mean(axis=0))
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
-        elif isinstance(cadenceno, int):
+        elif isinstance(frame_index, int):
             mean_f = np.log10(
                 self.uncontaminated_source_mask.astype(float)
-                .multiply(self.flux[cadenceno])
+                .multiply(self.flux[frame_index])
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
@@ -1119,7 +1122,7 @@ class Machine(object):
         )
         ax[0, 0].set(
             ylabel=r'$\delta y$ ["]',
-            title="Data (cadence %s)" % str(cadenceno),
+            title="Data (cadence %s)" % str(frame_index),
             xlim=(-radius, radius),
             ylim=(-radius, radius),
         )
@@ -1143,7 +1146,7 @@ class Machine(object):
         )
         ax[0, 1].set(
             ylabel='$r$ ["]',
-            title="Data (cadence %s)" % str(cadenceno),
+            title="Data (cadence %s)" % str(frame_index),
             ylim=(0, radius),
             yticks=np.linspace(0, radius, 5, dtype=int),
         )
