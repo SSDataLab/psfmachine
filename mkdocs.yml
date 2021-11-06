@@ -1,10 +1,15 @@
 site_name: PSFMachine
 nav:
     - Home: index.md
-    - Machine: machine.md
-    - TPFMachine : tpf.md
-    - FFIMachine : ffi.md
-    - Aperture Photometry : aperture.md
+    - API:
+      - Machine: machine.md
+      - TPFMachine : tpf.md
+      - FFIMachine : ffi.md
+      - Aperture Photometry : aperture.md
+      - SSMAchine : superstamp.md
+    - Tutorials:
+        - FFIMachine : tutorials/Tutorial_2_FFI.ipynb
+        - SSMachine : tutorials/Tutorial_3_k2_clusters.ipynb
 theme:
   name: "material"
   icon:
@@ -12,6 +17,10 @@ theme:
 repo_url: https://github.com/SSDataLab/psfmachine
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: False
+      include_source: True
+      ignore_h1_titles: False
   - mkdocstrings:
       default_handler: python
       handlers:
