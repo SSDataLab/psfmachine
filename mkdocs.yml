@@ -5,6 +5,7 @@ nav:
     - TPFMachine : tpf.md
     - FFIMachine : ffi.md
     - Aperture Photometry : aperture.md
+    - SSMAchine : superstamp.md
 theme:
   name: "material"
   icon:

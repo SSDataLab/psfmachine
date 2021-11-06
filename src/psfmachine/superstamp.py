@@ -53,7 +53,6 @@ class SSMachine(FFIMachine):
         [Cody et al. 2018](https://archive.stsci.edu/prepds/k2superstamp/)
 
         Parameters and sttributes are the same as `FFIMachine`.
-
         """
         # init `FFImachine` object
         super().__init__(
@@ -83,7 +82,12 @@ class SSMachine(FFIMachine):
     def build_frame_shape_model(self, plot=False, **kwargs):
         """
         Compute shape model for every cadence (frame) using `Machine.build_shape_model()`
-        If plot is True, will generate a movie with PRF model evolution.
+
+        Parameters
+        ----------
+        plot : boolean
+            If `True` will create a video file in the working directory with the PSF
+            model at each frame. It uses `imageio` and `imageio-ffmpeg`.
         """
         self.mean_model_frame = []
         images = []
@@ -154,13 +158,15 @@ class SSMachine(FFIMachine):
             self.werrs_frame[tdx, nodata] *= np.nan
 
     @staticmethod
-    def from_file(fname, magnitude_limit=18, dr=3, **kwargs):
+    def from_file(fname, magnitude_limit=18, dr=2, **kwargs):
         """
         Reads data from files and initiates a new FFIMachine class.
         Parameters
         ----------
         fname : string or list of strings
             Name of the FITS files to be parsed.
+        dr : int
+            Gaia data release to be use, default is 2, options are DR2 and EDR3.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `Machine` object.
         Returns
@@ -214,8 +220,8 @@ class SSMachine(FFIMachine):
         sap=False,
     ):
         """
-        Fit the sources in the data to get its light curves. By default it only
-        uses the per cadence PSF model to do the photometry.
+        Fit the sources in the data to get its light curves.
+        By default it only uses the per cadence PSF model to do the photometry.
         Alternatively it can fit the mean-PSF and the mean-PSF with time model to
         the data, this is the original method implemented in `PSFmachine` and described
         in the paper. Aperture Photometry is also available by creating aperture masks
@@ -227,6 +233,7 @@ class SSMachine(FFIMachine):
         of photometry (PSF per cadence, SAP, mean-PSF, and mean-PSF velocity-aberration
         corrected). Also each `lightkurve.KeplerLightCurve` object includes its
         asociated metadata.
+
         The photometry can also be accessed independently from the following attribuites
         that `fit_lightcurves` create:
             * `ws` and `werrs` have the uncorrected PSF flux and flux errors.
