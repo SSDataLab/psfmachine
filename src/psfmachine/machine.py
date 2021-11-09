@@ -611,7 +611,8 @@ class Machine(object):
         return
 
     def _time_bin(self, npoints=200):
-        """Bin the flux data down in time
+        """Bin the flux data down in time. If using `pos_corr`s as corrector, it will
+        return also the binned and smooth versions of the pos_coors vectors.
 
         Parameters
         ----------
@@ -628,8 +629,12 @@ class Machine(object):
             The binned flux, raw
         flux_binned: np.ndarray
             The binned flux, whitened by the mean of the flux in time
-        flux_err_binned:
+        flux_err_binned:: np.ndarray
             The binned flux error, whitened by the mean of the flux
+        pc1_smooth and pc2_smooth: np.ndarray
+            Smooth version of the median poscorr vectors 1 and 2 used for time correction.
+        pc1_bin and pc2_bin: np.ndarray
+            Binned version of poscorrs vectors 1 and 2 used for setting knots.
         """
 
         # Where there are break points in the time array
@@ -758,7 +763,12 @@ class Machine(object):
     def build_time_model(self, plot=False):
         """
         Builds a time model that moves the PRF model to account for the scene movement
-        due to velocity aberration.
+        due to velocity aberration. It has two methods to choose from using the
+        attribute `self.time_corrector`, if `"polynomial"` (default) will use a
+        polynomial in time, if `"pos_corr"` will use the pos_corr vectos that can be found
+        in the TPFs. The time polynomial gives a more flexible model vs the pos_corr
+        option, but can lead to light curves with "weird" long-term trends. Using
+        pos_corr is recomended for Kepler data.
 
         Parameters
         ----------
