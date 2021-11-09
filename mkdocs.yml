@@ -8,8 +8,10 @@ nav:
       - Aperture Photometry : aperture.md
       - SSMAchine : superstamp.md
     - Tutorials:
-        - FFIMachine : tutorials/Tutorial_2_FFI.ipynb
-        - SSMachine : tutorials/Tutorial_3_k2_clusters.ipynb
+        - Basics of PSFMachine : tutorials/Tutorial_10_TPFs.ipynb
+        - TPFMachine : tutorials/Tutorial_11_TPFs.ipynb
+        - FFIMachine : tutorials/Tutorial_20_FFI.ipynb
+        - SSMachine : tutorials/Tutorial_30_k2ss.ipynb
 theme:
   name: "material"
   icon:
