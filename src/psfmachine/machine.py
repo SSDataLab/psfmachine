@@ -129,6 +129,14 @@ class Machine(object):
             build the PSF model
         mean_model: scipy.sparce.csr_matrix
             Mean PSF model values per pixel used for PSF photometry
+        time_corrector: string
+            The type of time corrector that will be used to build the time model,
+            default is a "polynomial" for a polynomial in time, it can also be "pos_corr"
+        cartesian_knot_spacing: string
+            Defines the type of spacing between knots in cartessian space to generate
+            the design matrix, options are "linear" or "sqrt".
+        quiet: booleans
+            Quiets TQDM progress bars.
         """
 
         if not isinstance(sources, pd.DataFrame):
@@ -154,7 +162,7 @@ class Machine(object):
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
-        self.use_poscorr = False
+        self.time_corrector = "polynomial"
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
@@ -629,7 +637,7 @@ class Machine(object):
             np.append(0, np.where(np.diff(self.time) > 0.1)[0] + 1), len(self.time)
         )
         # if using poscorr, find and add discontinuity in poscorr data
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # take the scene-median poscorr
             mpc1 = np.nanmedian(self.pos_corr1, axis=0)
             mpc2 = np.nanmedian(self.pos_corr2, axis=0)
@@ -705,7 +713,7 @@ class Machine(object):
         tm = ((tm - tm.mean()) / (tm.max() - tm.mean()))[:, None] * np.ones(fm.shape)
 
         # poscor
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # we smooth the poscorr with a Gaussian kernel and 12 cadence window
             # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
             # of focus-change breaks
@@ -759,7 +767,7 @@ class Machine(object):
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             (
                 time_original,
                 time_binned,
@@ -800,7 +808,7 @@ class Machine(object):
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # Cartesian spline with poscor dependence
             A3 = sparse.hstack(
                 [
@@ -878,7 +886,7 @@ class Machine(object):
         fig : matplotlib.Figure
             Figure.
         """
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             (
                 time_original,
                 time_binned,
@@ -917,7 +925,7 @@ class Machine(object):
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         # Cartesian spline with time dependence
-        if hasattr(self, "pos_corr1") and self.use_poscorr:
+        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # Cartesian spline with poscor dependence
             A3 = sparse.hstack(
                 [
@@ -1377,7 +1385,7 @@ class Machine(object):
 
                 # Divide through by expected velocity aberration
                 X = self.mean_model.copy()
-                if hasattr(self, "pos_corr1") and self.use_poscorr:
+                if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
                     # use median pos_corr
                     t_mult = np.hstack(
                         np.array(
