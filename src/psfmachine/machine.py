@@ -163,6 +163,10 @@ class Machine(object):
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.time_corrector = "polynomial"
+        # if pos_corr, then we can smooth the vector with a Gaussian kernel of size
+        # poscorr_filter_size, if this is 0.1 -> no smoothing, default is 12
+        # beacause of 6hr-CDPP
+        self.poscorr_filter_size = 12
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
@@ -727,12 +731,16 @@ class Machine(object):
             for i in range(1, len(splits)):
                 pc1_smooth.extend(
                     gaussian_filter1d(
-                        mpc1[splits[i - 1] : splits[i]], 12, mode="mirror"
+                        mpc1[splits[i - 1] : splits[i]],
+                        self.poscorr_filter_size,
+                        mode="mirror",
                     )
                 )
                 pc2_smooth.extend(
                     gaussian_filter1d(
-                        mpc2[splits[i - 1] : splits[i]], 12, mode="mirror"
+                        mpc2[splits[i - 1] : splits[i]],
+                        self.poscorr_filter_size,
+                        mode="mirror",
                     )
                 )
             pc1_smooth = np.array(pc1_smooth)
