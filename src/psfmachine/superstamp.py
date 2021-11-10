@@ -16,7 +16,6 @@ import astropy.units as u
 
 from .ffi import FFIMachine
 from .ffi import _get_sources
-from .version import __version__
 
 __all__ = ["SSMachine"]
 
@@ -95,7 +94,7 @@ class SSMachine(FFIMachine):
         self._get_uncontaminated_pixel_mask()
         org_sm = self.source_mask
         org_usm = self.uncontaminated_source_mask
-        for tdx in tqdm(range(self.nt), desc=f"Building shape model per frame"):
+        for tdx in tqdm(range(self.nt), desc="Building shape model per frame"):
             fig = self.build_shape_model(frame_index=tdx, plot=plot, **kwargs)
             self.mean_model_frame.append(self.mean_model)
             if plot:
@@ -454,7 +453,6 @@ def _load_file(fname):
     flux, flux_err = [], []
     times = []
     telescopes = []
-    dct_types = []
     campaigns = []
     channels = []
     for i, f in enumerate(fname):
