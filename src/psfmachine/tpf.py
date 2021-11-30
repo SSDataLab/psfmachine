@@ -151,6 +151,12 @@ class TPFMachine(Machine):
             self.load_shape_model(input=shape_model_file, plot=plot)
         else:
             self.build_shape_model(plot=plot)
+        # sap photometry is independent of the time model and fitting the PSF model.
+        # it only uses the shape mean_model
+        if sap:
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complete=1, target_crowd=1
+            )
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
@@ -164,10 +170,6 @@ class TPFMachine(Machine):
                 idx += 1
                 if idx >= 3:
                     break
-        if sap:
-            self.compute_aperture_photometry(
-                aperture_size="optimal", target_complete=1, target_crowd=1
-            )
 
         self.lcs = []
         for idx, s in self.sources.iterrows():

@@ -1490,6 +1490,8 @@ class Machine(object):
         )
         # create aperture mask
         self.aperture_mask = np.array(self.mean_model >= cut[::, None])
+        # make sure there are no all-pixel apertures due to `mean_model[i] = 0`
+        self.aperture_mask[self.aperture_mask.sum(axis=1) == self.npixels] = False
         # compute flux metrics. Have to round to 10th decimal due to floating point
         self.FLFRCSAP = np.round(
             compute_FLFRCSAP(self.mean_model, self.aperture_mask), 10
