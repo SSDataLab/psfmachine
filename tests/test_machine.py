@@ -115,3 +115,28 @@ def test_compute_aperture_photometry():
     assert machine.sap_flux_err.shape == (10, 19)
     assert (machine.sap_flux >= 0).all()
     assert (machine.sap_flux_err >= 0).all()
+
+
+@pytest.mark.remote_data
+def test_create_delta_sparse_arrays():
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
+    machine._get_source_mask()
+    machine.poscorr_filter_size = 0.4
+    (
+        time_original,
+        time_binned,
+        flux_binned_raw,
+        flux_binned,
+        flux_err_binned,
+        poscorr1_smooth,
+        poscorr2_smooth,
+        poscorr1_binned,
+        poscorr2_binned,
+    ) = machine._time_bin(npoints=100)
+
+    assert np.isclose(
+        poscorr1_smooth, np.nanmedian(machine.pos_corr1, axis=0), atol=1e-3
+    ).all()
+    assert np.isclose(
+        poscorr2_smooth, np.nanmedian(machine.pos_corr2, axis=0), atol=1e-3
+    ).all()
