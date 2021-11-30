@@ -133,6 +133,8 @@ class Machine(object):
         time_corrector: string
             The type of time corrector that will be used to build the time model,
             default is a "polynomial" for a polynomial in time, it can also be "pos_corr"
+        poscorr_filter_size: int
+            Standard deviation for Gaussian kernel to be used to smooth the pos_corrs
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
@@ -165,7 +167,7 @@ class Machine(object):
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.time_corrector = "polynomial"
         # if pos_corr, then we can smooth the vector with a Gaussian kernel of size
-        # poscorr_filter_size, if this is 0.1 -> no smoothing, default is 12
+        # poscorr_filter_size, if this is < 0.5 -> no smoothing, default is 12
         # beacause of 6hr-CDPP
         self.poscorr_filter_size = 12
         self.cartesian_knot_spacing = "sqrt"
@@ -655,6 +657,7 @@ class Machine(object):
             # find poscorr discontinuity in each axis
             grads1 = np.gradient(mpc1, self.time)
             grads2 = np.gradient(mpc2, self.time)
+            # the 7-sigma here is hardcoded and found to work ok
             splits1 = np.where(grads1 > 7 * grads1.std())[0]
             splits2 = np.where(grads2 > 7 * grads2.std())[0]
             # merging breaks
@@ -729,6 +732,13 @@ class Machine(object):
             # of focus-change breaks
             pc1_smooth = []
             pc2_smooth = []
+            # if poscorr_filter_size == 0 then the smoothing will fail. we take care of
+            # it by setting every value < .5 to 0.1 which leads to no smoothing
+            # (residuals < 1e-4)
+            self.poscorr_filter_size = (
+                0.1 if self.poscorr_filter_size < 0.5 else self.poscorr_filter_size
+            )
+            print(self.poscorr_filter_size)
             for i in range(1, len(splits)):
                 pc1_smooth.extend(
                     gaussian_filter1d(
