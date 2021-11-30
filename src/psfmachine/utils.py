@@ -396,3 +396,46 @@ def sparse_lessthan(arr, limit):
         shape=arr.shape,
     ).astype(bool)
     return masked_arr
+
+
+def _combine_A(A, poscorr=None, time=None):
+    """
+    Combines a design matrix A (cartesian) with a time corrector type.
+    If poscorr is provided, A will be combined with both axis of the pos corr as a
+    1st degree polynomial.
+    If time is provided, A will be combined with the time values as a 3rd degree
+    polynomialin time.
+
+    Parameters
+    ----------
+    A : sparse.csr_matrix
+        A sparse design matix in of cartesian coordinates created with _make_A_cartesian
+    poscorr : list
+        A list of pos_corr arrays for axis 1 and 2
+    time : numpy.array
+        An array with time values
+    """
+    if poscorr:
+        # Cartesian spline with poscor dependence
+        A2 = sparse.hstack(
+            [
+                A,
+                A.multiply(poscorr[0].ravel()[:, None]),
+                A.multiply(poscorr[1].ravel()[:, None]),
+                A.multiply((poscorr[0] * poscorr[1]).ravel()[:, None]),
+            ],
+            format="csr",
+        )
+        return A2
+    elif time:
+        # Cartesian spline with time dependence
+        A2 = sparse.hstack(
+            [
+                A,
+                A.multiply(time.ravel()[:, None]),
+                A.multiply(time.ravel()[:, None] ** 2),
+                A.multiply(time.ravel()[:, None] ** 3),
+            ],
+            format="csr",
+        )
+        return A2

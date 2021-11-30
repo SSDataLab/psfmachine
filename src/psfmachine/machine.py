@@ -15,6 +15,7 @@ from .utils import (
     _make_A_cartesian,
     solve_linear_model,
     sparse_lessthan,
+    _combine_A,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
@@ -828,26 +829,10 @@ class Machine(object):
         # Cartesian spline with time dependence
         if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # Cartesian spline with poscor dependence
-            A3 = sparse.hstack(
-                [
-                    A2,
-                    A2.multiply(poscorr1_binned.ravel()[:, None]),
-                    A2.multiply(poscorr2_binned.ravel()[:, None]),
-                    A2.multiply((poscorr1_binned * poscorr2_binned).ravel()[:, None]),
-                ],
-                format="csr",
-            )
+            A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
         else:
             # Cartesian spline with time dependence
-            A3 = sparse.hstack(
-                [
-                    A2,
-                    A2.multiply(time_binned.ravel()[:, None]),
-                    A2.multiply(time_binned.ravel()[:, None] ** 2),
-                    A2.multiply(time_binned.ravel()[:, None] ** 3),
-                ],
-                format="csr",
-            )
+            A3 = _combine_A(A2, time=time_binned)
 
         # No saturated pixels
         k = (
@@ -945,26 +930,28 @@ class Machine(object):
         # Cartesian spline with time dependence
         if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
             # Cartesian spline with poscor dependence
-            A3 = sparse.hstack(
-                [
-                    A2,
-                    A2.multiply(poscorr1_binned.ravel()[:, None]),
-                    A2.multiply(poscorr2_binned.ravel()[:, None]),
-                    A2.multiply((poscorr1_binned * poscorr2_binned).ravel()[:, None]),
-                ],
-                format="csr",
-            )
+            A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
+            # A3 = sparse.hstack(
+            #     [
+            #         A2,
+            #         A2.multiply(poscorr1_binned.ravel()[:, None]),
+            #         A2.multiply(poscorr2_binned.ravel()[:, None]),
+            #         A2.multiply((poscorr1_binned * poscorr2_binned).ravel()[:, None]),
+            #     ],
+            #     format="csr",
+            # )
         else:
             # Cartesian spline with time dependence
-            A3 = sparse.hstack(
-                [
-                    A2,
-                    A2.multiply(time_binned.ravel()[:, None]),
-                    A2.multiply(time_binned.ravel()[:, None] ** 2),
-                    A2.multiply(time_binned.ravel()[:, None] ** 3),
-                ],
-                format="csr",
-            )
+            A3 = _combine_A(A2, time=time_binned)
+            # A3 = sparse.hstack(
+            #     [
+            #         A2,
+            #         A2.multiply(time_binned.ravel()[:, None]),
+            #         A2.multiply(time_binned.ravel()[:, None] ** 2),
+            #         A2.multiply(time_binned.ravel()[:, None] ** 3),
+            #     ],
+            #     format="csr",
+            # )
 
         model = A3.dot(self.time_model_w).reshape(flux_binned.shape) + 1
         fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
