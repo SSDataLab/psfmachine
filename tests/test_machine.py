@@ -118,7 +118,7 @@ def test_compute_aperture_photometry():
 
 
 @pytest.mark.remote_data
-def test_create_delta_sparse_arrays():
+def test_poscorr_smooth():
     machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     machine._get_source_mask()
     machine.poscorr_filter_size = 0.4
