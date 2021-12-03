@@ -46,10 +46,12 @@ class TPFMachine(Machine):
         rmin=1,
         rmax=16,
         pix2obs=None,
-        #        pos_corr1=None,
-        #        pos_corr2=None,
+        pos_corr1=None,
+        pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
+        time_corrector="pos_corr",
+        cartesian_knot_spacing="sqrt",
     ):
         super().__init__(
             time=time,
@@ -81,9 +83,11 @@ class TPFMachine(Machine):
         else:
             self.time_mask = time_mask & focus_mask
         self.pix2obs = pix2obs
-        #        self.pos_corr1 = pos_corr1
-        #        self.pos_corr2 = pos_corr2
+        self.pos_corr1 = pos_corr1
+        self.pos_corr2 = pos_corr2
         self.tpf_meta = tpf_meta
+        self.time_corrector = time_corrector
+        self.cartesian_knot_spacing = cartesian_knot_spacing
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
@@ -147,6 +151,12 @@ class TPFMachine(Machine):
             self.load_shape_model(input=shape_model_file, plot=plot)
         else:
             self.build_shape_model(plot=plot)
+        # sap photometry is independent of the time model and fitting the PSF model.
+        # it only uses the shape mean_model
+        if sap:
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complete=1, target_crowd=1
+            )
         self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
@@ -160,10 +170,6 @@ class TPFMachine(Machine):
                 idx += 1
                 if idx >= 3:
                     break
-        if sap:
-            self.compute_aperture_photometry(
-                aperture_size="optimal", target_complete=1, target_crowd=1
-            )
 
         self.lcs = []
         for idx, s in self.sources.iterrows():
@@ -728,8 +734,8 @@ class TPFMachine(Machine):
             times,
             flux,
             flux_err,
-            #            pos_corr1,
-            #            pos_corr2,
+            pos_corr1,
+            pos_corr2,
             column,
             row,
             unw,
@@ -750,8 +756,8 @@ class TPFMachine(Machine):
         (
             flux,
             flux_err,
-            #            pos_corr1,
-            #            pos_corr2,
+            # pos_corr1,
+            # pos_corr2,
             unw,
             locs,
             ra,
@@ -761,7 +767,8 @@ class TPFMachine(Machine):
         ) = _preprocess(
             flux,
             flux_err,
-            # pos_corr1, pos_corr2,
+            # pos_corr1,
+            # pos_corr2,
             unw,
             locs,
             ra,
@@ -829,8 +836,8 @@ class TPFMachine(Machine):
             row=row,
             pix2obs=unw,
             focus_mask=focus_mask,
-            #            pos_corr1=pos_corr1,
-            #            pos_corr2=pos_corr2,
+            pos_corr1=pos_corr1,
+            pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
             time_mask=time_mask,
             **kwargs,
@@ -921,28 +928,13 @@ def _parse_TPFs(tpfs, **kwargs):
         )
         sat_mask.append(np.hstack(saturated))
     sat_mask = np.hstack(sat_mask)
-    # pos_corr1 = np.hstack(
-    #     [
-    #         np.hstack(
-    #             (
-    #                 tpf.pos_corr1[qual_mask][:, None, None]
-    #                 * np.ones(tpf.flux.shape[1:])[None, :, :]
-    #             ).transpose([2, 0, 1])
-    #         )
-    #         for tpf in tpfs
-    #     ]
-    # )
-    # pos_corr2 = np.hstack(
-    #     [
-    #         np.hstack(
-    #             (
-    #                 tpf.pos_corr2[qual_mask][:, None, None]
-    #                 * np.ones(tpf.flux.shape[1:])[None, :, :]
-    #             ).transpose([2, 0, 1])
-    #         )
-    #         for tpf in tpfs
-    #     ]
-    # )
+    pos_corr1, pos_corr2 = np.swapaxes(
+        np.array(
+            [np.vstack([x.pos_corr1[qual_mask], x.pos_corr2[qual_mask]]) for x in tpfs]
+        ),
+        0,
+        1,
+    )
     unw = np.hstack(
         [
             np.zeros((tpf.shape[1] * tpf.shape[2]), dtype=int) + idx
@@ -953,8 +945,8 @@ def _parse_TPFs(tpfs, **kwargs):
         times,
         flux,
         flux_err,
-        #        pos_corr1,
-        #        pos_corr2,
+        pos_corr1,
+        pos_corr2,
         column,
         row,
         unw,
@@ -967,8 +959,8 @@ def _parse_TPFs(tpfs, **kwargs):
 def _preprocess(
     flux,
     flux_err,
-    #    pos_corr1,
-    #    pos_corr2,
+    # pos_corr1,
+    # pos_corr2,
     unw,
     locs,
     ra,
@@ -1027,11 +1019,11 @@ def _preprocess(
     dec = dec[mask]
     flux = flux[:, mask]
     flux_err = flux_err[:, mask]
-    #    pos_corr1 = pos_corr1[:, mask]
-    #    pos_corr2 = pos_corr2[:, mask]
+    # pos_corr1 = pos_corr1[:, mask]
+    # pos_corr2 = pos_corr2[:, mask]
     unw = unw[mask]
 
-    return (flux, flux_err, unw, locs, ra, dec, column, row)  # pos_corr1, pos_corr2,
+    return (flux, flux_err, unw, locs, ra, dec, column, row)
 
 
 def _wcs_from_tpfs(tpfs):
