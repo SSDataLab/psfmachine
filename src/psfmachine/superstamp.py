@@ -103,6 +103,7 @@ class SSMachine(FFIMachine):
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                 images.append(image)
                 plt.close()
+            # we reset the source mask because sources may move slightly, e.g. K2
             self.source_mask = org_sm
             self.uncontaminated_source_mask = org_usm
         if plot:
@@ -159,19 +160,25 @@ class SSMachine(FFIMachine):
     @staticmethod
     def from_file(fname, magnitude_limit=18, dr=2, **kwargs):
         """
-        Reads data from files and initiates a new FFIMachine class.
+        Reads data from files and initiates a new SSMachine class. SuperStamp file
+        paths are passed as a string (single frame) or a list of paths (multiple
+        frames).
+
         Parameters
         ----------
         fname : string or list of strings
-            Name of the FITS files to be parsed.
+            Path to the FITS files to be parsed. For only one frame, pass a string,
+            for multiple frames pass a list of paths.
+        magnitude_limit : float
+            Limiting magnitude to query Gaia catalog.
         dr : int
             Gaia data release to be use, default is 2, options are DR2 and EDR3.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `Machine` object.
         Returns
         -------
-        FFIMachine : Machine object
-            A Machine class object built from the FFI.
+        SSMachine : Machine object
+            A Machine class object built from the SuperStamps files.
         """
         (
             wcs,
@@ -271,6 +278,14 @@ class SSMachine(FFIMachine):
             `Machine.compute_aperture_photometry()` for details.
         """
 
+        # do SAP first
+        if sap:
+            self.build_shape_model(plot=plot)
+            self.compute_aperture_photometry(
+                aperture_size="optimal", target_complete=1, target_crowd=1
+            )
+
+        # do mean-PSF photometry and time model if asked
         if fit_mean_shape_model:
             self.build_shape_model(plot=plot)
             self.build_time_model(plot=plot)
@@ -287,11 +302,7 @@ class SSMachine(FFIMachine):
                     idx += 1
                     if idx >= 3:
                         break
-        if sap:
-            self.build_shape_model(plot=plot)
-            self.compute_aperture_photometry(
-                aperture_size="optimal", target_complete=1, target_crowd=1
-            )
+
         # fit shape model at each cadence
         self.build_frame_shape_model()
         self.fit_frame_model()
@@ -336,14 +347,15 @@ class SSMachine(FFIMachine):
                 meta=meta,
                 time_format="jd",
             )
-            lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
-            lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
-            if fit_va:
-                lc["flux_VA"] = (self.ws_va[:, idx]) * u.electron / u.second
-                lc["flux_err_VA"] = (self.werrs_va[:, idx]) * u.electron / u.second
+            if fit_mean_shape_model:
+                lc["flux_NVA"] = (self.ws[:, idx]) * u.electron / u.second
+                lc["flux_err_NVA"] = (self.werrs[:, idx]) * u.electron / u.second
+                if fit_va:
+                    lc["flux_VA"] = (self.ws_va[:, idx]) * u.electron / u.second
+                    lc["flux_err_VA"] = (self.werrs_va[:, idx]) * u.electron / u.second
             if sap:
-                lc["flux_sap"] = (self.sap_flux[:, idx]) * u.electron / u.second
-                lc["flux_err_sap"] = (self.sap_flux_err[:, idx]) * u.electron / u.second
+                lc["sap_flux"] = (self.sap_flux[:, idx]) * u.electron / u.second
+                lc["sap_flux_err"] = (self.sap_flux_err[:, idx]) * u.electron / u.second
 
             self.lcs.append(lc)
         self.lcs = lk.LightCurveCollection(self.lcs)
@@ -422,11 +434,15 @@ class SSMachine(FFIMachine):
 
 def _load_file(fname):
     """
-    Helper function to load FFI files and parse data.
+    Helper function to load K2 SuperStamp files files and parse data. This function
+    works with K2 SS files created by Cody et al. 2018, which are single cadence FITS
+    file, then a full campaign has many FITS files (e.g. M67 has 3620 files).
+
     Parameters
     ----------
     fname : string or list of strings
-        Name of the FITS files to be parsed.
+        Path to the FITS files to be parsed. For only one frame, pass a string,
+        for multiple frames pass a list of paths.
     Returns
     -------
     wcs : astropy.wcs
@@ -472,6 +488,7 @@ def _load_file(fname):
         channels.append(hdul[img_ext].header["CHANNEL"])
         hdr = hdul[img_ext].header
         times.append(Time([hdr["DATE-OBS"], hdr["DATE-END"]], format="isot").mjd.mean())
+        times.append(Time([hdr["TSTART"], hdr["TSTOP"]], format="jd").mjd.mean())
         flux.append(hdul[img_ext].data)
         if img_ext == 1:
             flux_err.append(hdul[2].data)
@@ -507,7 +524,7 @@ def _load_file(fname):
         meta["MISSION"] = meta["TELESCOP"]
 
     # sort by times
-    times = Time(times, format="btjd", scale="tdb")
+    times = Time(times, format="mjd", scale="tdb")
     tdx = np.argsort(times)
     times = times[tdx]
     row_2d, col_2d = np.mgrid[: flux[0].shape[0], : flux[0].shape[1]]
