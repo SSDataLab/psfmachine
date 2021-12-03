@@ -664,18 +664,19 @@ class Machine(object):
             splits = np.unique(np.concatenate([splits, splits1[1::2], splits2[1::2]]))
             del grads1, grads2, splits1, splits2
 
-        splits_a = splits[:-1] + 100
+        # the adition is to set the first knot after breaks @ 1% of the sequence lenght
+        splits_a = splits[:-1] + int(self.nt * 0.01)
         splits_b = splits[1:]
         dsplits = (splits_b - splits_a) // npoints
-        # breake has the bin centers
-        # first break is at cadance 50
-        breaks = [50]
+        # this isteration is to avoid knots right at poscorr/time discontinuity by
+        # iterating over segments between splits and creating evenly spaced knots
+        # within them
+        breaks = []
         for spdx in range(len(splits_a)):
-            breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx] - 1) * npoints)
-        # we include 50-to-last cadecence
-        breaks.append(splits[-1] - 50)
+            breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx]) * npoints)
+        # we include the last cadance as 99% of the sequence lenght
+        breaks.append(int(self.nt * 0.99))
         breaks = np.hstack(breaks)
-        # breaks = np.unique(np.hstack([breaks, splits[1:-1]]))
 
         # Time averaged
         tm = np.vstack(
@@ -738,7 +739,6 @@ class Machine(object):
             self.poscorr_filter_size = (
                 0.1 if self.poscorr_filter_size < 0.5 else self.poscorr_filter_size
             )
-            print(self.poscorr_filter_size)
             for i in range(1, len(splits)):
                 pc1_smooth.extend(
                     gaussian_filter1d(
