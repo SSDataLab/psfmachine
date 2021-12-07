@@ -167,7 +167,7 @@ class SSMachine(FFIMachine):
             self.werrs_frame[tdx, nodata] *= np.nan
 
     @staticmethod
-    def from_file(fname, magnitude_limit=18, dr=2, **kwargs):
+    def from_file(fname, magnitude_limit=18, dr=2, sources=None, **kwargs):
         """
         Reads data from files and initiates a new SSMachine class. SuperStamp file
         paths are passed as a string (single frame) or a list of paths (multiple
@@ -204,17 +204,17 @@ class SSMachine(FFIMachine):
         ) = _load_file(fname)
 
         valid_pix = np.isfinite(flux).sum(axis=0).astype(bool)
-
-        sources = _get_sources(
-            ra[valid_pix],
-            dec[valid_pix],
-            wcs,
-            magnitude_limit=magnitude_limit,
-            epoch=time.jyear.mean(),
-            ngrid=(2, 2) if flux.shape[1] <= 500 else (5, 5),
-            dr=dr,
-            img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
-        )
+        if sources is None:
+            sources = _get_sources(
+                ra[valid_pix],
+                dec[valid_pix],
+                wcs,
+                magnitude_limit=magnitude_limit,
+                epoch=time.jyear.mean(),
+                ngrid=(2, 2) if flux.shape[1] <= 500 else (5, 5),
+                dr=dr,
+                img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
+            )
 
         return SSMachine(
             time.jd,
