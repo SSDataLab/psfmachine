@@ -16,6 +16,7 @@ from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
 from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+from .tpf import _clean_source_list
 
 from .machine import Machine
 from .version import __version__
@@ -107,6 +108,15 @@ class FFIMachine(Machine):
         if not meta["BACKAPP"]:
             self._remove_background()
         self._mask_pixels()
+
+        # remove nan pixels
+        valid_pix = np.isfinite(self.flux).sum(axis=0).astype(bool)
+        self.flux = self.flux[:, valid_pix]
+        self.flux_err = self.flux_err[:, valid_pix]
+        self.ra = self.ra[valid_pix]
+        self.dec = self.dec[valid_pix]
+        self.row = self.row[valid_pix]
+        self.column = self.column[valid_pix]
 
         # init `machine` object
         super().__init__(
@@ -982,14 +992,15 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
     ).T
 
     # remove sources outiside the ccd with a tolerance
-    tolerance = 0
-    inside = (
-        (sources.row > img_limits[0][0] - tolerance)
-        & (sources.row < img_limits[0][1] + tolerance)
-        & (sources.column > img_limits[1][0] - tolerance)
-        & (sources.column < img_limits[1][1] + tolerance)
-    )
-    sources = sources[inside].reset_index(drop=True)
+    # tolerance = 0
+    # inside = (
+    #     (sources.row > img_limits[0][0] - tolerance)
+    #     & (sources.row < img_limits[0][1] + tolerance)
+    #     & (sources.column > img_limits[1][0] - tolerance)
+    #     & (sources.column < img_limits[1][1] + tolerance)
+    # )
+    # sources = sources[inside].reset_index(drop=True)
+    sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=1)
     return sources
 
 
