@@ -617,7 +617,7 @@ class Machine(object):
 
         return
 
-    def _time_bin(self, npoints=200):
+    def _time_bin(self, npoints=200, downsample=False):
         """Bin the flux data down in time. If using `pos_corr`s as corrector, it will
         return also the binned and smooth versions of the pos_coors vectors.
 
@@ -649,10 +649,20 @@ class Machine(object):
             np.append(0, np.where(np.diff(self.time) > 0.1)[0] + 1), len(self.time)
         )
         # if using poscorr, find and add discontinuity in poscorr data
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
-            # take the scene-median poscorr
-            mpc1 = np.nanmedian(self.pos_corr1, axis=0)
-            mpc2 = np.nanmedian(self.pos_corr2, axis=0)
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
+            if self.time_corrector == "pos_corr":
+                print("using pos_corrs")
+                # take the scene-median poscorr
+                mpc1 = np.nanmedian(self.pos_corr1, axis=0)
+                mpc2 = np.nanmedian(self.pos_corr2, axis=0)
+            else:
+                # if usig centroids need to convert to pixels
+                print("using centroids")
+                mpc1 = self.ra_centroid.to("arcsec").value / 4
+                mpc2 = self.dec_centroid.to("arcsec").value / 4
 
             # find poscorr discontinuity in each axis
             grads1 = np.gradient(mpc1, self.time)
@@ -679,55 +689,72 @@ class Machine(object):
         breaks = np.hstack(breaks)
 
         # Time averaged
-        tm = np.vstack(
-            [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
-        ).ravel()
-        ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
+        if not downsample:
+            tm = np.vstack(
+                [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
+            ).ravel()
+            ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
 
-        ms = [
-            np.in1d(np.arange(self.nt), i)
-            for i in np.array_split(np.arange(self.nt), breaks)
-        ]
-        # Average Pixel values
-        fm = np.asarray(
-            [
-                (
-                    sparse.csr_matrix(self.uncontaminated_source_mask)
-                    .multiply(self.flux[ms[tdx]].mean(axis=0))
-                    .data
-                )
-                for tdx in range(len(ms))
+            ms = [
+                np.in1d(np.arange(self.nt), i)
+                for i in np.array_split(np.arange(self.nt), breaks)
             ]
-        )
-        fm_raw = np.asarray(
-            [
-                (
-                    sparse.csr_matrix(self.uncontaminated_source_mask)
-                    .multiply(self.flux[ms[tdx]].mean(axis=0))
-                    .data
+            # Average Pixel values
+            fm = np.asarray(
+                [
+                    (
+                        sparse.csr_matrix(self.uncontaminated_source_mask)
+                        .multiply(self.flux[ms[tdx]].mean(axis=0))
+                        .data
+                    )
+                    for tdx in range(len(ms))
+                ]
+            )
+            fem = np.asarray(
+                [
+                    (
+                        sparse.csr_matrix(self.uncontaminated_source_mask)
+                        .multiply((self.flux_err ** 2)[ms[tdx]].sum(axis=0) ** 0.5)
+                        .data
+                        / ms[tdx].sum()
+                    )
+                    for tdx in range(len(ms))
+                ]
+            )
+        else:
+            dwns_idx = (
+                np.vstack(
+                    [np.median(t1) for t1 in np.array_split(np.arange(self.nt), breaks)]
                 )
-                for tdx in range(len(ms))
-            ]
-        )
-        fem = np.asarray(
-            [
-                (
-                    sparse.csr_matrix(self.uncontaminated_source_mask)
-                    .multiply((self.flux_err ** 2)[ms[tdx]].sum(axis=0) ** 0.5)
-                    .data
-                    / ms[tdx].sum()
-                )
-                for tdx in range(len(ms))
-            ]
-        )
+                .ravel()
+                .astype(int)
+            )
+            tm = self.time[dwns_idx]
+            ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
+            fm = np.asarray(
+                [
+                    self.uncontaminated_source_mask.multiply(self.flux[idx]).data
+                    for idx in dwns_idx
+                ]
+            )
+            fem = np.asarray(
+                [
+                    self.uncontaminated_source_mask.multiply(self.flux_err[idx]).data
+                    for idx in dwns_idx
+                ]
+            )
 
+        fm_raw = fm.copy()
         fem /= np.nanmean(fm, axis=0)
         fm /= np.nanmean(fm, axis=0)
 
         tm = ((tm - tm.mean()) / (tm.max() - tm.mean()))[:, None] * np.ones(fm.shape)
 
         # poscor
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
             # we smooth the poscorr with a Gaussian kernel and 12 cadence window
             # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
             # of focus-change breaks
@@ -758,12 +785,16 @@ class Machine(object):
             pc2_smooth = np.array(pc2_smooth)
 
             # do poscorr binning
-            pc1_bin = np.vstack(
-                [np.median(t1, axis=0) for t1 in np.array_split(pc1_smooth, breaks)]
-            ).ravel()[:, None] * np.ones(fm.shape)
-            pc2_bin = np.vstack(
-                [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
-            ).ravel()[:, None] * np.ones(fm.shape)
+            if not downsample:
+                pc1_bin = np.vstack(
+                    [np.median(t1, axis=0) for t1 in np.array_split(pc1_smooth, breaks)]
+                ).ravel()[:, None] * np.ones(fm.shape)
+                pc2_bin = np.vstack(
+                    [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
+                ).ravel()[:, None] * np.ones(fm.shape)
+            else:
+                pc1_bin = pc1_smooth[dwns_idx][:, None] * np.ones(fm.shape)
+                pc2_bin = pc2_smooth[dwns_idx][:, None] * np.ones(fm.shape)
 
             return (
                 ta,
@@ -779,7 +810,7 @@ class Machine(object):
 
         return ta, tm, fm_raw, fm, fem
 
-    def build_time_model(self, plot=False):
+    def build_time_model(self, plot=False, downsample=False):
         """
         Builds a time model that moves the PRF model to account for the scene movement
         due to velocity aberration. It has two methods to choose from using the
@@ -796,7 +827,10 @@ class Machine(object):
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
             (
                 time_original,
                 time_binned,
@@ -807,7 +841,7 @@ class Machine(object):
                 poscorr2_smooth,
                 poscorr1_binned,
                 poscorr2_binned,
-            ) = self._time_bin(npoints=self.n_time_points)
+            ) = self._time_bin(npoints=self.n_time_points, downsample=downsample)
             self.pos_corr1_smooth = poscorr1_smooth
             self.pos_corr2_smooth = poscorr2_smooth
         else:
@@ -817,7 +851,7 @@ class Machine(object):
                 flux_binned_raw,
                 flux_binned,
                 flux_err_binned,
-            ) = self._time_bin(npoints=self.n_time_points)
+            ) = self._time_bin(npoints=self.n_time_points, downsample=downsample)
 
         self._whitened_time = time_original
         # not necessary to take value from Quantity to do .multiply()
@@ -837,7 +871,10 @@ class Machine(object):
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
             # Cartesian spline with poscor dependence
             A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
         else:
@@ -899,7 +936,10 @@ class Machine(object):
         fig : matplotlib.Figure
             Figure.
         """
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
             (
                 time_original,
                 time_binned,
@@ -938,7 +978,10 @@ class Machine(object):
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         # Cartesian spline with time dependence
-        if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+        if hasattr(self, "pos_corr1") and self.time_corrector in [
+            "pos_corr",
+            "centroid",
+        ]:
             # Cartesian spline with poscor dependence
             A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
         else:
@@ -1403,7 +1446,10 @@ class Machine(object):
 
                 # Divide through by expected velocity aberration
                 X = self.mean_model.copy()
-                if hasattr(self, "pos_corr1") and self.time_corrector == "pos_corr":
+                if hasattr(self, "pos_corr1") and self.time_corrector in [
+                    "pos_corr",
+                    "centroid",
+                ]:
                     # use median pos_corr
                     t_mult = np.hstack(
                         np.array(
