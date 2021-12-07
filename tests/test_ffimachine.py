@@ -28,7 +28,7 @@ def test_ffi_from_file():
     assert ffi.row.shape == (33812,)
     assert ffi.ra.shape == (33812,)
     assert ffi.dec.shape == (33812,)
-    assert ffi.sources.shape == (259, 13)
+    assert ffi.sources.shape == (269, 14)
 
 
 @pytest.mark.remote_data
@@ -78,7 +78,7 @@ def test_save_flux_values():
 
     # check FITS table has the right shapes, columns and units
     table = Table.read(file_name)
-    assert len(table) == 259
+    assert len(table) == 269
     assert "psf_flux" in table.keys()
     assert "psf_flux_err" in table.keys()
     assert "gaia_id" in table.keys()

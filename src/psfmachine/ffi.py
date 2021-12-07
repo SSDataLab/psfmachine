@@ -1000,7 +1000,7 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
     #     & (sources.column < img_limits[1][1] + tolerance)
     # )
     # sources = sources[inside].reset_index(drop=True)
-    sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=1)
+    sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
     return sources
 
 
