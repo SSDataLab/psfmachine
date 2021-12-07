@@ -45,6 +45,8 @@ class SSMachine(FFIMachine):
         rmin=1,
         rmax=16,
         cut_r=6,
+        pos_corr1=None,
+        pos_corr2=None,
         meta=None,
     ):
         """
@@ -76,6 +78,13 @@ class SSMachine(FFIMachine):
             meta=meta,
         )
 
+        if pos_corr1 is not None and pos_corr1 is not None:
+            self.pos_corr1 = np.nan_to_num(np.array(pos_corr1)[None, :])
+            self.pos_corr2 = np.nan_to_num(np.array(pos_corr2)[None, :])
+            self.time_corrector = "pos_corr"
+        else:
+            self.time_corrector = "centroid"
+        self.poscorr_filter_size = 0
         self.meta["DCT_TYPE"] = "SuperStamp"
 
     def build_frame_shape_model(self, plot=False, **kwargs):
@@ -189,12 +198,16 @@ class SSMachine(FFIMachine):
             dec,
             column,
             row,
+            poscorr1,
+            poscorr2,
             metadata,
         ) = _load_file(fname)
 
+        valid_pix = np.isfinite(flux).sum(axis=0).astype(bool)
+
         sources = _get_sources(
-            ra,
-            dec,
+            ra[valid_pix],
+            dec[valid_pix],
             wcs,
             magnitude_limit=magnitude_limit,
             epoch=time.jyear.mean(),
@@ -214,6 +227,8 @@ class SSMachine(FFIMachine):
             row.ravel(),
             wcs=wcs,
             meta=metadata,
+            pos_corr1=poscorr1,
+            pos_corr2=poscorr2,
             **kwargs,
         )
 
@@ -288,7 +303,7 @@ class SSMachine(FFIMachine):
         # do mean-PSF photometry and time model if asked
         if fit_mean_shape_model:
             self.build_shape_model(plot=plot)
-            self.build_time_model(plot=plot)
+            self.build_time_model(plot=plot, donwsample=True)
             # fit the OG time model
             self.fit_model(fit_va=fit_va)
             if iter_negative:
@@ -471,6 +486,7 @@ def _load_file(fname):
     telescopes = []
     campaigns = []
     channels = []
+    poscorr1, poscorr2 = [], []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
@@ -487,7 +503,9 @@ def _load_file(fname):
             img_ext = 0
         channels.append(hdul[img_ext].header["CHANNEL"])
         hdr = hdul[img_ext].header
-        times.append(Time([hdr["DATE-OBS"], hdr["DATE-END"]], format="isot").mjd.mean())
+        # times.append(Time([hdr["DATE-OBS"], hdr["DATE-END"]], format="isot").mjd.mean())
+        poscorr1.append(float(hdr["POSCORR1"]))
+        poscorr2.append(float(hdr["POSCORR2"]))
         times.append(Time([hdr["TSTART"], hdr["TSTOP"]], format="jd").mjd.mean())
         flux.append(hdul[img_ext].data)
         if img_ext == 1:
@@ -530,6 +548,8 @@ def _load_file(fname):
     row_2d, col_2d = np.mgrid[: flux[0].shape[0], : flux[0].shape[1]]
     flux_2d = np.array(flux)[tdx]
     flux_err_2d = np.array(flux_err)[tdx]
+    poscorr1 = np.array(poscorr1)[tdx]
+    poscorr2 = np.array(poscorr2)[tdx]
 
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
     ra_2d = ra.reshape(flux_2d.shape[1:])
@@ -546,5 +566,7 @@ def _load_file(fname):
         dec_2d,
         col_2d,
         row_2d,
+        poscorr1,
+        poscorr2,
         meta,
     )
