@@ -303,7 +303,7 @@ class SSMachine(FFIMachine):
         # do mean-PSF photometry and time model if asked
         if fit_mean_shape_model:
             self.build_shape_model(plot=plot)
-            self.build_time_model(plot=plot, donwsample=True)
+            self.build_time_model(plot=plot, downsample=True)
             # fit the OG time model
             self.fit_model(fit_va=fit_va)
             if iter_negative:
