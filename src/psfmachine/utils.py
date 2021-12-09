@@ -2,14 +2,17 @@
 
 import numpy as np
 import pandas as pd
-import functools
+import diskcache
 
 from scipy import sparse
 from patsy import dmatrix
 import pyia
 
+# size_limit is 1GB
+cache = diskcache.Cache(directory="~/.psfmachine-cache")
 
-@functools.lru_cache()
+# @functools.lru_cache()
+@cache.memoize(expire=2.592e06)  # cache during 30 days
 def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     """
     Will find gaia sources using a TAP query, accounting for proper motions.
@@ -43,8 +46,8 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         rads = [rads]
     wheres = [
         f"""1=CONTAINS(
-                  POINT('ICRS',ra,dec),
-                  CIRCLE('ICRS',{ra},{dec},{rad}))"""
+                  POINT('ICRS',{ra},{dec}),
+                  CIRCLE('ICRS',ra,dec,{rad}))"""
         for ra, dec, rad in zip(ras, decs, rads)
     ]
 
