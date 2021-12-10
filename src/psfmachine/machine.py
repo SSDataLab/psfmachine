@@ -972,7 +972,7 @@ class Machine(object):
             dx,
             dy,
             n_knots=self.n_time_knots,
-            radius=8,
+            radius=self.time_radius,
             spacing=self.cartesian_knot_spacing,
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
@@ -1419,7 +1419,7 @@ class Machine(object):
                 dx,
                 dy,
                 n_knots=self.n_time_knots,
-                radius=8,
+                radius=self.time_radius,
                 spacing=self.cartesian_knot_spacing,
             )
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")

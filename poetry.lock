@@ -382,6 +382,14 @@ python-versions = ">=2.6, !=3.0.*"
 graph = ["objgraph (>=1.7.2)"]
 
 [[package]]
+name = "diskcache"
+version = "5.3.0"
+description = "Disk Cache -- Disk and file backed persistent cache."
+category = "main"
+optional = false
+python-versions = ">=3"
+
+[[package]]
 name = "docstring-parser"
 version = "0.7.3"
 description = ""
@@ -1937,7 +1945,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "1200e243bcb1d25c757300572101172be809f07ed7a78319c56e41f6de0991e9"
+content-hash = "a3025f41bed1260c67018c259886582c9976dbe6e2d0580c64f9b04e933ebc3e"
 
 [metadata.files]
 aesara-theano-fallback = [
@@ -2175,6 +2183,10 @@ defusedxml = [
 dill = [
     {file = "dill-0.3.3-py2.py3-none-any.whl", hash = "sha256:78370261be6ea49037ace8c17e0b7dd06d0393af6513cc23f9b222d9367ce389"},
     {file = "dill-0.3.3.zip", hash = "sha256:efb7f6cb65dba7087c1e111bb5390291ba3616741f96840bfc75792a1a9b5ded"},
+]
+diskcache = [
+    {file = "diskcache-5.3.0-py3-none-any.whl", hash = "sha256:75138cacec6c1d7b8339cc78912dd218d955f0706123e447a322a7ea4c97f270"},
+    {file = "diskcache-5.3.0.tar.gz", hash = "sha256:3f1fa30b29fdff26cfddcb3ee7d61376903f82c769ea2907a2b82a5bfb8abbe2"},
 ]
 docstring-parser = [
     {file = "docstring_parser-0.7.3.tar.gz", hash = "sha256:cde5fbf8b846433dfbde1e0f96b7f909336a634d5df34a38cb75050c7346734a"},
