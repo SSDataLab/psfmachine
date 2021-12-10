@@ -962,7 +962,7 @@ def _load_file(fname, extension=1):
     )
 
 
-def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
+def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], square=True, **kwargs):
     """
     Query Gaia catalog in a tiled manner and clean sources off sensor.
 
@@ -978,6 +978,9 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
         World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
     img_limits :
         Image limits in pixel numbers to remove sources outside the CCD.
+    square : boolean
+        True if the original data is square (e.g. FFIs), False if contains empty pixels
+        (e.g. some K2 SuperStamps). This helps to speedup off-sensor source cleaning.
     **kwargs
         Keyword arguments to be passed to `psfmachine.utils.do_tiled_query()`.
 
@@ -991,16 +994,18 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
         sources.loc[:, ["ra", "dec"]].values, 0.0
     ).T
 
-    # remove sources outiside the ccd with a tolerance
-    # tolerance = 0
-    # inside = (
-    #     (sources.row > img_limits[0][0] - tolerance)
-    #     & (sources.row < img_limits[0][1] + tolerance)
-    #     & (sources.column > img_limits[1][0] - tolerance)
-    #     & (sources.column < img_limits[1][1] + tolerance)
-    # )
-    # sources = sources[inside].reset_index(drop=True)
-    sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
+    if square:
+        # remove sources outiside the ccd with a tolerance
+        tolerance = 0
+        inside = (
+            (sources.row > img_limits[0][0] - tolerance)
+            & (sources.row < img_limits[0][1] + tolerance)
+            & (sources.column > img_limits[1][0] - tolerance)
+            & (sources.column < img_limits[1][1] + tolerance)
+        )
+        sources = sources[inside].reset_index(drop=True)
+    else:
+        sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
     return sources
 
 
