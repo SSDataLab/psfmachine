@@ -500,35 +500,41 @@ def _load_file(fname):
     telescopes = []
     campaigns = []
     channels = []
+    quality = []
+    wcs_b = True
     poscorr1, poscorr2 = [], []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
 
-        hdul = fits.open(f)
-        header = hdul[0].header
-        telescopes.append(header["TELESCOP"])
-        campaigns.append(header["CAMPAIGN"])
+        with fits.open(f) as hdul:
+            # hdul = fits.open(f)
+            header = hdul[0].header
+            telescopes.append(header["TELESCOP"])
+            campaigns.append(header["CAMPAIGN"])
+            quality.append(header["QUALITY"])
 
-        # clusters only have one ext, bulge have multi-extensions
-        if len(hdul) > 1:
-            img_ext = 1
-        else:
-            img_ext = 0
-        channels.append(hdul[img_ext].header["CHANNEL"])
-        hdr = hdul[img_ext].header
-        # times.append(Time([hdr["DATE-OBS"], hdr["DATE-END"]], format="isot").mjd.mean())
-        poscorr1.append(float(hdr["POSCORR1"]))
-        poscorr2.append(float(hdr["POSCORR2"]))
-        times.append(Time([hdr["TSTART"], hdr["TSTOP"]], format="jd").mjd.mean())
-        flux.append(hdul[img_ext].data)
-        if img_ext == 1:
-            flux_err.append(hdul[2].data)
-        else:
-            flux_err.append(np.sqrt(np.abs(hdul[img_ext].data)))
+            # clusters only have one ext, bulge have multi-extensions
+            if len(hdul) > 1:
+                img_ext = 1
+            else:
+                img_ext = 0
+            channels.append(hdul[img_ext].header["CHANNEL"])
+            hdr = hdul[img_ext].header
+            # times.append(Time([hdr["DATE-OBS"], hdr["DATE-END"]], format="isot").mjd.mean())
+            poscorr1.append(float(hdr["POSCORR1"]))
+            poscorr2.append(float(hdr["POSCORR2"]))
+            times.append(Time([hdr["TSTART"], hdr["TSTOP"]], format="jd").mjd.mean())
+            flux.append(hdul[img_ext].data)
+            if img_ext == 1:
+                flux_err.append(hdul[2].data)
+            else:
+                flux_err.append(np.sqrt(np.abs(hdul[img_ext].data)))
 
-        if i == 0:
-            wcs = WCS(hdr)
+            if header["QUALITY"] == 0 and wcs_b:
+                print(header["QUALITY"])
+                wcs_b = False
+                wcs = WCS(hdr)
 
     # check for integrity of files, same telescope, all FFIs and same quarter/campaign
     if len(set(telescopes)) != 1:
@@ -555,9 +561,12 @@ def _load_file(fname):
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
 
-    # sort by times
+    # mask by quality and sort by times
+    qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
+        np.array(quality), 1 | 2 | 4 | 8 | 32 | 16384 | 32768 | 65536 | 1048576
+    )
     times = Time(times, format="mjd", scale="tdb")
-    tdx = np.argsort(times)
+    tdx = np.argsort(times)[qual_mask]
     times = times[tdx]
     row_2d, col_2d = np.mgrid[: flux[0].shape[0], : flux[0].shape[1]]
     flux_2d = np.array(flux)[tdx]
