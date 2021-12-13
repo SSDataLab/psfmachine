@@ -824,6 +824,8 @@ class Machine(object):
         ----------
         plot: boolean
             Plot a diagnostic figure.
+        downsample: boolean
+            If True the `time` and `pos_corr` arrays will be downsampled istead of binned.
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """

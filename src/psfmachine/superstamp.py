@@ -1,6 +1,7 @@
 """Subclass of `Machine` that Specifically work with FFIs"""
 import os
 import numpy as np
+import pandas as pd
 import lightkurve as lk
 from tqdm import tqdm
 
@@ -96,6 +97,8 @@ class SSMachine(FFIMachine):
         plot : boolean
             If `True` will create a video file in the working directory with the PSF
             model at each frame. It uses `imageio` and `imageio-ffmpeg`.
+        **kwargs
+            Keyword arguments to be passed to `build_shape_model()`
         """
         self.mean_model_frame = []
         images = []
@@ -107,7 +110,7 @@ class SSMachine(FFIMachine):
             fig = self.build_shape_model(frame_index=tdx, plot=plot, **kwargs)
             self.mean_model_frame.append(self.mean_model)
             if plot:
-                fig.canvas.draw()  # draw the canvas, cache the renderer
+                fig.canvas.draw()  # draw the canvas, cache the render
                 image = np.frombuffer(fig.canvas.tostring_rgb(), dtype="uint8")
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                 images.append(image)
@@ -119,7 +122,7 @@ class SSMachine(FFIMachine):
             if hasattr(self, "meta"):
                 gif_name = "./shape_models_%s_%s_c%i.mp4" % (
                     self.meta["MISSION"],
-                    self.meta["OBJECT"],
+                    self.meta["OBJECT"].replace(" ", ""),
                     self.meta["QUARTER"],
                 )
             else:
@@ -131,7 +134,7 @@ class SSMachine(FFIMachine):
 
     def fit_frame_model(self):
         """
-        Fits shape model per frame (cadence). It creates two 3 attributes:
+        Fits shape model per frame (cadence). It creates 3 attributes:
             * `self.model_flux_frame` has the scene model at every cadence.
             * `self.ws_frame` and `self.werrs_frame` have the flux values of all sources
             at every cadence.
@@ -182,6 +185,8 @@ class SSMachine(FFIMachine):
             Limiting magnitude to query Gaia catalog.
         dr : int
             Gaia data release to be use, default is 2, options are DR2 and EDR3.
+        sources : pandas.DataFrame
+            DataFrame with sources present in the images.
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `Machine` object.
         Returns
@@ -203,8 +208,9 @@ class SSMachine(FFIMachine):
             metadata,
         ) = _load_file(fname)
 
+        # we pass only non-empy pixels to the Gaia query and cleaning routines
         valid_pix = np.isfinite(flux).sum(axis=0).astype(bool)
-        if sources is None:
+        if sources is None or not isinstance(sources, pd.DataFrame):
             sources = _get_sources(
                 ra[valid_pix],
                 dec[valid_pix],
@@ -214,6 +220,7 @@ class SSMachine(FFIMachine):
                 ngrid=(2, 2) if flux.shape[1] <= 500 else (5, 5),
                 dr=dr,
                 img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
+                square=False,
             )
 
         return SSMachine(
@@ -378,7 +385,9 @@ class SSMachine(FFIMachine):
 
     def plot_image_interactive(self, ax=None, sources=False):
         """
-        Function to plot the Full Frame Image and the Gaia Sources
+        Function to plot the super stamp and Gaia Sources and interact by changing the
+        cadence.
+
         Parameters
         ----------
         ax : matplotlib.axes
@@ -427,8 +436,13 @@ class SSMachine(FFIMachine):
                 rasterized=True,
             )
             ax.set_title(
-                "%s FFI Ch/CCD %s MJD %f"
-                % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[t])
+                "%s %s Ch/CCD %s MJD %f"
+                % (
+                    self.meta["MISSION"],
+                    self.meta["OBJECT"],
+                    self.meta["EXTENSION"],
+                    self.time[t],
+                )
             )
             if sources:
                 ax.scatter(

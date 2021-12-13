@@ -715,7 +715,7 @@ class FFIMachine(Machine):
             return fig
         return
 
-    def plot_image(self, ax=None, sources=False):
+    def plot_image(self, ax=None, sources=False, frame_index=0):
         """
         Function to plot the Full Frame Image and Gaia sources.
 
@@ -742,7 +742,7 @@ class FFIMachine(Machine):
         im = ax.pcolormesh(
             col_2d,
             row_2d,
-            self.flux_2d[0],
+            self.flux_2d[frame_index],
             cmap=plt.cm.viridis,
             shading="nearest",
             # origin="lower",
@@ -753,7 +753,7 @@ class FFIMachine(Machine):
 
         ax.set_title(
             "%s FFI Ch/CCD %s MJD %f"
-            % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[0])
+            % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[frame_index])
         )
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
