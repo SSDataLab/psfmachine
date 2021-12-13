@@ -752,8 +752,15 @@ class FFIMachine(Machine):
         plt.colorbar(im, ax=ax, label=r"Flux ($e^{-}s^{-1}$)", fraction=0.042)
 
         ax.set_title(
-            "%s FFI Ch/CCD %s MJD %f"
-            % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[frame_index])
+            "%s %s Ch/CCD %s MJD %f"
+            % (
+                self.meta["MISSION"],
+                self.meta["OBJECT"]
+                if "OBJECT" in self.meta.keys()
+                else self.meta["DCT_TYPE"],
+                self.meta["EXTENSION"],
+                self.time[frame_index],
+            )
         )
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
