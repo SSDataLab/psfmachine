@@ -12,7 +12,6 @@ from matplotlib import patches
 import urllib.request
 import tarfile
 from kbackground import Estimator
-from glob import glob
 from astropy.table import Table
 
 from .utils import get_gaia_sources
@@ -93,7 +92,7 @@ class TPFMachine(Machine):
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
 
-        if fit_bkg:
+        if fit_bkg and self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
             self._fit_background()
 
     def __repr__(self):
@@ -133,18 +132,17 @@ class TPFMachine(Machine):
             f"/{date[:4]}"
             f"/kplr{self.tpfs[0].module}{self.tpfs[0].output}-{date}_bkg.fits.gz"
         )
-        print(bkg_file)
         if os.path.isfile(bkg_file) and add_mission_pixels:
             # read files
-            mission_bkg_pixels = Table.read(bkg_file, hdu=2).to_pandas()
+            mission_bkg_pixels = Table.read(bkg_file, hdu=2)
             mission_bkg_data = Table.read(bkg_file, hdu=1)
             # mask mission bkg pixels around TPFs
             # 25 pixels is hard coded to add more mission pixels at the borders
             pix_mask = (
-                (mission_bkg_pixels.RAWX <= self.column.max() + 25)
-                & (mission_bkg_pixels.RAWX >= self.column.min() - 25)
-                & (mission_bkg_pixels.RAWY <= self.row.max() + 25)
-                & (mission_bkg_pixels.RAWY >= self.row.min() - 25)
+                (mission_bkg_pixels["RAWX"] <= self.column.max() + 25)
+                & (mission_bkg_pixels["RAWX"] >= self.column.min() - 25)
+                & (mission_bkg_pixels["RAWY"] <= self.row.max() + 25)
+                & (mission_bkg_pixels["RAWY"] >= self.row.min() - 25)
             )
             # match cadences
             cadence_mask = np.in1d(self.tpfs[0].time.jd, self.time)
@@ -152,8 +150,8 @@ class TPFMachine(Machine):
             mission_mask = np.in1d(
                 mission_bkg_data["CADENCENO"].data, cadenceno_machine
             )
-            mbkg_col = mission_bkg_pixels.RAWX[pix_mask].values
-            mbkg_row = mission_bkg_pixels.RAWY[pix_mask].values
+            mbkg_col = mission_bkg_pixels["RAWX"][pix_mask]
+            mbkg_row = mission_bkg_pixels["RAWY"][pix_mask]
             mbkg_flux = mission_bkg_data["FLUX"].data[mission_mask][:, pix_mask]
 
             # mergee all pixels
