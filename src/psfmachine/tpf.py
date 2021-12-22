@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 from matplotlib import patches
 import urllib.request
 import tarfile
+from kbackground import Estimator
+from glob import glob
+from astropy.table import Table
 
 from .utils import get_gaia_sources
 from .aperture import estimate_source_centroids_aperture, aperture_mask_to_2d
@@ -52,6 +55,7 @@ class TPFMachine(Machine):
         tpf_meta=None,
         time_corrector="pos_corr",
         cartesian_knot_spacing="sqrt",
+        fit_bkg=False,
     ):
         super().__init__(
             time=time,
@@ -89,8 +93,73 @@ class TPFMachine(Machine):
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
 
+        if fit_bkg:
+            self._fit_background()
+
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
+
+    def _fit_background(self, add_mission_pixels=True):
+        print("Fitting BKG")
+        # create source mask
+        self._get_source_mask()
+        # invert maks to get bkg pixels
+        bkg_mask = ~np.asarray(
+            (self.source_mask.todense()).sum(axis=0).astype(bool)
+        ).ravel()
+        bkg_row = self.row[bkg_mask]
+        bkg_column = self.column[bkg_mask]
+        bkg_flux = self.flux[:, bkg_mask]
+        # add mission bkg pixels
+        date = self.tpfs[0].path.split("/")[-1].split("-")[1].split("_")[0]
+        # need to change this path
+        bkg_file = (
+            "/Users/jorgemarpa/Work/BAERI/ADAP/data/kepler/bkg"
+            f"/{date[:4]}"
+            f"/kplr{self.tpfs[0].module}{self.tpfs[0].output}-{date}_bkg.fits.gz"
+        )
+        print(bkg_file)
+        if os.path.isfile(bkg_file) and add_mission_pixels:
+            # read files
+            mission_bkg_pixels = Table.read(bkg_file, hdu=2).to_pandas()
+            mission_bkg_data = Table.read(bkg_file, hdu=1)
+            # mask mission bkg pixels around TPFs
+            # 25 pixels is hard coded to add more mission pixels at the borders
+            pix_mask = (
+                (mission_bkg_pixels.RAWX <= self.column.max() + 25)
+                & (mission_bkg_pixels.RAWX >= self.column.min() - 25)
+                & (mission_bkg_pixels.RAWY <= self.row.max() + 25)
+                & (mission_bkg_pixels.RAWY >= self.row.min() - 25)
+            )
+            # match cadences
+            cadence_mask = np.in1d(self.tpfs[0].time.jd, self.time)
+            cadenceno_machine = self.tpfs[0].cadenceno[cadence_mask]
+            mission_mask = np.in1d(
+                mission_bkg_data["CADENCENO"].data, cadenceno_machine
+            )
+            mbkg_col = mission_bkg_pixels.RAWX[pix_mask].values
+            mbkg_row = mission_bkg_pixels.RAWY[pix_mask].values
+            mbkg_flux = mission_bkg_data["FLUX"].data[mission_mask][:, pix_mask]
+
+            # mergee all pixels
+            bkg_row = np.hstack([bkg_row, mbkg_row])
+            bkg_column = np.hstack([bkg_column, mbkg_col])
+            bkg_flux = np.append(bkg_flux, mbkg_flux, axis=1)
+
+        # sort by row
+        row_sort = np.unique(np.argsort(bkg_row))
+        self.bkg_row = bkg_row[row_sort]
+        self.bkg_column = bkg_column[row_sort]
+        self.bkg_flux = bkg_flux[:, row_sort]
+
+        # fit bkg model at all times
+        bkg_est = Estimator(self.bkg_row, self.bkg_column, self.bkg_flux)
+        # eval bkg model at all times all pixels
+        self.bkg_model = bkg_est.model(index=None, row=self.row, column=self.column)
+        # remove bkg and median value (kbackground fits the median-normalized
+        # background)
+        self.flux -= self.bkg_model
+        self.flux -= np.median(self.flux[:, bkg_mask], axis=1)[:, None]
 
     def fit_lightcurves(
         self,
@@ -644,6 +713,7 @@ class TPFMachine(Machine):
         dr=2,
         time_mask=None,
         apply_focus_mask=True,
+        fit_bkg=False,
         query_ra=None,
         query_dec=None,
         query_rad=None,
@@ -742,7 +812,7 @@ class TPFMachine(Machine):
             focus_mask,
             qual_mask,
             saturated_mask,
-        ) = _parse_TPFs(tpfs, **kwargs)
+        ) = _parse_TPFs(tpfs, fit_bkg=fit_bkg, **kwargs)
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
@@ -840,11 +910,12 @@ class TPFMachine(Machine):
             pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
             time_mask=time_mask,
+            fit_bkg=fit_bkg,
             **kwargs,
         )
 
 
-def _parse_TPFs(tpfs, **kwargs):
+def _parse_TPFs(tpfs, fit_bkg=False, **kwargs):
     """
     Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
     per pixel
@@ -918,6 +989,11 @@ def _parse_TPFs(tpfs, **kwargs):
     flux_err = np.hstack(
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
+    if fit_bkg:
+        flux_bkg = np.hstack(
+            [np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
+        )
+        flux += flux_bkg
 
     sat_mask = []
     for tpf in tpfs:
