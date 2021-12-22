@@ -100,6 +100,21 @@ class TPFMachine(Machine):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
     def _fit_background(self, add_mission_pixels=True):
+        """
+        Function to fit the background signal of the TPF stack using `kbackground`
+        package. This is a Kepler/K2 specific tool.
+        Fits a smooth polynomial to the TPF background pixels (inverse of
+        `machine.source_mask`) that can also be augmented with the mission background
+        pixels (https://archive.stsci.edu/missions-and-data/kepler/kepler-bulk-downloads).
+
+        This helps removing the known 'rolling band' effect seen in some CCD channels.
+        The function changes the attribute `self.flux` removing the background and
+        creates the following new attributes:
+        - `self.bkg_row` has the bacground pixel row number
+        - `self.bkg_column` has the bacground pixel column number
+        - `self.bkg_flux` has the bacground pixel flux value
+        - `self.bkg_model` has the background model from `kbackground`
+        """
         print("Fitting BKG")
         # create source mask
         self._get_source_mask()
