@@ -532,7 +532,6 @@ def _load_file(fname):
                 flux_err.append(np.sqrt(np.abs(hdul[img_ext].data)))
 
             if header["QUALITY"] == 0 and wcs_b:
-                print(header["QUALITY"])
                 wcs_b = False
                 wcs = WCS(hdr)
 
