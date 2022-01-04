@@ -136,28 +136,20 @@ class TPFMachine(Machine):
             # read files
             mission_bkg_pixels = Table.read(bkg_file, hdu=2)
             mission_bkg_data = Table.read(bkg_file, hdu=1)
-            # mask mission bkg pixels around TPFs
-            # 25 pixels is hard coded to add more mission pixels at the borders
-            pix_mask = (
-                (mission_bkg_pixels["RAWX"] <= self.column.max() + 25)
-                & (mission_bkg_pixels["RAWX"] >= self.column.min() - 25)
-                & (mission_bkg_pixels["RAWY"] <= self.row.max() + 25)
-                & (mission_bkg_pixels["RAWY"] >= self.row.min() - 25)
-            )
+
             # match cadences
             cadence_mask = np.in1d(self.tpfs[0].time.jd, self.time)
             cadenceno_machine = self.tpfs[0].cadenceno[cadence_mask]
             mission_mask = np.in1d(
                 mission_bkg_data["CADENCENO"].data, cadenceno_machine
             )
-            mbkg_col = mission_bkg_pixels["RAWX"][pix_mask]
-            mbkg_row = mission_bkg_pixels["RAWY"][pix_mask]
-            mbkg_flux = mission_bkg_data["FLUX"].data[mission_mask][:, pix_mask]
 
-            # mergee all pixels
-            bkg_row = np.hstack([bkg_row, mbkg_row])
-            bkg_column = np.hstack([bkg_column, mbkg_col])
-            bkg_flux = np.append(bkg_flux, mbkg_flux, axis=1)
+            # merge all pixels
+            bkg_row = np.hstack([bkg_row, mission_bkg_pixels["RAWY"]])
+            bkg_column = np.hstack([bkg_column, mission_bkg_pixels["RAWX"]])
+            bkg_flux = np.append(
+                bkg_flux, mission_bkg_data["FLUX"].data[mission_mask], axis=1
+            )
 
         # sort by row
         row_sort = np.unique(np.argsort(bkg_row))
