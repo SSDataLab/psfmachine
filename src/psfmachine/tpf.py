@@ -12,7 +12,6 @@ from matplotlib import patches
 import urllib.request
 import tarfile
 from kbackground import Estimator
-from astropy.table import Table
 
 from .utils import get_gaia_sources
 from .aperture import estimate_source_centroids_aperture, aperture_mask_to_2d
