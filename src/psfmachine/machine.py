@@ -138,6 +138,8 @@ class Machine(object):
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
+        bkg_substracted : boolean
+            Defines if data is background substracted or not
         quiet: booleans
             Quiets TQDM progress bars.
         """
