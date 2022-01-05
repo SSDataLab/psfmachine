@@ -97,7 +97,7 @@ class TPFMachine(Machine):
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def build_background_model(self, plot=False):
+    def build_background_model(self, plot=False, data_augment=None):
         """
         Function to fit the background signal of the TPF stack using `kbackground`
         package. This is a Kepler/K2 specific tool.
@@ -117,6 +117,11 @@ class TPFMachine(Machine):
         ----------
         plot : boolean
             Show diagnostic plot
+        data_augment : dictionary
+            Dictionary with the pixel row, pixel column and pixel flux value to
+            augment the background pixels. This argument is useful to include Kepler's
+            background pixels from the mission. The dictionary has to have the following
+            keys; "column", "row", and "flux".
         """
         if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
             log.info(
@@ -133,6 +138,12 @@ class TPFMachine(Machine):
         bkg_row = self.row[bkg_mask]
         bkg_column = self.column[bkg_mask]
         bkg_flux = self.flux[:, bkg_mask]
+
+        if data_augment:
+            # augment background pixels
+            bkg_row = np.hstack([bkg_row, data_augment["row"]])
+            bkg_column = np.hstack([bkg_column, data_augment["column"]])
+            bkg_flux = np.append(bkg_flux, data_augment["flux"], axis=1)
 
         # sort by row
         row_sort = np.unique(np.argsort(bkg_row))
