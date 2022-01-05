@@ -91,14 +91,14 @@ class TPFMachine(Machine):
         self.tpf_meta = tpf_meta
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
-
-        if fit_bkg and self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
-            self._fit_background()
+        self.fit_bkg = fit_bkg
+        if self.fit_bkg:
+            self.bkg_substracted = False
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def _fit_background(self, add_mission_pixels=True):
+    def build_background_model(self, plot=False):
         """
         Function to fit the background signal of the TPF stack using `kbackground`
         package. This is a Kepler/K2 specific tool.
@@ -113,8 +113,18 @@ class TPFMachine(Machine):
         - `self.bkg_column` has the bacground pixel column number
         - `self.bkg_flux` has the bacground pixel flux value
         - `self.bkg_model` has the background model from `kbackground`
+
+        Parameters
+        ----------
+        plot : boolean
+            Show diagnostic plot
         """
-        print("Fitting BKG")
+        if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
+            log.info(
+                "Warning: Background fitting is a Kepler only tool, "
+                "then no background model will be fitted."
+            )
+            return
         # create source mask
         self._get_source_mask()
         # invert maks to get bkg pixels
@@ -124,47 +134,59 @@ class TPFMachine(Machine):
         bkg_row = self.row[bkg_mask]
         bkg_column = self.column[bkg_mask]
         bkg_flux = self.flux[:, bkg_mask]
-        # add mission bkg pixels
-        date = self.tpfs[0].path.split("/")[-1].split("-")[1].split("_")[0]
-        # need to change this path
-        bkg_file = (
-            "/Users/jorgemarpa/Work/BAERI/ADAP/data/kepler/bkg"
-            f"/{date[:4]}"
-            f"/kplr{self.tpfs[0].module}{self.tpfs[0].output}-{date}_bkg.fits.gz"
-        )
-        if os.path.isfile(bkg_file) and add_mission_pixels:
-            # read files
-            mission_bkg_pixels = Table.read(bkg_file, hdu=2)
-            mission_bkg_data = Table.read(bkg_file, hdu=1)
-
-            # match cadences
-            cadence_mask = np.in1d(self.tpfs[0].time.jd, self.time)
-            cadenceno_machine = self.tpfs[0].cadenceno[cadence_mask]
-            mission_mask = np.in1d(
-                mission_bkg_data["CADENCENO"].data, cadenceno_machine
-            )
-
-            # merge all pixels
-            bkg_row = np.hstack([bkg_row, mission_bkg_pixels["RAWY"]])
-            bkg_column = np.hstack([bkg_column, mission_bkg_pixels["RAWX"]])
-            bkg_flux = np.append(
-                bkg_flux, mission_bkg_data["FLUX"].data[mission_mask], axis=1
-            )
 
         # sort by row
         row_sort = np.unique(np.argsort(bkg_row))
         self.bkg_row = bkg_row[row_sort]
         self.bkg_column = bkg_column[row_sort]
         self.bkg_flux = bkg_flux[:, row_sort]
+        del bkg_row, bkg_column, bkg_flux, row_sort
 
         # fit bkg model at all times
         bkg_est = Estimator(self.bkg_row, self.bkg_column, self.bkg_flux)
         # eval bkg model at all times all pixels
         self.bkg_model = bkg_est.model(index=None, row=self.row, column=self.column)
-        # remove bkg and median value (kbackground fits the median-normalized
-        # background)
-        self.flux -= self.bkg_model
-        self.flux -= np.median(self.flux[:, bkg_mask], axis=1)[:, None]
+
+        if plot:
+            return self.plot_background_model(frame_index=self.nt // 2)
+        return
+
+    def plot_background_model(self, frame_index=100):
+        """
+        Diagnostic plot of background model
+
+        Parameters
+        ----------
+        frame_index : int
+            The frame index to be shown.
+        """
+        if not hasattr(self, "bkg_flux"):
+            raise AttributeError(
+                "No background model created, run `build_background_model()` first."
+            )
+        fig, ax = plt.subplots(1, 2, figsize=(19, 7))
+        cbar = ax[0].scatter(
+            self.bkg_column,
+            self.bkg_row,
+            c=self.bkg_flux[frame_index] - np.median(self.bkg_flux, axis=0),
+            s=0.5,
+            vmin=-20,
+            vmax=20,
+        )
+        ax[0].set_title("Data Background pixels")
+        plt.colorbar(cbar, ax=ax[0], label="Median substracted Flux")
+        cbar = ax[1].scatter(
+            self.column,
+            self.row,
+            c=self.bkg_model[frame_index],
+            s=0.5,
+            vmin=-20,
+            vmax=20,
+        )
+        ax[1].set_title("Model Background (all) pixels")
+        plt.colorbar(cbar, ax=ax[1], label="Median substracted Flux")
+
+        return fig
 
     def fit_lightcurves(
         self,
@@ -220,6 +242,10 @@ class TPFMachine(Machine):
             Compute or not Simple Aperture Photometry. See
             `Machine.compute_aperture_photometry()` for details.
         """
+        # fit background
+        if self.fit_bkg:
+            self.build_background_model(plot=plot)
+
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
             self.load_shape_model(input=shape_model_file, plot=plot)
