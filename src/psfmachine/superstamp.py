@@ -16,7 +16,7 @@ from astropy.wcs import WCS
 import astropy.units as u
 
 from .ffi import FFIMachine
-from .ffi import _get_sources
+from .ffi import _get_sources, _do_image_cutout
 
 __all__ = ["SSMachine"]
 
@@ -170,7 +170,15 @@ class SSMachine(FFIMachine):
             self.werrs_frame[tdx, nodata] *= np.nan
 
     @staticmethod
-    def from_file(fname, magnitude_limit=18, dr=2, sources=None, **kwargs):
+    def from_file(
+        fname,
+        magnitude_limit=18,
+        dr=2,
+        sources=None,
+        cutout_size=None,
+        cutout_origin=[0, 0],
+        **kwargs,
+    ):
         """
         Reads data from files and initiates a new SSMachine class. SuperStamp file
         paths are passed as a string (single frame) or a list of paths (multiple
@@ -207,6 +215,18 @@ class SSMachine(FFIMachine):
             poscorr2,
             metadata,
         ) = _load_file(fname)
+        # create cutouts if asked
+        if cutout_size is not None:
+            flux, flux_err, ra, dec, column, row = _do_image_cutout(
+                flux,
+                flux_err,
+                ra,
+                dec,
+                column,
+                row,
+                cutout_size=cutout_size,
+                cutout_origin=cutout_origin,
+            )
 
         # we pass only non-empy pixels to the Gaia query and cleaning routines
         valid_pix = np.isfinite(flux).sum(axis=0).astype(bool)

@@ -1056,7 +1056,9 @@ def _do_image_cutout(
     row : numpy.ndarray
         Data array with pixel raw values of the cutout.
     """
-    if cutout_size + cutout_origin[0] < np.minimum(*flux.shape[1:]):
+    if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
+        cutout_size + cutout_origin[1] <= flux.shape[2]
+    ):
         column = column[
             cutout_origin[0] : cutout_origin[0] + cutout_size,
             cutout_origin[1] : cutout_origin[1] + cutout_size,
