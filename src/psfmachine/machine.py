@@ -138,8 +138,6 @@ class Machine(object):
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
-        bkg_substracted : boolean
-            Defines if data is background substracted or not
         quiet: booleans
             Quiets TQDM progress bars.
         """
@@ -175,8 +173,6 @@ class Machine(object):
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
-        # assume data is background substracted by default
-        self.bkg_substracted = True
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -1329,17 +1325,6 @@ class Machine(object):
             Fitting model accounting for velocity aberration. If `True`, then a time
             model has to be built previously with `build_time_model`.
         """
-        # remove background if necessary
-        if not self.bkg_substracted:
-            # remove bkg and median value (kbackground fits the median-normalized
-            # background)
-            bkg_mask = ~np.asarray(
-                (self.source_mask.todense()).sum(axis=0).astype(bool)
-            ).ravel()
-            self.flux -= self.bkg_model
-            self.flux -= np.median(self.flux[:, bkg_mask], axis=1)[:, None]
-            # set bkg subs flat on so this step happens only one time
-            self.bkg_substracted = True
 
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (

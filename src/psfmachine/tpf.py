@@ -53,7 +53,7 @@ class TPFMachine(Machine):
         tpf_meta=None,
         time_corrector="pos_corr",
         cartesian_knot_spacing="sqrt",
-        fit_bkg=False,
+        bkg_substracted=True,
     ):
         super().__init__(
             time=time,
@@ -90,17 +90,15 @@ class TPFMachine(Machine):
         self.tpf_meta = tpf_meta
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
-        self.fit_bkg = fit_bkg
-        if self.fit_bkg:
-            self.bkg_substracted = False
+        self.bkg_substracted = bkg_substracted
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def build_background_model(self, plot=False, data_augment=None):
+    def remove_background_model(self, plot=False, data_augment=None):
         """
-        Function to fit the background signal of the TPF stack using `kbackground`
-        package. This is a Kepler/K2 specific tool.
+        Function to fit and remove the background signal of the TPF stack using
+        `kbackground` package. This is a Kepler/K2 specific tool.
         Fits a smooth polynomial to the TPF background pixels (inverse of
         `machine.source_mask`) that can also be augmented with the mission background
         pixels (https://archive.stsci.edu/missions-and-data/kepler/kepler-bulk-downloads).
@@ -157,6 +155,18 @@ class TPFMachine(Machine):
         # eval bkg model at all times all pixels
         self.bkg_model = bkg_est.model(index=None, row=self.row, column=self.column)
 
+        # remove background when necessary, this is done just once
+        if not self.bkg_substracted:
+            # remove bkg and median value (kbackground fits the median-normalized
+            # background)
+            bkg_mask = ~np.asarray(
+                (self.source_mask.todense()).sum(axis=0).astype(bool)
+            ).ravel()
+            self.flux -= self.bkg_model
+            self.flux -= np.median(self.flux[:, bkg_mask], axis=1)[:, None]
+            # set bkg subs flat on so this step happens only one time
+            self.bkg_substracted = True
+
         if plot:
             return self.plot_background_model(frame_index=self.nt // 2)
         return
@@ -201,6 +211,7 @@ class TPFMachine(Machine):
     def fit_lightcurves(
         self,
         plot=False,
+        fit_bkg=False,
         fit_va=True,
         iter_negative=True,
         load_shape_model=False,
@@ -228,6 +239,9 @@ class TPFMachine(Machine):
             Whether or not to show some diagnostic plots. These can be helpful
             for a user to see if the PRF and time dependent models are being calculated
             correctly.
+        fit_bkg : bool
+            Fit and remove background. Useful when providing flux values without
+            background substraction.
         fit_va : bool
             Whether or not to fit Velocity Aberration (which implicitly will try to fit
             other kinds of time variability). This will try to fit the "long term"
@@ -253,8 +267,8 @@ class TPFMachine(Machine):
             `Machine.compute_aperture_photometry()` for details.
         """
         # fit background
-        if self.fit_bkg:
-            self.build_background_model(plot=plot)
+        if fit_bkg:
+            self.remove_background_model(plot=plot)
 
         # use PRF model from FFI or create one with TPF data
         if load_shape_model:
@@ -267,7 +281,8 @@ class TPFMachine(Machine):
             self.compute_aperture_photometry(
                 aperture_size="optimal", target_complete=1, target_crowd=1
             )
-        self.build_time_model(plot=plot)
+        if fit_va:
+            self.build_time_model(plot=plot)
         self.fit_model(fit_va=fit_va)
         if iter_negative:
             # More than 2% negative cadences
@@ -754,7 +769,7 @@ class TPFMachine(Machine):
         dr=2,
         time_mask=None,
         apply_focus_mask=True,
-        fit_bkg=False,
+        renormalize_tpf_bkg=False,
         query_ra=None,
         query_dec=None,
         query_rad=None,
@@ -853,7 +868,7 @@ class TPFMachine(Machine):
             focus_mask,
             qual_mask,
             saturated_mask,
-        ) = _parse_TPFs(tpfs, fit_bkg=fit_bkg, **kwargs)
+        ) = _parse_TPFs(tpfs, renormalize_tpf_bkg=renormalize_tpf_bkg, **kwargs)
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
@@ -951,12 +966,12 @@ class TPFMachine(Machine):
             pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
             time_mask=time_mask,
-            fit_bkg=fit_bkg,
+            bkg_substracted=not renormalize_tpf_bkg,
             **kwargs,
         )
 
 
-def _parse_TPFs(tpfs, fit_bkg=False, **kwargs):
+def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     """
     Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
     per pixel
@@ -1030,7 +1045,7 @@ def _parse_TPFs(tpfs, fit_bkg=False, **kwargs):
     flux_err = np.hstack(
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
-    if fit_bkg:
+    if renormalize_tpf_bkg:
         flux_bkg = np.hstack(
             [np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
         )
