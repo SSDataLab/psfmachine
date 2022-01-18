@@ -779,6 +779,20 @@ optional = false
 python-versions = ">=3.6"
 
 [[package]]
+name = "kbackground"
+version = "0.1.6"
+description = ""
+category = "main"
+optional = false
+python-versions = ">=3.7.1,<4.0"
+
+[package.dependencies]
+astropy = ">=4.2,<5.0"
+numpy = ">=1.19.4,<2.0.0"
+patsy = ">=0.5.1,<0.6.0"
+scipy = ">=1.5.4,<2.0.0"
+
+[[package]]
 name = "keyring"
 version = "23.0.1"
 description = "Store and access your passwords safely."
@@ -1912,8 +1926,8 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.7"
-content-hash = "8e84fa3a3f8830e8d8b3a5e3367bd9565ee4ee722a93a66e97daf40d838e1a19"
+python-versions = "^3.7.1"
+content-hash = "26e0719fed22a359c638b46854d23a36920476312c2342c86df5be5cf0cd59b0"
 
 [metadata.files]
 aesara-theano-fallback = [
@@ -2279,6 +2293,10 @@ jupyterlab-server = [
 jupyterlab-widgets = [
     {file = "jupyterlab_widgets-1.0.0-py3-none-any.whl", hash = "sha256:caeaf3e6103180e654e7d8d2b81b7d645e59e432487c1d35a41d6d3ee56b3fef"},
     {file = "jupyterlab_widgets-1.0.0.tar.gz", hash = "sha256:5c1a29a84d3069208cb506b10609175b249b6486d6b1cbae8fcde2a11584fb78"},
+]
+kbackground = [
+    {file = "kbackground-0.1.6-py3-none-any.whl", hash = "sha256:690985b4f6ff57c48ca0bf9d3f73e9c2a460ceb147925379b215c9a5bfddaad5"},
+    {file = "kbackground-0.1.6.tar.gz", hash = "sha256:7a242eb2aebecfffe63a9c18872d3e622c76fda30b2e9bba9720688b9beb782e"},
 ]
 keyring = [
     {file = "keyring-23.0.1-py3-none-any.whl", hash = "sha256:8f607d7d1cc502c43a932a275a56fe47db50271904513a379d39df1af277ac48"},
