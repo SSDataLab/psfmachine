@@ -74,6 +74,10 @@ class TPFMachine(Machine):
             rmax=rmax,
         )
         self.tpfs = tpfs
+        # match cadences
+        self.cadenceno = self.tpfs[0].cadenceno[
+            np.in1d(self.tpfs[0].time.jd, self.time)
+        ]
 
         # combine focus mask and time mask if they exist
         if time_mask is None and focus_mask is None:
@@ -130,12 +134,12 @@ class TPFMachine(Machine):
         # create source mask
         self._get_source_mask()
         # invert maks to get bkg pixels
-        bkg_mask = ~np.asarray(
-            (self.source_mask.todense()).sum(axis=0).astype(bool)
-        ).ravel()
-        bkg_row = self.row[bkg_mask]
-        bkg_column = self.column[bkg_mask]
-        bkg_flux = self.flux[:, bkg_mask]
+        # bkg_mask = ~np.asarray(
+        #     (self.source_mask.todense()).sum(axis=0).astype(bool)
+        # ).ravel()
+        bkg_row = self.row  # [bkg_mask]
+        bkg_column = self.column  # [bkg_mask]
+        bkg_flux = self.flux  # [:, bkg_mask]
 
         if data_augment:
             # augment background pixels
@@ -151,9 +155,11 @@ class TPFMachine(Machine):
         del bkg_row, bkg_column, bkg_flux, row_sort
 
         # fit bkg model at all times
-        bkg_est = Estimator(self.bkg_row, self.bkg_column, self.bkg_flux)
+        bkg_est = Estimator(
+            self.cadenceno, self.bkg_row, self.bkg_column, self.bkg_flux
+        )
         # eval bkg model at all times all pixels
-        self.bkg_model = bkg_est.model(index=None, row=self.row, column=self.column)
+        self.bkg_model = bkg_est.model
 
         # remove background when necessary, this is done just once
         if not self.bkg_substracted:
