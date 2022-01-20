@@ -155,11 +155,11 @@ class TPFMachine(Machine):
         del bkg_row, bkg_column, bkg_flux, row_sort
 
         # fit bkg model at all times
-        bkg_est = Estimator(
+        self.bkg_est = Estimator(
             self.cadenceno, self.bkg_row, self.bkg_column, self.bkg_flux
         )
         # eval bkg model at all times all pixels
-        self.bkg_model = bkg_est.model
+        self.bkg_model = self.bkg_est.model
 
         # remove background when necessary, this is done just once
         if not self.bkg_substracted:
