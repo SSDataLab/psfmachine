@@ -15,8 +15,7 @@ from astropy.time import Time
 from astropy.wcs import WCS
 import astropy.units as u
 
-from .ffi import FFIMachine
-from .ffi import _get_sources, _do_image_cutout
+from .ffi import FFIMachine, _get_sources, _do_image_cutout
 
 __all__ = ["SSMachine"]
 
@@ -51,7 +50,7 @@ class SSMachine(FFIMachine):
         meta=None,
     ):
         """
-        Class to work with K2 Supersampts produces by
+        Class to work with K2 Supersampts produced by
         [Cody et al. 2018](https://archive.stsci.edu/prepds/k2superstamp/)
 
         Parameters and sttributes are the same as `FFIMachine`.
@@ -182,7 +181,8 @@ class SSMachine(FFIMachine):
         """
         Reads data from files and initiates a new SSMachine class. SuperStamp file
         paths are passed as a string (single frame) or a list of paths (multiple
-        frames).
+        frames). A samaller cutout of the full SuperSatamp can also be loaded by
+        passing argumnts `cutout_size` and `cutout_origin`.
 
         Parameters
         ----------
@@ -194,7 +194,12 @@ class SSMachine(FFIMachine):
         dr : int
             Gaia data release to be use, default is 2, options are DR2 and EDR3.
         sources : pandas.DataFrame
-            DataFrame with sources present in the images.
+            DataFrame with sources present in the images, optional. If None, then guery
+            Gaia.
+        cutout_size : int
+            Size in pixels of the cutout, assumed to be squared. Default is 100.
+        cutout_origin : tuple of ints
+            Origin of the cutout following matrix indexing. Default is [0 ,0].
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `Machine` object.
         Returns
@@ -215,7 +220,7 @@ class SSMachine(FFIMachine):
             poscorr2,
             metadata,
         ) = _load_file(fname)
-        # create cutouts if asked
+        # do cutout if asked
         if cutout_size is not None:
             flux, flux_err, ra, dec, column, row = _do_image_cutout(
                 flux,
@@ -299,9 +304,9 @@ class SSMachine(FFIMachine):
             correctly.
         iter_negative : bool
             When fitting light curves, it isn't possible to force the flux to be
-            positive.
-            As such, when we find there are light curves that deviate into negative flux
-            values, we can clip these targets out of the analysis and rerun the model.
+            positive. As such, when we find there are light curves that deviate into
+            negative flux values, we can clip these targets out of the analysis and
+            rerun the model.
             If iter_negative is True, PSFmachine will run up to 3 times, clipping out
             any negative targets each round. This is used when
             `fit_mean_shape_model` is `True`.
@@ -319,17 +324,16 @@ class SSMachine(FFIMachine):
             Compute or not Simple Aperture Photometry. See
             `Machine.compute_aperture_photometry()` for details.
         """
-
+        # create mean shape model to be used by SAP and mean-PSF
+        self.build_shape_model(plot=plot, frame_index="mean")
         # do SAP first
         if sap:
-            self.build_shape_model(plot=plot)
             self.compute_aperture_photometry(
                 aperture_size="optimal", target_complete=1, target_crowd=1
             )
 
         # do mean-PSF photometry and time model if asked
         if fit_mean_shape_model:
-            self.build_shape_model(plot=plot)
             self.build_time_model(plot=plot, downsample=True)
             # fit the OG time model
             self.fit_model(fit_va=fit_va)

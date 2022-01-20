@@ -625,6 +625,8 @@ class Machine(object):
         ----------
         npoints: int
             How many points should be in each time bin
+        downsample: bool
+            If True, the arrays will be downsampled instead of bin-averaged
 
         Returns
         -------
@@ -688,18 +690,19 @@ class Machine(object):
         breaks.append(int(self.nt * 0.99))
         breaks = np.hstack(breaks)
 
-        # Time averaged
         if not downsample:
+            # time averaged between breaks
             tm = np.vstack(
                 [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
             ).ravel()
+            # whiten the time array
             ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
-
+            # find the time index for each segments between breaks to then average flux
             ms = [
                 np.in1d(np.arange(self.nt), i)
                 for i in np.array_split(np.arange(self.nt), breaks)
             ]
-            # Average Pixel values
+            # Average Pixel flux values
             fm = np.asarray(
                 [
                     (
@@ -710,6 +713,7 @@ class Machine(object):
                     for tdx in range(len(ms))
                 ]
             )
+            # average flux err values at knots
             fem = np.asarray(
                 [
                     (
