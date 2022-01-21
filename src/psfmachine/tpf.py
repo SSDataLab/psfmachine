@@ -131,8 +131,6 @@ class TPFMachine(Machine):
                 "then no background model will be fitted."
             )
             return
-        # create source mask
-        self._get_source_mask()
         # invert maks to get bkg pixels
         # bkg_mask = ~np.asarray(
         #     (self.source_mask.todense()).sum(axis=0).astype(bool)
@@ -140,40 +138,46 @@ class TPFMachine(Machine):
         bkg_row = self.row  # [bkg_mask]
         bkg_column = self.column  # [bkg_mask]
         bkg_flux = self.flux  # [:, bkg_mask]
+        pixel_mask = np.ones_like(self.row, dtype=bool)
 
         if data_augment:
             # augment background pixels
             bkg_row = np.hstack([bkg_row, data_augment["row"]])
             bkg_column = np.hstack([bkg_column, data_augment["column"]])
             bkg_flux = np.append(bkg_flux, data_augment["flux"], axis=1)
+            pixel_mask = np.append(
+                pixel_mask, np.zeros_like(data_augment["row"], dtype=bool)
+            )
 
         # sort by row
         row_sort = np.unique(np.argsort(bkg_row))
         self.bkg_row = bkg_row[row_sort]
         self.bkg_column = bkg_column[row_sort]
         self.bkg_flux = bkg_flux[:, row_sort]
+        self.pixel_mask = pixel_mask[row_sort]
         del bkg_row, bkg_column, bkg_flux, row_sort
 
         # fit bkg model at all times
         self.bkg_est = Estimator(
             self.cadenceno, self.bkg_row, self.bkg_column, self.bkg_flux
         )
-        # eval bkg model at all times all pixels
-        self.bkg_model = self.bkg_est.model
 
         # remove background when necessary, this is done just once
         if not self.bkg_substracted:
+            # create source mask
+            # self._get_source_mask()
+            # bkg_mask = ~np.asarray(
+            #     (self.source_mask.todense()).sum(axis=0).astype(bool)
+            # ).ravel()
             # remove bkg and median value (kbackground fits the median-normalized
             # background)
-            bkg_mask = ~np.asarray(
-                (self.source_mask.todense()).sum(axis=0).astype(bool)
-            ).ravel()
-            self.flux -= self.bkg_model
-            self.flux -= np.median(self.flux[:, bkg_mask], axis=1)[:, None]
+            self.flux -= self.bkg_est.model[:, self.pixel_mask]
+            # self.flux -= np.median(self.flux[:, self.bkg_est.mask], axis=1)[:, None]
             # set bkg subs flat on so this step happens only one time
             self.bkg_substracted = True
 
         if plot:
+            self.bkg_est.plot()
             return self.plot_background_model(frame_index=self.nt // 2)
         return
 
@@ -190,27 +194,35 @@ class TPFMachine(Machine):
             raise AttributeError(
                 "No background model created, run `build_background_model()` first."
             )
-        fig, ax = plt.subplots(1, 2, figsize=(19, 7))
+        self._get_source_mask()
+        bkg_mask = ~np.asarray(
+            (self.source_mask.todense()).sum(axis=0).astype(bool)
+        ).ravel()
+        vmin = np.median(self.bkg_est.model[frame_index]) * 0.9
+        vmax = np.median(self.bkg_est.model[frame_index]) * 1.1
+        fig, ax = plt.subplots(1, 2, figsize=(13, 5))
         cbar = ax[0].scatter(
-            self.bkg_column,
-            self.bkg_row,
-            c=self.bkg_flux[frame_index] - np.median(self.bkg_flux, axis=0),
+            self.bkg_column[self.bkg_est.mask],
+            self.bkg_row[self.bkg_est.mask],
+            # this is wrong
+            c=self.bkg_flux[frame_index, self.bkg_est.mask],
             s=0.5,
-            vmin=-20,
-            vmax=20,
+            vmin=vmin,
+            vmax=vmax,
         )
         ax[0].set_title("Data Background pixels")
         plt.colorbar(cbar, ax=ax[0], label="Median substracted Flux")
         cbar = ax[1].scatter(
             self.column,
             self.row,
-            c=self.bkg_model[frame_index],
+            c=self.bkg_est.model[frame_index, self.pixel_mask],
             s=0.5,
-            vmin=-20,
-            vmax=20,
+            vmin=vmin,
+            vmax=vmax,
         )
         ax[1].set_title("Model Background (all) pixels")
         plt.colorbar(cbar, ax=ax[1], label="Median substracted Flux")
+        fig.tight_layout()
 
         return fig
 
