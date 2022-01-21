@@ -431,7 +431,7 @@ def _combine_A(A, poscorr=None, time=None):
             format="csr",
         )
         return A2
-    elif time:
+    elif time is not None:
         # Cartesian spline with time dependence
         A2 = sparse.hstack(
             [
