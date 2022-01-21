@@ -177,13 +177,13 @@ class TPFMachine(Machine):
         if not self.bkg_substracted:
             # create source mask
 
-            # bkg_mask = ~np.asarray(
-            #     (self.source_mask.todense()).sum(axis=0).astype(bool)
-            # ).ravel()
+            bkg_mask = ~np.asarray(
+                (self.source_mask.todense()).sum(axis=0).astype(bool)
+            ).ravel()
             # remove bkg and median value (kbackground fits the median-normalized
             # background)
             self.flux -= self.bkg_est.model[:, self.pixel_mask]
-            self.flux -= np.median(self.bkg_flux[:, self.bkg_mask], axis=1)[:, None]
+            self.flux -= np.median(self.flux[:, bkg_mask])
             # set bkg subs flat on so this step happens only one time
             self.bkg_substracted = True
 
