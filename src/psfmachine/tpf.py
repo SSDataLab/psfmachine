@@ -131,13 +131,15 @@ class TPFMachine(Machine):
                 "then no background model will be fitted."
             )
             return
-        # invert maks to get bkg pixels
-        # bkg_mask = ~np.asarray(
-        #     (self.source_mask.todense()).sum(axis=0).astype(bool)
-        # ).ravel()
+        # invert maks to get bkg pixels from TPFs
+        self._get_source_mask()
+        bkg_mask = ~np.asarray(
+            (self.source_mask.todense()).sum(axis=0).astype(bool)
+        ).ravel()
         bkg_row = self.row  # [bkg_mask]
         bkg_column = self.column  # [bkg_mask]
         bkg_flux = self.flux  # [:, bkg_mask]
+        # keep track of which pixels comes from TPFs
         pixel_mask = np.ones_like(self.row, dtype=bool)
 
         if data_augment:
@@ -148,6 +150,10 @@ class TPFMachine(Machine):
             pixel_mask = np.append(
                 pixel_mask, np.zeros_like(data_augment["row"], dtype=bool)
             )
+            # keep track of which pixels comes from augmented data
+            bkg_mask = np.append(
+                bkg_mask, np.ones_like(data_augment["row"], dtype=bool)
+            )
 
         # sort by row
         row_sort = np.unique(np.argsort(bkg_row))
@@ -155,24 +161,29 @@ class TPFMachine(Machine):
         self.bkg_column = bkg_column[row_sort]
         self.bkg_flux = bkg_flux[:, row_sort]
         self.pixel_mask = pixel_mask[row_sort]
-        del bkg_row, bkg_column, bkg_flux, row_sort
+        self.bkg_mask = bkg_mask[row_sort]
+        del bkg_row, bkg_column, bkg_flux, row_sort, bkg_mask, pixel_mask
 
         # fit bkg model at all times
         self.bkg_est = Estimator(
-            self.cadenceno, self.bkg_row, self.bkg_column, self.bkg_flux
+            self.cadenceno,
+            self.bkg_row,
+            self.bkg_column,
+            self.bkg_flux,
+            mask=self.bkg_mask,
         )
 
         # remove background when necessary, this is done just once
         if not self.bkg_substracted:
             # create source mask
-            # self._get_source_mask()
+
             # bkg_mask = ~np.asarray(
             #     (self.source_mask.todense()).sum(axis=0).astype(bool)
             # ).ravel()
             # remove bkg and median value (kbackground fits the median-normalized
             # background)
             self.flux -= self.bkg_est.model[:, self.pixel_mask]
-            # self.flux -= np.median(self.flux[:, self.bkg_est.mask], axis=1)[:, None]
+            self.flux -= np.median(self.bkg_flux[:, self.bkg_mask], axis=1)[:, None]
             # set bkg subs flat on so this step happens only one time
             self.bkg_substracted = True
 
@@ -194,18 +205,16 @@ class TPFMachine(Machine):
             raise AttributeError(
                 "No background model created, run `build_background_model()` first."
             )
-        self._get_source_mask()
-        bkg_mask = ~np.asarray(
-            (self.source_mask.todense()).sum(axis=0).astype(bool)
-        ).ravel()
-        vmin = np.median(self.bkg_est.model[frame_index]) * 0.9
-        vmax = np.median(self.bkg_est.model[frame_index]) * 1.1
+        # vmin = np.median(self.bkg_est.model[frame_index]) * 0.9
+        # vmax = np.median(self.bkg_est.model[frame_index]) * 1.1
+        vmin = -20
+        vmax = 20
         fig, ax = plt.subplots(1, 2, figsize=(13, 5))
         cbar = ax[0].scatter(
             self.bkg_column[self.bkg_est.mask],
             self.bkg_row[self.bkg_est.mask],
-            # this is wrong
-            c=self.bkg_flux[frame_index, self.bkg_est.mask],
+            c=self.bkg_flux[frame_index, self.bkg_est.mask]
+            - np.median(self.bkg_flux[frame_index, self.bkg_est.mask], axis=0),
             s=0.5,
             vmin=vmin,
             vmax=vmax,
