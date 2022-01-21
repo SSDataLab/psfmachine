@@ -205,8 +205,6 @@ class TPFMachine(Machine):
             raise AttributeError(
                 "No background model created, run `build_background_model()` first."
             )
-        # vmin = np.median(self.bkg_est.model[frame_index]) * 0.9
-        # vmax = np.median(self.bkg_est.model[frame_index]) * 1.1
         vmin = -20
         vmax = 20
         fig, ax = plt.subplots(1, 2, figsize=(13, 5))
