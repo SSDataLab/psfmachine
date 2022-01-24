@@ -33,6 +33,8 @@ def test_parse_TPFs():
         times,
         flux,
         flux_err,
+        pos_corr1,
+        pos_corr2,
         column,
         row,
         unw,
@@ -50,6 +52,8 @@ def test_parse_TPFs():
     assert focus_mask.shape == (10,)
     assert qual_mask.shape == (10,)
     assert sat_mask.shape == (345,)
+    assert pos_corr1.shape == (10, 10)
+    assert pos_corr2.shape == (10, 10)
 
     locs, ra, dec = _wcs_from_tpfs(tpfs)
     assert locs.shape == (2, 345)
