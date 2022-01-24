@@ -2014,7 +2014,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7.1"
-content-hash = "a4275887cec2928b9e253fe0469a0d7ccbd41332eb2d872e9a6c22ac9bd7e406"
+content-hash = "c0e4af72731267fa157a2c0cad7d5f9e24ebf3cd000b4af2feee1049a650073a"
 
 [metadata.files]
 aesara-theano-fallback = [

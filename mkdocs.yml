@@ -6,12 +6,13 @@ nav:
       - TPFMachine : tpf.md
       - FFIMachine : ffi.md
       - Aperture Photometry : aperture.md
-      - SSMAchine : superstamp.md
+      - SSMachine : superstamp.md
     - Tutorials:
-        - Basics of PSFMachine : tutorials/Tutorial_10_TPFs.ipynb
-        - TPFMachine : tutorials/Tutorial_11_TPFs.ipynb
-        - FFIMachine : tutorials/Tutorial_20_FFI.ipynb
-        - SSMachine : tutorials/Tutorial_30_k2ss.ipynb
+        - Basic PSFMachine: tutorials/Tutorial_10_TPFs.ipynb
+        - TPFMachine: tutorials/Tutorial_11_TPFs.ipynb
+        - FFIMachine: tutorials/Tutorial_20_FFI.ipynb
+        - Basic SSMachine: tutorials/Tutorial_30_k2ss.ipynb
+        - SSMachine: tutorials/Tutorial_31_k2ss.ipynb
 theme:
   name: "material"
   icon:
@@ -33,4 +34,4 @@ plugins:
             show_source: false
       custom_templates: templates
       watch:
-        - src/my_package
+        - src/psfmachine

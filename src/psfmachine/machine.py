@@ -656,13 +656,11 @@ class Machine(object):
             "centroid",
         ]:
             if self.time_corrector == "pos_corr":
-                print("using pos_corrs")
                 # take the scene-median poscorr
                 mpc1 = np.nanmedian(self.pos_corr1, axis=0)
                 mpc2 = np.nanmedian(self.pos_corr2, axis=0)
             else:
                 # if usig centroids need to convert to pixels
-                print("using centroids")
                 mpc1 = self.ra_centroid.to("arcsec").value / 4
                 mpc2 = self.dec_centroid.to("arcsec").value / 4
 
@@ -829,9 +827,8 @@ class Machine(object):
         plot: boolean
             Plot a diagnostic figure.
         downsample: boolean
-            If True the `time` and `pos_corr` arrays will be downsampled istead of binned.
-        **kwargs
-            Keyword arguments to be passed to `_get_source_mask()`
+            If True the `time` and `pos_corr` arrays will be downsampled instead of
+            binned.
         """
         if hasattr(self, "pos_corr1") and self.time_corrector in [
             "pos_corr",
