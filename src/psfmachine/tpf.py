@@ -107,20 +107,21 @@ class TPFMachine(Machine):
         `machine.source_mask`) that can also be augmented with the mission background
         pixels (https://archive.stsci.edu/missions-and-data/kepler/kepler-bulk-downloads).
 
-        This helps removing the known 'rolling band' effect seen in some CCD channels.
-        The function changes the attribute `self.flux` removing the background and
-        creates the following new attributes:
-        - `self.bkg_row` has the bacground pixel row number
-        - `self.bkg_column` has the bacground pixel column number
-        - `self.bkg_flux` has the bacground pixel flux value
-        - `self.bkg_model` has the background model from `kbackground`
+        This helps removing the known 'rolling band' effect seen in some Kepler CCD channels.
+        The function changes the attribute `self.flux` removing the background (just once)
+        and creates the following new attributes:
+        - `self.bkg_row` has the bacground pixel row number (can be augmented)
+        - `self.bkg_column` has the bacground pixel column number (can be augmented)
+        - `self.bkg_flux` has the bacground pixel flux value (can be augmented)
+        - `self.bkg_estimator` has the background estimator from `kbackground`
+        - `self.bkg_pixel_mask` is the background pixel mask
 
         Parameters
         ----------
         plot : boolean
             Show diagnostic plot
         data_augment : dictionary
-            Dictionary with the pixel row, pixel column and pixel flux value to
+            Dictionary with the pixel row, column and flux value to
             augment the background pixels. This argument is useful to include Kepler's
             background pixels from the mission. The dictionary has to have the following
             keys; "column", "row", and "flux".
@@ -133,65 +134,65 @@ class TPFMachine(Machine):
             return
         # invert maks to get bkg pixels from TPFs
         self._get_source_mask()
-        bkg_mask = ~np.asarray(
+        bkg_pixel_mask = ~np.asarray(
             (self.source_mask.todense()).sum(axis=0).astype(bool)
         ).ravel()
-        bkg_row = self.row  # [bkg_mask]
-        bkg_column = self.column  # [bkg_mask]
-        bkg_flux = self.flux  # [:, bkg_mask]
+        bkg_row = self.row
+        bkg_column = self.column
+        bkg_flux = self.flux
         # keep track of which pixels comes from TPFs
-        pixel_mask = np.ones_like(self.row, dtype=bool)
+        pixels_in_tpf = np.ones_like(self.row, dtype=bool)
 
         if data_augment:
             # augment background pixels
             bkg_row = np.hstack([bkg_row, data_augment["row"]])
             bkg_column = np.hstack([bkg_column, data_augment["column"]])
             bkg_flux = np.append(bkg_flux, data_augment["flux"], axis=1)
-            pixel_mask = np.append(
-                pixel_mask, np.zeros_like(data_augment["row"], dtype=bool)
+            # keep track of which pixels comes from augmented
+            pixels_in_tpf = np.append(
+                pixels_in_tpf, np.zeros_like(data_augment["row"], dtype=bool)
             )
-            # keep track of which pixels comes from augmented data
-            bkg_mask = np.append(
-                bkg_mask, np.ones_like(data_augment["row"], dtype=bool)
+            # keep track of background/source pixels
+            bkg_pixel_mask = np.append(
+                bkg_pixel_mask, np.ones_like(data_augment["row"], dtype=bool)
             )
 
-        # sort by row
+        # sort by row index
         row_sort = np.unique(np.argsort(bkg_row))
         self.bkg_row = bkg_row[row_sort]
         self.bkg_column = bkg_column[row_sort]
         self.bkg_flux = bkg_flux[:, row_sort]
-        self.pixel_mask = pixel_mask[row_sort]
-        self.bkg_mask = bkg_mask[row_sort]
-        del bkg_row, bkg_column, bkg_flux, row_sort, bkg_mask, pixel_mask
+        self.pixels_in_tpf = pixels_in_tpf[row_sort]
+        self.bkg_pixel_mask = bkg_pixel_mask[row_sort]
+        del bkg_row, bkg_column, bkg_flux, row_sort, bkg_pixel_mask, pixels_in_tpf
 
         # fit bkg model at all times
-        self.bkg_est = Estimator(
+        self.bkg_estimator = Estimator(
             self.cadenceno,
             self.bkg_row,
             self.bkg_column,
             self.bkg_flux,
-            mask=self.bkg_mask,
+            mask=self.bkg_pixel_mask,
             tknotspacing=4,
             xknotspacing=6,
         )
 
         # remove background when necessary, this is done just once
         if not self.bkg_substracted:
-            # create source mask
-
             bkg_mask = ~np.asarray(
                 (self.source_mask.todense()).sum(axis=0).astype(bool)
             ).ravel()
             # remove bkg and median value (kbackground fits the median-normalized
             # background)
-            self.flux -= self.bkg_est.model[:, self.pixel_mask]
+            self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
             self.flux -= np.median(self.flux[:, bkg_mask])
-            # set bkg subs flat on so this step happens only one time
+            # set bkg subs flag so this step happens only one time
             self.bkg_substracted = True
 
         if plot:
-            self.bkg_est.plot()
-            return self.plot_background_model(frame_index=self.nt // 2)
+            self.bkg_estimator.plot()
+            self.plot_background_model(frame_index=self.nt // 2)
+            return
         return
 
     def plot_background_model(self, frame_index=100):
@@ -209,28 +210,34 @@ class TPFMachine(Machine):
             )
         vmin = -20
         vmax = 20
-        fig, ax = plt.subplots(1, 2, figsize=(13, 5))
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
         cbar = ax[0].scatter(
-            self.bkg_column[self.bkg_est.mask],
-            self.bkg_row[self.bkg_est.mask],
-            c=self.bkg_flux[frame_index, self.bkg_est.mask]
-            - np.median(self.bkg_flux[frame_index, self.bkg_est.mask], axis=0),
+            self.bkg_column[self.bkg_estimator.mask],
+            self.bkg_row[self.bkg_estimator.mask],
+            c=self.bkg_flux[frame_index, self.bkg_estimator.mask]
+            - np.median(self.bkg_flux[frame_index, self.bkg_estimator.mask], axis=0),
             s=0.5,
             vmin=vmin,
             vmax=vmax,
         )
-        ax[0].set_title("Data Background pixels")
-        plt.colorbar(cbar, ax=ax[0], label="Median substracted Flux")
+        ax[0].set_aspect("equal")
+        ax[0].set_xlabel("Column Number")
+        ax[0].set_ylabel("Row Number")
+        ax[0].set_title(f"Data Background pixels (frame {frame_index})")
+        plt.colorbar(cbar, ax=ax[0], label="Median Substracted Flux")
         cbar = ax[1].scatter(
             self.column,
             self.row,
-            c=self.bkg_est.model[frame_index, self.pixel_mask],
+            c=self.bkg_estimator.model[frame_index, self.pixels_in_tpf],
             s=0.5,
             vmin=vmin,
             vmax=vmax,
         )
-        ax[1].set_title("Model Background (all) pixels")
-        plt.colorbar(cbar, ax=ax[1], label="Median substracted Flux")
+        ax[1].set_aspect("equal")
+        ax[1].set_xlabel("Column Number")
+        ax[1].set_ylabel("Row Number")
+        ax[1].set_title(f"Model Background (all) pixels (frame {frame_index})")
+        plt.colorbar(cbar, ax=ax[1], label="Median Substracted Flux")
         fig.tight_layout()
 
         return fig
