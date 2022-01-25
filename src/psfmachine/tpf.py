@@ -171,8 +171,8 @@ class TPFMachine(Machine):
             self.bkg_column,
             self.bkg_flux,
             mask=self.bkg_mask,
-            tknotspacing=5,
-            xknotspacing=10,
+            tknotspacing=4,
+            xknotspacing=6,
         )
 
         # remove background when necessary, this is done just once
