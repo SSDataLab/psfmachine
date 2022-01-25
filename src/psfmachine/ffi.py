@@ -16,6 +16,7 @@ from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
 from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+from .tpf import _clean_source_list
 
 from .machine import Machine
 from .version import __version__
@@ -107,6 +108,15 @@ class FFIMachine(Machine):
         if not meta["BACKAPP"]:
             self._remove_background()
         self._mask_pixels()
+
+        # remove nan pixels
+        valid_pix = np.isfinite(self.flux).sum(axis=0).astype(bool)
+        self.flux = self.flux[:, valid_pix]
+        self.flux_err = self.flux_err[:, valid_pix]
+        self.ra = self.ra[valid_pix]
+        self.dec = self.dec[valid_pix]
+        self.row = self.row[valid_pix]
+        self.column = self.column[valid_pix]
 
         # init `machine` object
         super().__init__(
@@ -705,7 +715,7 @@ class FFIMachine(Machine):
             return fig
         return
 
-    def plot_image(self, ax=None, sources=False):
+    def plot_image(self, ax=None, sources=False, frame_index=0):
         """
         Function to plot the Full Frame Image and Gaia sources.
 
@@ -732,7 +742,7 @@ class FFIMachine(Machine):
         im = ax.pcolormesh(
             col_2d,
             row_2d,
-            self.flux_2d[0],
+            self.flux_2d[frame_index],
             cmap=plt.cm.viridis,
             shading="nearest",
             # origin="lower",
@@ -742,8 +752,15 @@ class FFIMachine(Machine):
         plt.colorbar(im, ax=ax, label=r"Flux ($e^{-}s^{-1}$)", fraction=0.042)
 
         ax.set_title(
-            "%s FFI Ch/CCD %s MJD %f"
-            % (self.meta["MISSION"], self.meta["EXTENSION"], self.time[0])
+            "%s %s Ch/CCD %s MJD %f"
+            % (
+                self.meta["MISSION"],
+                self.meta["OBJECT"]
+                if "OBJECT" in self.meta.keys()
+                else self.meta["DCT_TYPE"],
+                self.meta["EXTENSION"],
+                self.time[frame_index],
+            )
         )
         ax.set_xlabel("R.A. [hh:mm]")
         ax.set_ylabel("Decl. [deg]")
@@ -952,7 +969,7 @@ def _load_file(fname, extension=1):
     )
 
 
-def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
+def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], square=True, **kwargs):
     """
     Query Gaia catalog in a tiled manner and clean sources off sensor.
 
@@ -968,6 +985,9 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
         World coordinates system solution for the FFI. Used to convert RA, Dec to pixels
     img_limits :
         Image limits in pixel numbers to remove sources outside the CCD.
+    square : boolean
+        True if the original data is square (e.g. FFIs), False if contains empty pixels
+        (e.g. some K2 SuperStamps). This helps to speedup off-sensor source cleaning.
     **kwargs
         Keyword arguments to be passed to `psfmachine.utils.do_tiled_query()`.
 
@@ -981,15 +1001,18 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], **kwargs):
         sources.loc[:, ["ra", "dec"]].values, 0.0
     ).T
 
-    # remove sources outiside the ccd with a tolerance
-    tolerance = 0
-    inside = (
-        (sources.row > img_limits[0][0] - tolerance)
-        & (sources.row < img_limits[0][1] + tolerance)
-        & (sources.column > img_limits[1][0] - tolerance)
-        & (sources.column < img_limits[1][1] + tolerance)
-    )
-    sources = sources[inside].reset_index(drop=True)
+    if square:
+        # remove sources outiside the ccd with a tolerance
+        tolerance = 0
+        inside = (
+            (sources.row > img_limits[0][0] - tolerance)
+            & (sources.row < img_limits[0][1] + tolerance)
+            & (sources.column > img_limits[1][0] - tolerance)
+            & (sources.column < img_limits[1][1] + tolerance)
+        )
+        sources = sources[inside].reset_index(drop=True)
+    else:
+        sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
     return sources
 
 
@@ -1033,7 +1056,9 @@ def _do_image_cutout(
     row : numpy.ndarray
         Data array with pixel raw values of the cutout.
     """
-    if cutout_size + cutout_origin[0] < np.minimum(*flux.shape[1:]):
+    if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
+        cutout_size + cutout_origin[1] <= flux.shape[2]
+    ):
         column = column[
             cutout_origin[0] : cutout_origin[0] + cutout_size,
             cutout_origin[1] : cutout_origin[1] + cutout_size,

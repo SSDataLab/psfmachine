@@ -1294,7 +1294,7 @@ def _get_coord_and_query_gaia(
     return sources
 
 
-def _clean_source_list(sources, ra, dec):
+def _clean_source_list(sources, ra, dec, pixel_tolerance=4):
     """
     Removes sources that are too contaminated and/or off the edge of the image
 
@@ -1321,7 +1321,7 @@ def _clean_source_list(sources, ra, dec):
     inside = np.zeros(len(sources), dtype=bool)
     # max distance in arcsec from image edge to source ra, dec
     # 4 pixels
-    sep = 4 * 4 * u.arcsec.to(u.deg)
+    sep = pixel_tolerance * 4 * u.arcsec.to(u.deg)
     for k in range(len(sources)):
         raok = (sources["ra"][k] > ra - sep) & (sources["ra"][k] < ra + sep)
         decok = (sources["dec"][k] > dec - sep) & (sources["dec"][k] < dec + sep)

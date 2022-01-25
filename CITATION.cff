@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Hedges"
+  given-names: "Christina"
+  orcid: "https://orcid.org/0000-0002-3385-8391"
+- family-names: "Martinez-Palomera"
+  given-names: "Jorge"
+  orcid: "https://orcid.org/0000-0002-7395-4935"
+title: "PSF Machine"
+version: 1.0.0
+doi: 10.5281/zenodo.4784073
+date-released: 2021-04-24
+url: "https://github.com/SSDataLab/psfmachine"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Hedges"
+    given-names: "Christina"
+    orcid: "https://orcid.org/0000-0002-3385-8391"
+  - family-names: "Luger"
+    given-names: "Rodrigo"
+    orcid: "https://orcid.org/0000-0002-0296-3826"
+  - family-names: "Martinez-Palomera"
+    given-names: "Jorge"
+    orcid: "https://orcid.org/0000-0002-7395-4935"
+  - family-names: "Dotson"
+    given-names: "Jessie"
+    orcid: "https://orcid.org/0000-0003-4206-5649"
+  - family-names: "Barentsen"
+    given-names: "Geert"
+    orcid: "https://orcid.org/0000-0002-3306-3484"
+  doi: "10.3847/1538-3881/ac0825"
+  url: "https://doi.org/10.3847/1538-3881/ac0825"
+  journal: "The Astronomical Journal"
+  month: 10
+  title: "Linearized Field Deblending: Point-spread Function Photometry for Impatient Astronomers"
+  issue: 3
+  volume: 162
+  year: 2021

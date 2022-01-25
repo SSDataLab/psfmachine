@@ -1,10 +1,18 @@
 site_name: PSFMachine
 nav:
     - Home: index.md
-    - Machine: machine.md
-    - TPFMachine : tpf.md
-    - FFIMachine : ffi.md
-    - Aperture Photometry : aperture.md
+    - API:
+      - Machine: machine.md
+      - TPFMachine : tpf.md
+      - FFIMachine : ffi.md
+      - Aperture Photometry : aperture.md
+      - SSMachine : superstamp.md
+    - Tutorials:
+        - Basic PSFMachine: tutorials/Tutorial_10_TPFs.ipynb
+        - TPFMachine: tutorials/Tutorial_11_TPFs.ipynb
+        - FFIMachine: tutorials/Tutorial_20_FFI.ipynb
+        - Basic SSMachine: tutorials/Tutorial_30_k2ss.ipynb
+        - SSMachine: tutorials/Tutorial_31_k2ss.ipynb
 theme:
   name: "material"
   icon:
@@ -12,6 +20,10 @@ theme:
 repo_url: https://github.com/SSDataLab/psfmachine
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: False
+      include_source: True
+      ignore_h1_titles: False
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -22,4 +34,4 @@ plugins:
             show_source: false
       custom_templates: templates
       watch:
-        - src/my_package
+        - src/psfmachine
