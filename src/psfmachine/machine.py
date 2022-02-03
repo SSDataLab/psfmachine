@@ -615,7 +615,7 @@ class Machine(object):
             ts = np.atleast_1d(frame_index)
         for t in ts:
             wgts = (
-                self.uncontaminated_source_mask.multiply(self.flux[t])
+                self.uncontaminated_source_mask.multiply(self.flux[t].copy())
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
                 ** 2
@@ -1083,7 +1083,7 @@ class Machine(object):
         return fig
 
     def build_shape_model(
-        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+        self, plot=False, flux_atol=1, flux_rtol=0.001, frame_index="mean", **kwargs
     ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
@@ -1091,8 +1091,10 @@ class Machine(object):
 
         Parameters
         ----------
-        flux_cut_off: float
+        flux_atol: float
             the flux in COUNTS at which to stop evaluating the model!
+        flux_rtol: float
+            the relative flux of the PSF at which to stop evaluating the model
         frame_index : string or int
             The frame index used to build the shape model, if "mean" then use the
             mean value across time
@@ -1193,14 +1195,16 @@ class Machine(object):
         self._get_mean_model()
         # remove background pixels and recreate mean model
         self._update_source_mask_remove_bkg_pixels(
-            flux_cut_off=flux_cut_off, frame_index=frame_index
+            flux_atol=flux_atol, flux_rtol=flux_rtol, frame_index=frame_index
         )
 
         if plot:
             return self.plot_shape_model(frame_index=frame_index)
         return
 
-    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
+    def _update_source_mask_remove_bkg_pixels(
+        self, flux_atol=1, flux_rtol=0.001, frame_index="mean"
+    ):
         """
         Update the `source_mask` to remove pixels that do not contribuite to the PRF
         shape.
@@ -1208,12 +1212,14 @@ class Machine(object):
         This re-estimation is used to remove sources with bad prediction and update
         the `source_mask` by removing background pixels that do not contribuite to
         the PRF shape.
-        Pixels with normalized flux > `flux_cut_off` are kept.
+        Pixels with normalized flux > `flux_atol` are kept.
 
         Parameters
         ----------
-        flux_cut_off : float
-            Lower limit for the normalized flux predicted from the mean model.
+        flux_atol : float
+            Lower limit for the normalized flux predicted from the mean model in ABSOLUTE flux.
+        flux_rtol : float
+            Lower limit for the normalized flux predicted from the mean model in RELATIVE flux.
         frame_index : string or int
             The frame index to be used, if "mean" then use the
             mean value across time
@@ -1259,8 +1265,8 @@ class Machine(object):
             self.mean_model.multiply(
                 self.mean_model.T.dot(self.source_flux_estimates)
             ).tocsr()
-            > flux_cut_off
-        ).multiply(self.mean_model > 0.005)
+            > flux_atol
+        ).multiply(self.mean_model > flux_rtol)
 
         # Recreate uncontaminated mask
         self._get_uncontaminated_pixel_mask()
