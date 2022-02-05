@@ -323,12 +323,13 @@ class Machine(object):
 
     def _get_source_mask(
         self,
-        upper_radius_limit=28.0,
+        upper_radius_limit=36.0,
         lower_radius_limit=4.5,
         upper_flux_limit=2e5,
-        lower_flux_limit=100,
+        lower_flux_limit=40,
         correct_centroid_offset=True,
         plot=False,
+        frame_index="mean",
     ):
         """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
 
@@ -477,6 +478,7 @@ class Machine(object):
         source_radius_limit = np.polyval(
             np.polyfit(test_f[ok], l[ok], 1), np.log10(self.source_flux_estimates)
         )
+
         source_radius_limit[
             source_radius_limit > upper_radius_limit
         ] = upper_radius_limit
@@ -501,7 +503,7 @@ class Machine(object):
         # Now we can update the r and phi estimates, allowing for a slight centroid
         # calculate image centroids and correct dra,ddec for offset.
         if correct_centroid_offset:
-            self._get_centroids()
+            self._get_centroids(frame_index=frame_index)
             # print(self.ra_centroid_avg.to("arcsec"), self.dec_centroid_avg.to("arcsec"))
             # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
             # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
@@ -510,15 +512,23 @@ class Machine(object):
             if self.nsources * self.npixels < 1e7:
                 self._create_delta_arrays(
                     centroid_offset=[
-                        self.ra_centroid_avg.value,
-                        self.dec_centroid_avg.value,
+                        self.ra_centroid_avg.value
+                        if frame_index == "mean"
+                        else self.ra_centroid[frame_index].value,
+                        self.dec_centroid_avg.value
+                        if frame_index == "mean"
+                        else self.dec_centroid[frame_index].value,
                     ]
                 )
             else:
                 self._create_delta_sparse_arrays(
                     centroid_offset=[
-                        self.ra_centroid_avg.value,
-                        self.dec_centroid_avg.value,
+                        self.ra_centroid_avg.value
+                        if frame_index == "mean"
+                        else self.ra_centroid[frame_index].value,
+                        self.dec_centroid_avg.value
+                        if frame_index == "mean"
+                        else self.dec_centroid[frame_index].value,
                     ]
                 )
             # if centroid offset id larger than 1" then we need to recalculate the
@@ -590,7 +600,7 @@ class Machine(object):
         return
 
     # CH: We're not currently using this, but it might prove useful later so I will leave for now
-    def _get_centroids(self):
+    def _get_centroids(self, frame_index="mean"):
         """
         Find the ra and dec centroid of the image, at each time.
         """
@@ -599,22 +609,30 @@ class Machine(object):
         self.dec_centroid = np.zeros(self.nt)
         dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
         ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
-        for t in range(self.nt):
-            wgts = self.uncontaminated_source_mask.multiply(
-                np.sqrt(np.abs(self.flux[t]))
-            ).data
+        if frame_index == "mean":
+            ts = np.where(self.time_mask)[0]
+        else:
+            ts = np.atleast_1d(frame_index)
+        for t in ts:
+            wgts = (
+                self.uncontaminated_source_mask.multiply(self.flux[t].copy())
+                .multiply(1 / self.source_flux_estimates[:, None])
+                .data
+                ** 2
+            )
             # mask out non finite values and background pixels
             k = (np.isfinite(wgts)) & (
-                self.uncontaminated_source_mask.multiply(self.flux[t]).data > 100
+                self.uncontaminated_source_mask.multiply(self.flux[t]).data > 10
             )
             self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
             self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
+
         del dra_m, ddec_m
         self.ra_centroid *= u.deg
         self.dec_centroid *= u.deg
-        self.ra_centroid_avg = self.ra_centroid.mean()
-        self.dec_centroid_avg = self.dec_centroid.mean()
-
+        if frame_index == "mean":
+            self.ra_centroid_avg = np.nanmean(self.ra_centroid)
+            self.dec_centroid_avg = np.nanmean(self.dec_centroid)
         return
 
     def _time_bin(self, npoints=200, downsample=False):
@@ -691,7 +709,11 @@ class Machine(object):
         if not downsample:
             # time averaged between breaks
             tm = np.vstack(
-                [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
+                [
+                    t1.mean(axis=0)
+                    for t1 in np.array_split(self.time, breaks)
+                    if len(t1) != 0
+                ]
             ).ravel()
             # whiten the time array
             ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
@@ -699,6 +721,7 @@ class Machine(object):
             ms = [
                 np.in1d(np.arange(self.nt), i)
                 for i in np.array_split(np.arange(self.nt), breaks)
+                if len(i) != 0
             ]
             # Average Pixel flux values
             fm = np.asarray(
@@ -726,7 +749,11 @@ class Machine(object):
         else:
             dwns_idx = (
                 np.vstack(
-                    [np.median(t1) for t1 in np.array_split(np.arange(self.nt), breaks)]
+                    [
+                        np.median(t1)
+                        for t1 in np.array_split(np.arange(self.nt), breaks)
+                        if len(t1) != 0
+                    ]
                 )
                 .ravel()
                 .astype(int)
@@ -789,10 +816,18 @@ class Machine(object):
             # do poscorr binning
             if not downsample:
                 pc1_bin = np.vstack(
-                    [np.median(t1, axis=0) for t1 in np.array_split(pc1_smooth, breaks)]
+                    [
+                        np.median(t1, axis=0)
+                        for t1 in np.array_split(pc1_smooth, breaks)
+                        if len(t1) != 0
+                    ]
                 ).ravel()[:, None] * np.ones(fm.shape)
                 pc2_bin = np.vstack(
-                    [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
+                    [
+                        np.median(t1, axis=0)
+                        for t1 in np.array_split(pc2_smooth, breaks)
+                        if len(t1) != 0
+                    ]
                 ).ravel()[:, None] * np.ones(fm.shape)
             else:
                 pc1_bin = pc1_smooth[dwns_idx][:, None] * np.ones(fm.shape)
@@ -1048,7 +1083,7 @@ class Machine(object):
         return fig
 
     def build_shape_model(
-        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+        self, plot=False, flux_atol=1, flux_rtol=0.001, frame_index="mean", **kwargs
     ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
@@ -1056,8 +1091,10 @@ class Machine(object):
 
         Parameters
         ----------
-        flux_cut_off: float
+        flux_atol: float
             the flux in COUNTS at which to stop evaluating the model!
+        flux_rtol: float
+            the relative flux of the PSF at which to stop evaluating the model
         frame_index : string or int
             The frame index used to build the shape model, if "mean" then use the
             mean value across time
@@ -1158,14 +1195,16 @@ class Machine(object):
         self._get_mean_model()
         # remove background pixels and recreate mean model
         self._update_source_mask_remove_bkg_pixels(
-            flux_cut_off=flux_cut_off, frame_index=frame_index
+            flux_atol=flux_atol, flux_rtol=flux_rtol, frame_index=frame_index
         )
 
         if plot:
             return self.plot_shape_model(frame_index=frame_index)
         return
 
-    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
+    def _update_source_mask_remove_bkg_pixels(
+        self, flux_atol=1, flux_rtol=0.001, frame_index="mean"
+    ):
         """
         Update the `source_mask` to remove pixels that do not contribuite to the PRF
         shape.
@@ -1173,12 +1212,14 @@ class Machine(object):
         This re-estimation is used to remove sources with bad prediction and update
         the `source_mask` by removing background pixels that do not contribuite to
         the PRF shape.
-        Pixels with normalized flux > `flux_cut_off` are kept.
+        Pixels with normalized flux > `flux_atol` are kept.
 
         Parameters
         ----------
-        flux_cut_off : float
-            Lower limit for the normalized flux predicted from the mean model.
+        flux_atol : float
+            Lower limit for the normalized flux predicted from the mean model in ABSOLUTE flux.
+        flux_rtol : float
+            Lower limit for the normalized flux predicted from the mean model in RELATIVE flux.
         frame_index : string or int
             The frame index to be used, if "mean" then use the
             mean value across time
@@ -1224,8 +1265,8 @@ class Machine(object):
             self.mean_model.multiply(
                 self.mean_model.T.dot(self.source_flux_estimates)
             ).tocsr()
-            > flux_cut_off
-        )
+            > flux_atol
+        ).multiply(self.mean_model > flux_rtol)
 
         # Recreate uncontaminated mask
         self._get_uncontaminated_pixel_mask()

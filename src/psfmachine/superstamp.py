@@ -106,6 +106,7 @@ class SSMachine(FFIMachine):
         org_sm = self.source_mask
         org_usm = self.uncontaminated_source_mask
         for tdx in tqdm(range(self.nt), desc="Building shape model per frame"):
+            self._get_source_mask(frame_index=tdx)
             fig = self.build_shape_model(frame_index=tdx, plot=plot, **kwargs)
             self.mean_model_frame.append(self.mean_model)
             if plot:
@@ -352,12 +353,11 @@ class SSMachine(FFIMachine):
         # fit shape model at each cadence
         self.build_frame_shape_model()
         self.fit_frame_model()
-
         self.lcs = []
         for idx, s in self.sources.iterrows():
             meta = {
                 "ORIGIN": "PSFMACHINE",
-                "APERTURE": "PSF + SAP" if sap else "PSF",
+                "APERTURE": "PSF + SAP" if hasattr(self, "sap_flux") else "PSF",
                 "LABEL": s.designation,
                 "MISSION": self.meta["MISSION"],
                 "RA": s.ra,

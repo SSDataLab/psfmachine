@@ -206,10 +206,11 @@ def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(x), "knots": x_knots},
+                {"x": np.hstack([x_knots[0], x, x_knots[-1]]), "knots": x_knots},
             )
         )
-    )
+    )[1:-1]
+
     if spacing == "sqrt":
         y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
         y_knots = np.sign(y_knots) * y_knots ** 2
@@ -219,10 +220,10 @@ def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(y), "knots": y_knots},
+                {"x": np.hstack([y_knots[0], y, y_knots[-1]]), "knots": y_knots},
             )
         )
-    )
+    )[1:-1]
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
         format="csr",
