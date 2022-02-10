@@ -443,3 +443,67 @@ def _combine_A(A, poscorr=None, time=None):
             format="csr",
         )
         return A2
+
+
+def threshold_binning(x, y, z, abs_thresh=10, bins=15, statistic=np.nanmedian):
+    """
+    Function to bin 2D data and compute array statistic based on density.
+    This function inputs 2D coordinates, e.g. `X` and `Y` locations, and a number value
+    `Z` for each point in the 2D space. It bins the 2D spatial data to then compute
+    a `statistic`, e.g. median, on the Z value based on bin members. The `statistic`
+    is computed only for bins with more than `abs_thresh` members. It preserves data
+    when the number of bin memebers is lower than `abs_thresh`.
+
+    Parameters
+    ----------
+    x : numpy.array
+        Data array with spatial coordinate 1.
+    y : numpy.array
+        Data array with spatial coordinate 2.
+    z : numpy.array
+        Data array with the number values for each (X, Y) point.
+    abs_thresh : int
+        Absolute threshold is the number of bib members to compute the statistic,
+        otherwise data will be preserved.
+    bins : int or list of ints
+        Number of bins. If int, both axis will have same number of bins. If list, number
+        of bins for first (x) and second (y) dimension.
+    statistic : callable()
+        The statistic as a callable function that will be use in each bin.
+        Default is `numpy.nanmedian`.
+
+    Returns
+    -------
+    new_x : numpy.array
+        Binned X data.
+    new_y : numpy.array
+        Binned Y data.
+    new_f : numpy.array
+        Binned Z data.
+    """
+
+    if isinstance(bins, int):
+        bins = [bins, bins]
+    xedges = np.linspace(x.min(), x.max(), num=bins[0] + 1)
+    yedges = np.linspace(y.min(), y.max(), num=bins[1] + 1)
+    bin_mask = np.zeros_like(z, dtype=bool)
+    new_x, new_y, new_z = [], [], []
+
+    for j in range(1, len(xedges)):
+        for k in range(1, len(yedges)):
+            idx = np.where(
+                (x >= xedges[j - 1])
+                & (x < xedges[j])
+                & (y >= yedges[k - 1])
+                & (y < yedges[k])
+            )[0]
+            if len(idx) >= abs_thresh:
+                bin_mask[idx] = True
+                new_x.append((xedges[j - 1] + xedges[j]) / 2)
+                new_y.append((yedges[k - 1] + yedges[k]) / 2)
+                new_z.append(statistic(z[idx]))
+    new_x.append(x[~bin_mask])
+    new_y.append(y[~bin_mask])
+    new_z.append(z[~bin_mask])
+
+    return (np.hstack(new_x), np.hstack(new_y), np.hstack(new_z))
