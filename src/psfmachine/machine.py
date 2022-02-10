@@ -1048,7 +1048,7 @@ class Machine(object):
         return fig
 
     def build_shape_model(
-        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+        self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
     ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
@@ -1113,6 +1113,11 @@ class Machine(object):
         phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
         r_b = self.uncontaminated_source_mask.multiply(self.r).data
 
+        if bin_data:
+            phi_b, r_b, mean_f = threshold_binning(
+                phi_b, r_b, mean_f, bins=100, abs_thresh=3
+            )
+
         # build a design matrix A with b-splines basis in radius and angle axis.
         A = _make_A_polar(
             phi_b.ravel(),
@@ -1162,7 +1167,7 @@ class Machine(object):
         )
 
         if plot:
-            return self.plot_shape_model(frame_index=frame_index)
+            return self.plot_shape_model(frame_index=frame_index, bin_data=bin_data)
         return
 
     def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
@@ -1256,7 +1261,7 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def plot_shape_model(self, radius=20, frame_index="mean"):
+    def plot_shape_model(self, radius=20, frame_index="mean", bin_data=False):
         """
         Diagnostic plot of shape model.
 
@@ -1295,6 +1300,9 @@ class Machine(object):
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
+
+        if bin_data:
+            dx, dy, mean_f = threshold_binning(dx, dy, mean_f, bins=100, abs_thresh=3)
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
         im = ax[0, 0].scatter(
