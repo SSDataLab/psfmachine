@@ -1077,12 +1077,6 @@ class Machine(object):
         # not contaminated etc
         self._get_uncontaminated_pixel_mask()
 
-        # remove pixels belonging to sources fainter than 1e4 (gaia flux)
-        # self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
-        #     (self.source_flux_estimates > 1e4)[:, None]
-        # )
-        # self.uncontaminated_source_mask.eliminate_zeros()
-
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
 
@@ -1119,10 +1113,9 @@ class Machine(object):
         # take value from Quantity is not necessary
         phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
         r_b = self.uncontaminated_source_mask.multiply(self.r).data
-        print(r_b.shape)
 
         if bin_data:
-            nbins = 25 if mean_f.shape[0] <= 5e3 else 100
+            nbins = 30 if mean_f.shape[0] <= 5e3 else 100
             phi_b, r_b, mean_f = threshold_binning(
                 phi_b,
                 r_b,
@@ -1130,7 +1123,6 @@ class Machine(object):
                 bins=nbins,
                 abs_thresh=5,
             )
-        print(r_b.shape)
 
         # build a design matrix A with b-splines basis in radius and angle axis.
         A = _make_A_polar(
@@ -1316,7 +1308,7 @@ class Machine(object):
         dy = dy.data * u.deg.to(u.arcsecond)
 
         if bin_data:
-            nbins = 25 if mean_f.shape[0] <= 5e3 else 100
+            nbins = 30 if mean_f.shape[0] <= 5e3 else 100
             dx, dy, mean_f = threshold_binning(dx, dy, mean_f, bins=nbins, abs_thresh=5)
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
