@@ -16,7 +16,7 @@ from .utils import (
     solve_linear_model,
     sparse_lessthan,
     _combine_A,
-    threshold_binning,
+    threshold_bin,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
@@ -1116,10 +1116,11 @@ class Machine(object):
 
         if bin_data:
             nbins = 30 if mean_f.shape[0] <= 5e3 else 100
-            phi_b, r_b, mean_f = threshold_binning(
+            phi_b, r_b, mean_f, mean_f_err = threshold_bin(
                 phi_b,
                 r_b,
                 mean_f,
+                z_err=mean_f_err,
                 bins=nbins,
                 abs_thresh=5,
             )
@@ -1309,7 +1310,7 @@ class Machine(object):
 
         if bin_data:
             nbins = 30 if mean_f.shape[0] <= 5e3 else 100
-            dx, dy, mean_f = threshold_binning(dx, dy, mean_f, bins=nbins, abs_thresh=5)
+            dx, dy, mean_f, _ = threshold_bin(dx, dy, mean_f, bins=nbins, abs_thresh=5)
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
         im = ax[0, 0].scatter(
