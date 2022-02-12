@@ -488,13 +488,13 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
     new_z_err : numpy.ndarray
         BInned Z_err data if errors were provided.
     """
-    if bins < 2 or bins > x.shape[0]:
+    if bins < 2 or bins > len(x):
         raise ValueError(
             "Number of bins is negative or higher than number of points in (x, y, z)"
         )
     if abs_thresh < 1:
         raise ValueError(
-            "Absolute threshold is 0 or negative, please input a value > 1"
+            "Absolute threshold is 0 or negative, please input a value > 0"
         )
     if isinstance(bins, int):
         bins = [bins, bins]
