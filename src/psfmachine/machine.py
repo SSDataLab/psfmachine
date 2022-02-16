@@ -365,7 +365,7 @@ class Machine(object):
             r = self.r
 
         # The average flux, which we assume is a good estimate of the whole stack of images
-        mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
+        mean_flux = np.nanmax(self.flux[self.time_mask], axis=0)
         # mean_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
         #     axis=0
         # ) ** 0.5 / self.time_mask.sum()
