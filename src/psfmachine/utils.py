@@ -486,7 +486,8 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
     new_z : numpy.ndarray
         Binned Z data.
     new_z_err : numpy.ndarray
-        BInned Z_err data if errors were provided.
+        BInned Z_err data if errors were provided. If no, inverse of the number of
+        bin members are returned as weights.
     """
     if bins < 2 or bins > len(x):
         raise ValueError(
@@ -532,17 +533,13 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
     if isinstance(z_err, np.ndarray):
         # keep original z errors if provided
         new_z_err.append(z_err[~bin_mask])
-        return (
-            np.hstack(bin_map),
-            np.hstack(new_x),
-            np.hstack(new_y),
-            np.hstack(new_z),
-            np.hstack(new_z_err),
-        )
     else:
-        return (
-            np.hstack(bin_map),
-            np.hstack(new_x),
-            np.hstack(new_y),
-            np.hstack(new_z),
-        )
+        new_z_err = 1 / bin_map
+
+    return (
+        np.hstack(bin_map),
+        np.hstack(new_x),
+        np.hstack(new_y),
+        np.hstack(new_z),
+        np.hstack(new_z_err),
+    )

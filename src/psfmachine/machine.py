@@ -1115,8 +1115,8 @@ class Machine(object):
         r_b = self.uncontaminated_source_mask.multiply(self.r).data
 
         if bin_data:
-            nbins = 30 if mean_f.shape[0] <= 5e3 else 100
-            phi_b, r_b, mean_f, mean_f_err = threshold_bin(
+            nbins = 30 if mean_f.shape[0] <= 5e3 else 90
+            _, phi_b, r_b, mean_f, mean_f_err = threshold_bin(
                 phi_b,
                 r_b,
                 mean_f,
@@ -1309,8 +1309,10 @@ class Machine(object):
         dy = dy.data * u.deg.to(u.arcsecond)
 
         if bin_data:
-            nbins = 30 if mean_f.shape[0] <= 5e3 else 100
-            dx, dy, mean_f, _ = threshold_bin(dx, dy, mean_f, bins=nbins, abs_thresh=5)
+            nbins = 30 if mean_f.shape[0] <= 5e3 else 90
+            _, dx, dy, mean_f, _ = threshold_bin(
+                dx, dy, mean_f, bins=nbins, abs_thresh=5
+            )
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
         im = ax[0, 0].scatter(
