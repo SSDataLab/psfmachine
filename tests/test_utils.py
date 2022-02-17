@@ -10,7 +10,7 @@ def test_threshold_bin():
         np.random.normal(size=1000),
         np.ones(1000) * np.nan,
     )
-    hist, xbin, ybin, zbin = threshold_bin(x, y, z)
+    hist, xbin, ybin, zbin, zwbin = threshold_bin(x, y, z)
     assert xbin.shape[0] <= x.shape[0]
     assert np.isnan(zbin).all()
     assert hist.min() >= 1.0
@@ -19,15 +19,19 @@ def test_threshold_bin():
     x = np.random.normal(0, 1, 5000)
     y = np.random.normal(0, 1, 5000)
     z = np.power(10, -(((x ** 2 + y ** 2) / 0.5) ** 0.5) / 2)
-    hist, xbin, ybin, zbin = threshold_bin(x, y, z, abs_thresh=5, bins=50)
+    hist, xbin, ybin, zbin, zwbin = threshold_bin(x, y, z, abs_thresh=5, bins=50)
     # check that some points are binned, some points are not
+    assert hist.shape == xbin.shape
+    assert hist.shape == ybin.shape
+    assert hist.shape == zbin.shape
+    assert hist.shape == zwbin.shape
     assert xbin.shape[0] <= x.shape[0]
     assert np.isin(zbin, z).sum() > 0
     assert hist.min() >= 1.0
 
     # add random nan values to Z
     z[np.random.randint(0, 5000, 50)] = np.nan
-    hist2, xbin2, ybin2, zbin2 = threshold_bin(x, y, z, abs_thresh=5, bins=50)
+    hist2, xbin2, ybin2, zbin2, zwbin = threshold_bin(x, y, z, abs_thresh=5, bins=50)
     # check that some points are binned, some points are not
     assert xbin2.shape[0] <= x.shape[0]
     assert np.isin(zbin2, z).sum() > 0

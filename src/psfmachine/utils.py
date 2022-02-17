@@ -463,8 +463,7 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
     z : numpy.ndarray
         Data array with the number values for each (X, Y) point.
     z_err : numpy.ndarray
-        Array with errors values for z. Error propagation and agregation is done
-        assuming z values are in Flux space, not log.
+        Array with errors values for z.
     abs_thresh : int
         Absolute threshold is the number of bib members to compute the statistic,
         otherwise data will be preserved.
@@ -522,7 +521,7 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
                 bin_map.append(len(idx))
                 if isinstance(z_err, np.ndarray):
                     # agregate errors if provided and sccale by bin member number
-                    new_z_err.append(np.sqrt(np.nansum(z[idx] ** 2)) / len(idx))
+                    new_z_err.append(np.sqrt(np.nansum(z_err[idx] ** 2)) / len(idx))
 
     # adding non-binned datapoints
     new_x.append(x[~bin_mask])
@@ -534,7 +533,7 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
         # keep original z errors if provided
         new_z_err.append(z_err[~bin_mask])
     else:
-        new_z_err = 1 / bin_map
+        new_z_err = 1 / np.hstack(bin_map)
 
     return (
         np.hstack(bin_map),
