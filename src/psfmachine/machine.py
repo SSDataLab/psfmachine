@@ -167,12 +167,13 @@ class Machine(object):
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
-        self.time_corrector = "polynomial"
+        self.time_corrector = "centroid"
         # if pos_corr, then we can smooth the vector with a Gaussian kernel of size
         # poscorr_filter_size, if this is < 0.5 -> no smoothing, default is 12
         # beacause of 6hr-CDPP
         self.poscorr_filter_size = 12
-        self.cartesian_knot_spacing = "sqrt"
+        self.cartesian_knot_spacing = "linear"
+
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
 
@@ -189,12 +190,21 @@ class Machine(object):
         # Hardcoded: sparse implementation is efficient when nsourxes * npixels < 1e7
         # (JMP profile this)
         # https://github.com/SSDataLab/psfmachine/pull/17#issuecomment-866382898
-        self.ra_centroid, self.dec_centroid = np.zeros((2, self.nt)) * u.deg
+        self.ra_centroid, self.dec_centroid = np.zeros((2)) * u.deg
         if self.nsources * self.npixels < 1e7:
             self._update_delta_arrays()
         else:
             self._update_delta_sparse_arrays()
         self._get_rough_source_mask()
+        self._get_centroid()
+        if self.nsources * self.npixels < 1e7:
+            self._update_delta_arrays()
+        else:
+            self._update_delta_sparse_arrays()
+        # if self.nsources * self.npixels < 1e7:
+        #     self._update_delta_arrays()
+        # else:
+        #     self._update_delta_sparse_arrays()
 
     @property
     def shape(self):
@@ -203,20 +213,16 @@ class Machine(object):
     def __repr__(self):
         return f"Machine (N sources, N times, N pixels): {self.shape}"
 
-    def dx(self, frame_indices="mean"):
+    @property
+    def dx(self):
         """Delta RA, corrected for centroid shift"""
-        if isinstance(frame_indices, str):
-            if frame_indices == "mean":
-                frame_indices = np.where(self.time_mask)[0]
-        else:
-            frame_indices = np.atleast_1d(frame_indices)
         if not sparse.issparse(self.dra):
-            return self.dra - self.ra_centroid[frame_indices].mean().value
+            return self.dra - self.ra_centroid.value
         else:
             ra_offset = sparse.csr_matrix(
                 (
                     np.repeat(
-                        self.ra_centroid[frame_indices].mean().value,
+                        self.ra_centroid.value,
                         self.dra.data.shape,
                     ),
                     (self.dra.nonzero()),
@@ -226,20 +232,16 @@ class Machine(object):
             )
             return self.dra - ra_offset
 
-    def dy(self, frame_indices="mean"):
+    @property
+    def dy(self):
         """Delta Dec, corrected for centroid shift"""
-        if isinstance(frame_indices, str):
-            if frame_indices == "mean":
-                frame_indices = np.where(self.time_mask)[0]
-        else:
-            frame_indices = np.atleast_1d(frame_indices)
         if not sparse.issparse(self.ddec):
-            return self.ddec - self.dec_centroid[frame_indices].mean().value
+            return self.ddec - self.dec_centroid.value
         else:
             dec_offset = sparse.csr_matrix(
                 (
                     np.repeat(
-                        self.dec_centroid[frame_indices].mean().value,
+                        self.dec_centroid.value,
                         self.ddec.data.shape,
                     ),
                     (self.ddec.nonzero()),
@@ -279,14 +281,14 @@ class Machine(object):
         # convertion to polar coordinates
         self.r = (
             np.hypot(
-                self.dx(frame_indices),
-                self.dy(frame_indices),
+                self.dx,
+                self.dy,
             )
             * 3600
         )
         self.phi = np.arctan2(
-            self.dy(frame_indices),
-            self.dx(frame_indices),
+            self.dy,
+            self.dx,
         )
 
     def _update_delta_sparse_arrays(self, frame_indices="mean", dist_lim=50):
@@ -346,10 +348,8 @@ class Machine(object):
         # then rebuild r, phi as sparse.
         nnz_inds = sparse_mask.nonzero()
         # convert radial dist to arcseconds
-        r_vals = (
-            np.hypot(self.dx(frame_indices).data, self.dy(frame_indices).data) * 3600
-        )
-        phi_vals = np.arctan2(self.dy(frame_indices).data, self.dx(frame_indices).data)
+        r_vals = np.hypot(self.dx.data, self.dy.data) * 3600
+        phi_vals = np.arctan2(self.dy.data, self.dx.data)
         self.r = sparse.csr_matrix(
             (r_vals, (nnz_inds[0], nnz_inds[1])),
             shape=sparse_mask.shape,
@@ -569,46 +569,10 @@ class Machine(object):
             )
             return fig
 
-    def _get_source_mask(
-        self,
-        upper_radius_limit=28.0,
-        lower_radius_limit=4.5,
-        upper_flux_limit=2e5,
-        lower_flux_limit=100,
-        correct_centroid_offset=True,
-        plot=False,
-    ):
-        """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
+    def _get_source_mask(self):
 
-        Fits a simple polynomial model to the log of the pixel flux values, in radial dimension and source flux,
-        to find the optimum circular apertures for every source.
-
-        Parameters
-        ----------
-        upper_radius_limit: float
-            The radius limit at which we assume there is no flux from a source of any brightness (arcsec)
-        lower_radius_limit: float
-            The radius limit at which we assume there is flux from a source of any brightness (arcsec)
-        upper_flux_limit: float
-            The flux at which we assume as source is saturated
-        lower_flux_limit: float
-            The flux at which we assume a source is too faint to model
-        correct_centroid_offset: bool
-            Correct the dra, ddec arrays from centroid offsets. If centroid offsets are
-            larger than 1 arcsec, `source_mask` will be also updated.
-        plot: bool
-            Whether to show diagnostic plot. Default is False
-        """
-
-        self._get_rough_source_mask(
-            upper_radius_limit=upper_radius_limit,
-            lower_radius_limit=lower_radius_limit,
-            upper_flux_limit=upper_flux_limit,
-            lower_flux_limit=lower_flux_limit,
-            plot=plot,
-        )
         self._get_uncontaminated_pixel_mask()
-        self._get_centroids()
+        # self._get_centroids()
         # Now we can update the r and phi estimates, allowing for a slight centroid
         # calculate image centroids and correct dra,ddec for offset.
         # re-estimate dra, ddec with centroid shifts, check if sparse case applies.
@@ -625,63 +589,91 @@ class Machine(object):
 
         return
 
-    def _get_uncontaminated_pixel_mask(self):
-        """
-        creates a mask of shape nsources x npixels where targets are not contaminated.
-        This mask is used to select pixels to build the PSF model.
-        """
-
-        # This could be a property, but it is a pain to calculate on the fly, perhaps with lru_cache
-        self.uncontaminated_source_mask = self.source_mask.multiply(
-            np.asarray(self.source_mask.sum(axis=0) == 1)[0]
-        ).tocsr()
-        # have to remove leaked zeros
-        self.uncontaminated_source_mask.eliminate_zeros()
-
-        # # reduce to good pixels
-        # self.uncontaminated_pixel_mask = sparse.csr_matrix(
-        #     self.uncontaminated_source_mask.sum(axis=0) > 0
-        # )
-
-        return
-
     # def dra(self):
     #     if not hasattr(self, 'ra_centroid'):
     #         return self.uncontaminated_source_mask.multiply(self.dra).data
     #     else:
 
-    def _get_centroids(self, plot=False):
-        """
-        Find the ra and dec centroid of the image, at each time.
-        """
-        # centroids are astropy quantities
-        self.ra_centroid = np.zeros(self.nt)
-        self.dec_centroid = np.zeros(self.nt)
-        dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
-        ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
-        for t in range(self.nt):
-            wgts = (
-                self.uncontaminated_source_mask.multiply(self.flux[t])
-                .multiply(1 / self.source_flux_estimates[:, None])
-                .data
-                ** 2
-            )
-            # mask out non finite values and background pixels
-            k = (np.isfinite(wgts)) & (wgts > 0.01)
-            self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
-            self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
-        if plot:
-            plt.figure()
-            plt.scatter(
-                dra_m, ddec_m, c=wgts ** 0.5, s=1, vmin=0, vmax=0.2, cmap="Greys"
-            )
-            plt.scatter(dra_m[k], ddec_m[k], c=wgts[k] ** 0.5, s=1, vmin=0, vmax=0.2)
-            plt.scatter(self.ra_centroid[t], self.dec_centroid[t], c="r")
-            plt.gca().set_aspect("equal")
+    # def _get_centroids(self, plot=False):
+    #     """
+    #     Find the ra and dec centroid of the image, at each time.
+    #     """
+    #     # centroids are astropy quantities
+    #     self.ra_centroid = np.zeros(self.nt)
+    #     self.dec_centroid = np.zeros(self.nt)
+    #     dra_m = self.uncontaminated_source_mask.multiply(self.dra).data
+    #     ddec_m = self.uncontaminated_source_mask.multiply(self.ddec).data
+    #     for t in range(self.nt):
+    #         wgts = (
+    #             self.uncontaminated_source_mask.multiply(self.flux[t])
+    #             .multiply(1 / self.source_flux_estimates[:, None])
+    #             .data
+    #             ** 2
+    #         )
+    #         # mask out non finite values and background pixels
+    #         k = (np.isfinite(wgts)) & (wgts > 0.01)
+    #         self.ra_centroid[t] = np.average(dra_m[k], weights=wgts[k])
+    #         self.dec_centroid[t] = np.average(ddec_m[k], weights=wgts[k])
+    #     if plot:
+    #         plt.figure()
+    #         plt.scatter(
+    #             dra_m, ddec_m, c=wgts ** 0.5, s=1, vmin=0, vmax=0.2, cmap="Greys"
+    #         )
+    #         plt.scatter(dra_m[k], ddec_m[k], c=wgts[k] ** 0.5, s=1, vmin=0, vmax=0.2)
+    #         plt.scatter(self.ra_centroid[t], self.dec_centroid[t], c="r")
+    #         plt.gca().set_aspect("equal")
+    #
+    #     self.ra_centroid *= u.deg
+    #     self.dec_centroid *= u.deg
+    #     del dra_m, ddec_m
+    #     return
 
-        self.ra_centroid *= u.deg
-        self.dec_centroid *= u.deg
-        del dra_m, ddec_m
+    def _get_centroid(self, frame_indices="mean", binsize=0.0005):
+        if isinstance(frame_indices, str):
+            if frame_indices == "mean":
+                frame_indices = np.where(self.time_mask)[0]
+        else:
+            frame_indices = np.atleast_1d(frame_indices)
+
+        x, y = (
+            self.rough_mask.multiply(self.dra).data,
+            self.rough_mask.multiply(self.ddec).data,
+        )
+        ar, X, Y = np.histogram2d(
+            x,
+            y,
+            (np.arange(-0.01, 0.01, binsize), np.arange(-0.01, 0.011, binsize)),
+        )
+        X, Y = np.meshgrid(X, Y)
+        j = np.zeros(np.asarray(ar.T.shape) + 1, bool)
+        j[:-1, :-1] = ar.T != 0
+
+        c = (
+            self.rough_mask.multiply(self.flux[frame_indices].mean(axis=0))
+            .multiply(1 / self.source_flux_estimates[:, None])
+            .data
+        )
+        k = c < 0.8
+        x_k, y_k, c_k = x[k], y[k], c[k]
+        ar2 = np.asarray(
+            [
+                np.nanmedian(
+                    c_k[
+                        (x_k >= X1)
+                        & (x_k < X1 + binsize)
+                        & (y_k >= Y1)
+                        & (y_k < Y1 + binsize)
+                    ]
+                )
+                for X1, Y1 in zip(X[j], Y[j])
+            ]
+        )
+        self.ra_centroid = (
+            np.average(X[j] + binsize / 2, weights=np.nan_to_num(ar2 ** 3)) * u.deg
+        )
+        self.dec_centroid = (
+            np.average(Y[j] + binsize / 2, weights=np.nan_to_num(ar2 ** 3)) * u.deg
+        )
         return
 
     def _time_bin(self, npoints=200, downsample=False):
@@ -728,8 +720,8 @@ class Machine(object):
                 mpc2 = np.nanmedian(self.pos_corr2, axis=0)
             else:
                 # if usig centroids need to convert to pixels
-                mpc1 = self.ra_centroid.to("arcsec").value / 4
-                mpc2 = self.dec_centroid.to("arcsec").value / 4
+                mpc1 = self.ra_centroids.to("arcsec").value / 4
+                mpc2 = self.dec_centroids.to("arcsec").value / 4
 
             # find poscorr discontinuity in each axis
             grads1 = np.gradient(mpc1, self.time)
@@ -879,6 +871,23 @@ class Machine(object):
 
         return ta, tm, fm_raw, fm, fem
 
+    def _time_matrix(self, mask):
+        dx, dy = (
+            mask.multiply(self.dx),
+            mask.multiply(self.dy),
+        )
+        dx = dx.data * u.deg.to(u.arcsecond)
+        dy = dy.data * u.deg.to(u.arcsecond)
+
+        A_c = _make_A_cartesian(
+            dx,
+            dy,
+            n_knots=self.n_time_knots,
+            radius=self.time_radius,
+            spacing=self.cartesian_knot_spacing,
+        )
+        return A_c
+
     def build_time_model(self, plot=False, downsample=False):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -924,29 +933,20 @@ class Machine(object):
             ) = self._time_bin(npoints=self.n_time_points, downsample=downsample)
 
         self._whitened_time = time_original
-        # not necessary to take value from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dx()),
-            self.uncontaminated_source_mask.multiply(self.dy()),
+        A_c = self._time_matrix(self.uncontaminated_source_mask)
+        A2 = sparse.vstack(
+            [A_c] * time_binned.shape[0],
+            format="csr",
         )
-        dx = dx.data * u.deg.to(u.arcsecond)
-        dy = dy.data * u.deg.to(u.arcsecond)
 
-        A_c = _make_A_cartesian(
-            dx,
-            dy,
-            n_knots=self.n_time_knots,
-            radius=self.time_radius,
-            spacing=self.cartesian_knot_spacing,
-        )
-        A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
-        # Cartesian spline with time dependence
         if hasattr(self, "pos_corr1") and self.time_corrector in [
             "pos_corr",
             "centroid",
         ]:
             # Cartesian spline with poscor dependence
-            A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
+            A3 = _combine_A(
+                A2, poscorr=[poscorr1_binned, poscorr2_binned], time=time_binned
+            )
         else:
             # Cartesian spline with time dependence
             A3 = _combine_A(A2, time=time_binned)
@@ -1030,22 +1030,11 @@ class Machine(object):
                 flux_err_binned,
             ) = self._time_bin(npoints=self.n_time_points)
 
-        # not necessary to take value from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dx()),
-            self.uncontaminated_source_mask.multiply(self.dy()),
+        A_c = self._time_matrix(self.uncontaminated_source_mask)
+        A2 = sparse.vstack(
+            [A_c] * time_binned.shape[0],
+            format="csr",
         )
-        dx = dx.data * u.deg.to(u.arcsecond)
-        dy = dy.data * u.deg.to(u.arcsecond)
-
-        A_c = _make_A_cartesian(
-            dx,
-            dy,
-            n_knots=self.n_time_knots,
-            radius=self.time_radius,
-            spacing=self.cartesian_knot_spacing,
-        )
-        A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
         # Cartesian spline with time dependence
         if hasattr(self, "pos_corr1") and self.time_corrector in [
@@ -1053,11 +1042,17 @@ class Machine(object):
             "centroid",
         ]:
             # Cartesian spline with poscor dependence
-            A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
+            A3 = _combine_A(
+                A2, poscorr=[poscorr1_binned, poscorr2_binned], time=time_binned
+            )
         else:
             # Cartesian spline with time dependence
             A3 = _combine_A(A2, time=time_binned)
 
+        dx, dy = (
+            self.uncontaminated_source_mask.multiply(self.dx).data * 3600,
+            self.uncontaminated_source_mask.multiply(self.dy).data * 3600,
+        )
         model = A3.dot(self.time_model_w).reshape(flux_binned.shape) + 1
         fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
         k1 = self._time_masked.reshape(flux_binned.shape)[0]
@@ -1115,7 +1110,7 @@ class Machine(object):
         return fig
 
     def build_shape_model(
-        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+        self, plot=False, flux_cut_off=1, frame_index="max", **kwargs
     ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
@@ -1137,39 +1132,43 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        if not hasattr(self, "source_mask"):
-            self._get_source_mask(**kwargs)
+        if not hasattr(self, "uncontaminated_source_mask"):
+            mask = self.rough_mask
+        else:
+            mask = self.uncontaminated_source_mask
+        #            self._get_source_mask(**kwargs)
         # Mask of shape npixels (maybe by nt) where not saturated, not faint,
         # not contaminated etc
-        self._get_uncontaminated_pixel_mask()
+        #        self._get_uncontaminated_pixel_mask()
 
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
 
         if frame_index == "mean":
             f = (self.flux[self.time_mask]).mean(axis=0)
-        elif isinstance(frame_index, int):
+        elif frame_index == "max":
+            f = (self.flux[self.time_mask]).max(axis=0)
+        elif isinstance(frame_index, (int, np.int64, np.int32, np.int16)):
             f = self.flux[frame_index]
+        else:
+            raise ValueError(f"frame_index {frame_index} not valid")
         # f, fe = (self.flux[self.time_mask]).mean(axis=0), (
         #     (self.flux_err[self.time_mask] ** 2).sum(axis=0) ** 0.5
         # ) / (self.nt)
 
         mean_f = np.log10(
-            self.uncontaminated_source_mask.astype(float)
-            .multiply(f)
-            .multiply(1 / flux_estimates)
-            .data
+            mask.astype(float).multiply(f).multiply(1 / flux_estimates).data
         )
         # Actual Kepler errors cause all sorts of instability
         # mean_f_err = (
-        #     self.uncontaminated_source_mask.astype(float)
+        #     mask.astype(float)
         #     .multiply(fe / (f * np.log(10)))
         #     .multiply(1 / flux_estimates)
         #     .data
         # )
         # We only need these weights for the wings, so we'll use poisson noise
         mean_f_err = (
-            self.uncontaminated_source_mask.astype(float)
+            mask.astype(float)
             .multiply((f ** 0.5) / (f * np.log(10)))
             .multiply(1 / flux_estimates)
             .data
@@ -1177,8 +1176,8 @@ class Machine(object):
         mean_f_err.data = np.abs(mean_f_err.data)
 
         # take value from Quantity is not necessary
-        phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
-        r_b = self.uncontaminated_source_mask.multiply(self.r).data
+        phi_b = mask.multiply(self.phi).data
+        r_b = mask.multiply(self.r).data
 
         # build a design matrix A with b-splines basis in radius and angle axis.
         A = _make_A_polar(
@@ -1191,7 +1190,7 @@ class Machine(object):
             n_phi_knots=self.n_phi_knots,
         )
         prior_sigma = np.ones(A.shape[1]) * 10
-        prior_mu = np.zeros(A.shape[1]) - 10
+        prior_mu = np.zeros(A.shape[1]) - 100
 
         nan_mask = np.isfinite(mean_f.ravel())
 
@@ -1206,7 +1205,7 @@ class Machine(object):
             errors=True,
         )
 
-        bad = sigma_clip(mean_f.ravel() - A.dot(psf_w), sigma=5).mask
+        bad = sigma_clip((mean_f.ravel() - A.dot(psf_w)), sigma=5).mask
 
         psf_w, psf_w_err = solve_linear_model(
             A,
@@ -1223,91 +1222,103 @@ class Machine(object):
 
         # We then build the same design matrix for all pixels with flux
         self._get_mean_model()
+        #        self._update_source_mask_remove_bkg_pixels()
         # remove background pixels and recreate mean model
-        self._update_source_mask_remove_bkg_pixels(
-            flux_cut_off=flux_cut_off, frame_index=frame_index
-        )
-
-        if plot:
-            return self.plot_shape_model(frame_index=frame_index)
-        return
-
-    def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
-        """
-        Update the `source_mask` to remove pixels that do not contribuite to the PRF
-        shape.
-        First, re-estimate the source flux usign the precomputed `mean_model`.
-        This re-estimation is used to remove sources with bad prediction and update
-        the `source_mask` by removing background pixels that do not contribuite to
-        the PRF shape.
-        Pixels with normalized flux > `flux_cut_off` are kept.
-
-        Parameters
-        ----------
-        flux_cut_off : float
-            Lower limit for the normalized flux predicted from the mean model.
-        frame_index : string or int
-            The frame index to be used, if "mean" then use the
-            mean value across time
-        """
-
-        # Re-estimate source flux
-        # -----
-        prior_mu = self.source_flux_estimates
-        prior_sigma = (
-            np.ones(self.mean_model.shape[0]) * 10 * self.source_flux_estimates
-        )
-
-        if frame_index == "mean":
-            f, fe = (self.flux).mean(axis=0), (
-                (self.flux_err ** 2).sum(axis=0) ** 0.5
-            ) / (self.nt)
-        elif isinstance(frame_index, int):
-            f, fe = self.flux[frame_index], self.flux_err[frame_index]
-
-        X = self.mean_model.copy()
-        X = X.T
-
-        sigma_w_inv = X.T.dot(X.multiply(1 / fe[:, None] ** 2)).toarray()
-        sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
-        B = X.T.dot((f / fe ** 2))
-        B += prior_mu / (prior_sigma ** 2)
-        ws = np.linalg.solve(sigma_w_inv, B)
-        werrs = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
-
-        # -----
-
-        # Rebuild source mask
-        ok = np.abs(ws - self.source_flux_estimates) / werrs > 3
-        ok &= ((ws / self.source_flux_estimates) < 10) & (
-            (self.source_flux_estimates / ws) < 10
-        )
-        ok &= ws > 10
-        ok &= werrs > 0
-
-        self.source_flux_estimates[ok] = ws[ok]
-
-        self.source_mask = (
-            self.mean_model.multiply(
-                self.mean_model.T.dot(self.source_flux_estimates)
-            ).tocsr()
-            > flux_cut_off
-        )
-
-        # Recreate uncontaminated mask
-        self._get_uncontaminated_pixel_mask()
-        # self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
-        #    (self.mean_model.max(axis=1) < 1)
+        # self._update_source_mask_remove_bkg_pixels(
+        #     flux_cut_off=flux_cut_off, frame_index=frame_index
         # )
 
-        # Recreate mean model!
-        self._get_mean_model()
+        if plot:
+            return self.plot_shape_model(mask, frame_index=frame_index)
+        return
 
-    def _get_mean_model(self):
+    #
+    # def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="max"):
+    #     """
+    #     Update the `source_mask` to remove pixels that do not contribuite to the PRF
+    #     shape.
+    #     First, re-estimate the source flux usign the precomputed `mean_model`.
+    #     This re-estimation is used to remove sources with bad prediction and update
+    #     the `source_mask` by removing background pixels that do not contribuite to
+    #     the PRF shape.
+    #     Pixels with normalized flux > `flux_cut_off` are kept.
+    #
+    #     Parameters
+    #     ----------
+    #     flux_cut_off : float
+    #         Lower limit for the normalized flux predicted from the mean model.
+    #     frame_index : string or int
+    #         The frame index to be used, if "mean" then use the
+    #         mean value across time
+    #     """
+    #
+    #     # Re-estimate source flux
+    #     # -----
+    #     prior_mu = self.source_flux_estimates
+    #     prior_sigma = (
+    #         np.ones(self.mean_model.shape[0]) * 10 * self.source_flux_estimates
+    #     )
+    #
+    #     if frame_index == "mean":
+    #         f, fe = (self.flux).mean(axis=0), (
+    #             (self.flux_err ** 2).sum(axis=0) ** 0.5
+    #         ) / (self.nt)
+    #     if frame_index == "max":
+    #         f, fe = (self.flux).max(axis=0), (
+    #             (self.flux_err ** 2).sum(axis=0) ** 0.5
+    #         ) / (self.nt)
+    #     elif isinstance(frame_index, int):
+    #         f, fe = self.flux[frame_index], self.flux_err[frame_index]
+    #
+    #     X = self.mean_model.copy()
+    #     X = X.T
+    #
+    #     sigma_w_inv = X.T.dot(X.multiply(1 / fe[:, None] ** 2)).toarray()
+    #     sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+    #     B = X.T.dot((f / fe ** 2))
+    #     B += prior_mu / (prior_sigma ** 2)
+    #     ws = np.linalg.solve(sigma_w_inv, B)
+    #     werrs = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+    #
+    #     # -----
+    #
+    #     # Rebuild source mask
+    #     ok = np.abs(ws - self.source_flux_estimates) / werrs > 3
+    #     ok &= ((ws / self.source_flux_estimates) < 10) & (
+    #         (self.source_flux_estimates / ws) < 10
+    #     )
+    #     ok &= ws > 10
+    #     ok &= werrs > 0
+    #
+    #     self.source_flux_estimates[ok] = ws[ok]
+    #
+    #     self.source_mask = (
+    #         self.mean_model.multiply(
+    #             self.mean_model.T.dot(self.source_flux_estimates)
+    #         ).tocsr()
+    #         > flux_cut_off
+    #     )
+    #
+    #     # Recreate uncontaminated mask
+    #     self._get_uncontaminated_pixel_mask()
+    #     # self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
+    #     #    (self.mean_model.max(axis=1) < 1)
+    #     # )
+    #
+    #     # Recreate mean model!
+    #     self._get_mean_model()
+
+    def _get_mean_model(self, relative_flux_limit=0.01, absolute_flux_limit=1):
+
+        if not hasattr(self, "source_mask"):
+            mask = self.rough_mask
+        else:
+            mask = self.source_mask
+
         """Convenience function to make the scene model"""
         Ap = _make_A_polar(
-            self.source_mask.multiply(self.phi).data,
-            self.source_mask.multiply(self.r).data,
+            mask.multiply(self.phi).data,
+            mask.multiply(self.r).data,
             rmin=self.rmin,
             rmax=self.rmax,
             cut_r=self.cut_r,
@@ -1319,11 +1330,17 @@ class Machine(object):
         mean_model = sparse.csr_matrix(self.r.shape)
         m = 10 ** Ap.dot(self.psf_w)
         m[~np.isfinite(m)] = 0
-        mean_model[self.source_mask] = m
+        mean_model[mask] = m
+        mean_model = mean_model.multiply(mean_model > relative_flux_limit)
+
+        mean_model = mean_model.multiply(
+            mean_model.multiply(self.source_flux_estimates[:, None])
+            > absolute_flux_limit
+        )
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def plot_shape_model(self, radius=20, frame_index="mean"):
+    def plot_shape_model(self, mask, radius=20, frame_index="max"):
         """
         Diagnostic plot of shape model.
 
@@ -1343,22 +1360,29 @@ class Machine(object):
 
         if frame_index == "mean":
             mean_f = np.log10(
-                self.uncontaminated_source_mask.astype(float)
+                mask.astype(float)
                 .multiply(self.flux[self.time_mask].mean(axis=0))
+                .multiply(1 / self.source_flux_estimates[:, None])
+                .data
+            )
+        if frame_index == "max":
+            mean_f = np.log10(
+                mask.astype(float)
+                .multiply(self.flux[self.time_mask].max(axis=0))
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
         elif isinstance(frame_index, int):
             mean_f = np.log10(
-                self.uncontaminated_source_mask.astype(float)
+                mask.astype(float)
                 .multiply(self.flux[frame_index])
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
 
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dx()),
-            self.uncontaminated_source_mask.multiply(self.dy()),
+            mask.multiply(self.dx),
+            mask.multiply(self.dy),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
@@ -1459,6 +1483,17 @@ class Machine(object):
             Fitting model accounting for velocity aberration. If `True`, then a time
             model has to be built previously with `build_time_model`.
         """
+
+        self._n_time_components = [
+            6
+            if self.time_corrector
+            in [
+                "pos_corr",
+                "centroid",
+            ]
+            else 4
+        ][0]
+
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
             np.ones(self.mean_model.shape[0])
@@ -1478,22 +1513,8 @@ class Machine(object):
                 )
 
             # not necessary to take value from Quantity to do .multiply()
-            # SHOULDN'T THIS BE UNCONTAMINATED SOURCE MASK?
-            dx, dy = (
-                self.source_mask.multiply(self.dx()),
-                self.source_mask.multiply(self.dy()),
-            )
-            dx = dx.data * u.deg.to(u.arcsecond)
-            dy = dy.data * u.deg.to(u.arcsecond)
-
-            A_cp = _make_A_cartesian(
-                dx,
-                dy,
-                n_knots=self.n_time_knots,
-                radius=self.time_radius,
-                spacing=self.cartesian_knot_spacing,
-            )
-            A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
+            A_cp = self._time_matrix(self.mean_model != 0)
+            A_cp3 = sparse.hstack([A_cp] * self._n_time_components, format="csr")
 
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
@@ -1526,18 +1547,23 @@ class Machine(object):
                         np.array(
                             [
                                 1,
+                                self._whitened_time[tdx],
+                                self._whitened_time[tdx] ** 2,
                                 self.pos_corr1_smooth[tdx],
                                 self.pos_corr2_smooth[tdx],
                                 self.pos_corr1_smooth[tdx] * self.pos_corr2_smooth[tdx],
                             ]
                         )[:, None]
-                        * np.ones(A_cp3.shape[1] // 4)
+                        * np.ones(A_cp3.shape[1] // self._n_time_components)
                     )
                 else:
                     # use time
                     t_mult = np.hstack(
-                        (self._whitened_time[tdx] ** np.arange(4))[:, None]
-                        * np.ones(A_cp3.shape[1] // 4)
+                        (
+                            self._whitened_time[tdx]
+                            ** np.arange(self._n_time_components)
+                        )[:, None]
+                        * np.ones(A_cp3.shape[1] // self._n_time_components)
                     )
                 X.data *= A_cp3.multiply(t_mult).dot(self.time_model_w) + 1
                 X = X.T
@@ -1578,7 +1604,7 @@ class Machine(object):
                 self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
                 self.model_flux[tdx] = X.dot(self.ws[tdx])
 
-            nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
+            nodata = np.asarray(mask.sum(axis=1))[:, 0] == 0
             # These sources are poorly estimated
             nodata |= (self.mean_model.max(axis=1) > 1).toarray()[:, 0]
             self.ws[:, nodata] *= np.nan

@@ -197,21 +197,26 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
 
 
 def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
+    # Must be odd
+    n_time_knots = n_knots if n_knots % 2 == 1 else n_knots + 1
     if spacing == "sqrt":
-        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
+        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_time_knots)
         x_knots = np.sign(x_knots) * x_knots ** 2
     else:
-        x_knots = np.linspace(-radius, radius, n_knots)
+        x_knots = np.linspace(-radius, radius, n_time_knots)
     x_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(x), "knots": x_knots},
+                {
+                    "x": list(np.hstack([x_knots.min(), x, x_knots.max()])),
+                    "knots": x_knots,
+                },
             )
-        )
+        )[1:-1]
     )
     if spacing == "sqrt":
-        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
+        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_time_knots)
         y_knots = np.sign(y_knots) * y_knots ** 2
     else:
         y_knots = np.linspace(-radius, radius, n_knots)
@@ -219,9 +224,12 @@ def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(y), "knots": y_knots},
+                {
+                    "x": list(np.hstack([y_knots.min(), y, y_knots.max()])),
+                    "knots": y_knots,
+                },
             )
-        )
+        )[1:-1]
     )
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
@@ -424,9 +432,11 @@ def _combine_A(A, poscorr=None, time=None):
         A2 = sparse.hstack(
             [
                 A,
+                A.multiply(time.ravel()[:, None]),
+                A.multiply(time.ravel()[:, None] ** 2),
                 A.multiply(poscorr[0].ravel()[:, None]),
                 A.multiply(poscorr[1].ravel()[:, None]),
-                A.multiply((poscorr[0] * poscorr[1]).ravel()[:, None]),
+                A.multiply((poscorr[0].ravel() * poscorr[1].ravel())[:, None]),
             ],
             format="csr",
         )
@@ -443,3 +453,14 @@ def _combine_A(A, poscorr=None, time=None):
             format="csr",
         )
         return A2
+
+
+def _find_uncontaminated_pixels(mask):
+    """
+    creates a mask of shape nsources x npixels where targets are not contaminated.
+    This mask is used to select pixels to build the PSF model.
+    """
+
+    new_mask = mask.multiply(np.asarray(mask.sum(axis=0) == 1)[0]).tocsr()
+    new_mask.eliminate_zeros()
+    return new_mask
