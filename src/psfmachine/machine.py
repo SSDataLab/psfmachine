@@ -1430,6 +1430,7 @@ class Machine(object):
             Fitting model accounting for velocity aberration. If `True`, then a time
             model has to be built previously with `build_time_model`.
         """
+
         prior_mu = self.source_flux_estimates  # np.zeros(A.shape[1])
         prior_sigma = (
             np.ones(self.mean_model.shape[0])
