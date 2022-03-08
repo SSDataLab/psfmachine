@@ -366,9 +366,6 @@ class Machine(object):
 
         # The average flux, which we assume is a good estimate of the whole stack of images
         max_flux = np.nanmax(self.flux[self.time_mask], axis=0)
-        # max_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
-        #     axis=0
-        # ) ** 0.5 / self.time_mask.sum()
 
         # Mask out sources that are above the flux limit, and pixels above the radius limit
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
