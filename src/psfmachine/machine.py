@@ -1115,7 +1115,13 @@ class Machine(object):
         r_b = self.uncontaminated_source_mask.multiply(self.r).data
 
         if bin_data:
-            nbins = 30 if mean_f.shape[0] <= 5e3 else 90
+            # number of bins is hardcoded to work with FFI or TPFs accordingly
+            # I found 30 wirks good with TPF stacks (<10000 pixels),
+            # 90 with FFIs (tipically >50k pixels), and 60 in between.
+            # this could be improved later if necessary
+            nbins = (
+                30 if mean_f.shape[0] <= 1e4 else (60 if mean_f.shape[0] <= 5e4 else 90)
+            )
             _, phi_b, r_b, mean_f, mean_f_err = threshold_bin(
                 phi_b,
                 r_b,
