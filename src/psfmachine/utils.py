@@ -443,3 +443,102 @@ def _combine_A(A, poscorr=None, time=None):
             format="csr",
         )
         return A2
+
+
+def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanmedian):
+    """
+    Function to bin 2D data and compute array statistic based on density.
+    This function inputs 2D coordinates, e.g. `X` and `Y` locations, and a number value
+    `Z` for each point in the 2D space. It bins the 2D spatial data to then compute
+    a `statistic`, e.g. median, on the Z value based on bin members. The `statistic`
+    is computed only for bins with more than `abs_thresh` members. It preserves data
+    when the number of bin memebers is lower than `abs_thresh`.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Data array with spatial coordinate 1.
+    y : numpy.ndarray
+        Data array with spatial coordinate 2.
+    z : numpy.ndarray
+        Data array with the number values for each (X, Y) point.
+    z_err : numpy.ndarray
+        Array with errors values for z.
+    abs_thresh : int
+        Absolute threshold is the number of bib members to compute the statistic,
+        otherwise data will be preserved.
+    bins : int or list of ints
+        Number of bins. If int, both axis will have same number of bins. If list, number
+        of bins for first (x) and second (y) dimension.
+    statistic : callable()
+        The statistic as a callable function that will be use in each bin.
+        Default is `numpy.nanmedian`.
+
+    Returns
+    -------
+    bin_map : numpy.ndarray
+        2D histogram values
+    new_x : numpy.ndarray
+        Binned X data.
+    new_y : numpy.ndarray
+        Binned Y data.
+    new_z : numpy.ndarray
+        Binned Z data.
+    new_z_err : numpy.ndarray
+        BInned Z_err data if errors were provided. If no, inverse of the number of
+        bin members are returned as weights.
+    """
+    if bins < 2 or bins > len(x):
+        raise ValueError(
+            "Number of bins is negative or higher than number of points in (x, y, z)"
+        )
+    if abs_thresh < 1:
+        raise ValueError(
+            "Absolute threshold is 0 or negative, please input a value > 0"
+        )
+    if isinstance(bins, int):
+        bins = [bins, bins]
+
+    xedges = np.linspace(np.nanmin(x), np.nanmax(x), num=bins[0] + 1)
+    yedges = np.linspace(np.nanmin(y), np.nanmax(y), num=bins[1] + 1)
+    bin_mask = np.zeros_like(z, dtype=bool)
+    new_x, new_y, new_z, new_z_err, bin_map = [], [], [], [], []
+
+    for j in range(1, len(xedges)):
+        for k in range(1, len(yedges)):
+            idx = np.where(
+                (x >= xedges[j - 1])
+                & (x < xedges[j])
+                & (y >= yedges[k - 1])
+                & (y < yedges[k])
+            )[0]
+            if len(idx) >= abs_thresh:
+                bin_mask[idx] = True
+                # we agregate bin memebers
+                new_x.append((xedges[j - 1] + xedges[j]) / 2)
+                new_y.append((yedges[k - 1] + yedges[k]) / 2)
+                new_z.append(statistic(z[idx]))
+                bin_map.append(len(idx))
+                if isinstance(z_err, np.ndarray):
+                    # agregate errors if provided and sccale by bin member number
+                    new_z_err.append(np.sqrt(np.nansum(z_err[idx] ** 2)) / len(idx))
+
+    # adding non-binned datapoints
+    new_x.append(x[~bin_mask])
+    new_y.append(y[~bin_mask])
+    new_z.append(z[~bin_mask])
+    bin_map.append(np.ones_like(z)[~bin_mask])
+
+    if isinstance(z_err, np.ndarray):
+        # keep original z errors if provided
+        new_z_err.append(z_err[~bin_mask])
+    else:
+        new_z_err = 1 / np.hstack(bin_map)
+
+    return (
+        np.hstack(bin_map),
+        np.hstack(new_x),
+        np.hstack(new_y),
+        np.hstack(new_z),
+        np.hstack(new_z_err),
+    )

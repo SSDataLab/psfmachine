@@ -16,6 +16,7 @@ from .utils import (
     solve_linear_model,
     sparse_lessthan,
     _combine_A,
+    threshold_bin,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
@@ -1045,7 +1046,7 @@ class Machine(object):
         return fig
 
     def build_shape_model(
-        self, plot=False, flux_cut_off=1, frame_index="mean", **kwargs
+        self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
     ):
         """
         Builds a sparse model matrix of shape nsources x npixels to be used when
@@ -1110,6 +1111,23 @@ class Machine(object):
         phi_b = self.uncontaminated_source_mask.multiply(self.phi).data
         r_b = self.uncontaminated_source_mask.multiply(self.r).data
 
+        if bin_data:
+            # number of bins is hardcoded to work with FFI or TPFs accordingly
+            # I found 30 wirks good with TPF stacks (<10000 pixels),
+            # 90 with FFIs (tipically >50k pixels), and 60 in between.
+            # this could be improved later if necessary
+            nbins = (
+                30 if mean_f.shape[0] <= 1e4 else (60 if mean_f.shape[0] <= 5e4 else 90)
+            )
+            _, phi_b, r_b, mean_f, mean_f_err = threshold_bin(
+                phi_b,
+                r_b,
+                mean_f,
+                z_err=mean_f_err,
+                bins=nbins,
+                abs_thresh=5,
+            )
+
         # build a design matrix A with b-splines basis in radius and angle axis.
         A = _make_A_polar(
             phi_b.ravel(),
@@ -1159,7 +1177,7 @@ class Machine(object):
         )
 
         if plot:
-            return self.plot_shape_model(frame_index=frame_index)
+            return self.plot_shape_model(frame_index=frame_index, bin_data=bin_data)
         return
 
     def _update_source_mask_remove_bkg_pixels(self, flux_cut_off=1, frame_index="mean"):
@@ -1253,7 +1271,7 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def plot_shape_model(self, radius=20, frame_index="mean"):
+    def plot_shape_model(self, radius=20, frame_index="mean", bin_data=False):
         """
         Diagnostic plot of shape model.
 
@@ -1292,6 +1310,12 @@ class Machine(object):
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
+
+        if bin_data:
+            nbins = 30 if mean_f.shape[0] <= 5e3 else 90
+            _, dx, dy, mean_f, _ = threshold_bin(
+                dx, dy, mean_f, bins=nbins, abs_thresh=5
+            )
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
         im = ax[0, 0].scatter(
