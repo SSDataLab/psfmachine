@@ -365,15 +365,12 @@ class Machine(object):
             r = self.r
 
         # The average flux, which we assume is a good estimate of the whole stack of images
-        mean_flux = np.nanmean(self.flux[self.time_mask], axis=0)
-        # mean_flux_err = (self.flux_err[self.time_mask] ** 0.5).sum(
-        #     axis=0
-        # ) ** 0.5 / self.time_mask.sum()
+        max_flux = np.nanmax(self.flux[self.time_mask], axis=0)
 
         # Mask out sources that are above the flux limit, and pixels above the radius limit
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
         # temp_mask for the sparse array case should also be a sparse matrix. Then it is
-        # applied to r, mean_flux, and, source_flux_estimates to be used later.
+        # applied to r, max_flux, and, source_flux_estimates to be used later.
         # Numpy array case:
         if not isinstance(r, sparse.csr_matrix):
             # First we make a guess that each source has exactly the gaia flux
@@ -389,7 +386,7 @@ class Machine(object):
             r_temp_mask = r[temp_mask]
 
             # log of flux values
-            f = np.log10((temp_mask.astype(float) * mean_flux))
+            f = np.log10((temp_mask.astype(float) * max_flux))
             f_temp_mask = f[temp_mask]
             # weights = (
             #     (self.flux_err ** 0.5).sum(axis=0) ** 0.5 / self.flux.shape[0]
@@ -409,7 +406,7 @@ class Machine(object):
             temp_mask = temp_mask.multiply(temp_mask.sum(axis=0) == 1).tocsr()
             temp_mask.eliminate_zeros()
 
-            f = np.log10(temp_mask.astype(float).multiply(mean_flux).data)
+            f = np.log10(temp_mask.astype(float).multiply(max_flux).data)
             k = np.isfinite(f)
             f_temp_mask = f[k]
             r_temp_mask = temp_mask.astype(float).multiply(r).data[k]
