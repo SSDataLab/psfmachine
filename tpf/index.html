@@ -333,8 +333,22 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.plot_background_model" class="md-nav__link">
+    plot_background_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.plot_tpf" class="md-nav__link">
     plot_tpf()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.remove_background_model" class="md-nav__link">
+    remove_background_model()
   </a>
   
 </li>
@@ -568,8 +582,22 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.plot_background_model" class="md-nav__link">
+    plot_background_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.plot_tpf" class="md-nav__link">
     plot_tpf()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.remove_background_model" class="md-nav__link">
+    remove_background_model()
   </a>
   
 </li>
@@ -627,7 +655,7 @@
 
 
 <h2 id="psfmachine.tpf.TPFMachine.fit_lightcurves" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">fit_lightcurves</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fit_va</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">iter_negative</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">load_shape_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">shape_model_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">fit_lightcurves</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fit_bkg</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fit_va</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">iter_negative</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">load_shape_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">shape_model_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 
 </h2>
@@ -665,6 +693,13 @@ that <code>fit_lightcurves</code> create:
         <td><p>Whether or not to show some diagnostic plots. These can be helpful
 for a user to see if the PRF and time dependent models are being calculated
 correctly.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>fit_bkg</code></td>
+        <td><code>bool</code></td>
+        <td><p>Fit and remove background. Useful when providing flux values without
+background substraction.</p></td>
         <td><code>False</code></td>
       </tr>
       <tr>
@@ -723,7 +758,7 @@ then precomputed models will be download from Zenodo repo.</p></td>
 
 
 <h2 id="psfmachine.tpf.TPFMachine.from_TPFs" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">from_TPFs</span><span class="p">(</span><span class="n">tpfs</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">apply_focus_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">query_ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_rad</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">from_TPFs</span><span class="p">(</span><span class="n">tpfs</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">apply_focus_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">renormalize_tpf_bkg</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">query_ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_rad</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
 
   <span class="doc doc-properties">
       <small class="doc doc-property doc-property-staticmethod"><code>staticmethod</code></small>
@@ -936,6 +971,45 @@ The file is stored in <code>psfmachine/src/psfmachine/data/</code>.</p></td>
 
 
 
+<h2 id="psfmachine.tpf.TPFMachine.plot_background_model" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">plot_background_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame_index</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Diagnostic plot of background model</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>frame_index</code></td>
+        <td><code>int</code></td>
+        <td><p>The frame index to be shown.</p></td>
+        <td><code>100</code></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
 <h2 id="psfmachine.tpf.TPFMachine.plot_tpf" class="doc doc-heading">
 <code class="highlight language-python"><span class="n">plot_tpf</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tdx</span><span class="p">,</span> <span class="n">sap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
@@ -971,6 +1045,66 @@ source the light curve belongs to.</p>
         <td><code>boolean</code></td>
         <td><p>Overplot the pixel mask used for aperture photometry.</p></td>
         <td><code>True</code></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.tpf.TPFMachine.remove_background_model" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">remove_background_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">data_augment</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Function to fit and remove the background signal of the TPF stack using</p>
+<p><code>kbackground</code> package. This is a Kepler/K2 specific tool.
+Fits a smooth polynomial to the TPF background pixels (inverse of
+<code>machine.source_mask</code>) that can also be augmented with the mission background
+pixels (https://archive.stsci.edu/missions-and-data/kepler/kepler-bulk-downloads).</p>
+<p>This helps removing the known 'rolling band' effect seen in some Kepler CCD channels.
+The function changes the attribute <code>self.flux</code> removing the background (just once)
+and creates the following new attributes:
+- <code>self.bkg_row</code> has the bacground pixel row number (can be augmented)
+- <code>self.bkg_column</code> has the bacground pixel column number (can be augmented)
+- <code>self.bkg_flux</code> has the bacground pixel flux value (can be augmented)
+- <code>self.bkg_estimator</code> has the background estimator from <code>kbackground</code>
+- <code>self.bkg_pixel_mask</code> is the background pixel mask</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>plot</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Show diagnostic plot</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>data_augment</code></td>
+        <td><code>dictionary</code></td>
+        <td><p>Dictionary with the pixel row, column and flux value to
+augment the background pixels. This argument is useful to include Kepler's
+background pixels from the mission. The dictionary has to have the following
+keys; "column", "row", and "flux".</p></td>
+        <td><code>None</code></td>
       </tr>
   </tbody>
 </table>
