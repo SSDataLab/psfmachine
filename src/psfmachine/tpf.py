@@ -12,6 +12,7 @@ from matplotlib import patches
 import urllib.request
 import tarfile
 from kbackground import Estimator
+from tqdm import tqdm
 
 from .utils import get_gaia_sources
 from .aperture import estimate_source_centroids_aperture, aperture_mask_to_2d
@@ -804,6 +805,7 @@ class TPFMachine(Machine):
         time_mask=None,
         apply_focus_mask=True,
         renormalize_tpf_bkg=False,
+        skygroup_multi_quarters=False,
         query_ra=None,
         query_dec=None,
         query_rad=None,
@@ -888,21 +890,44 @@ class TPFMachine(Machine):
             raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
         if len(np.unique(tpf_meta["channel"])) != 1:
             raise ValueError("TPFs span multiple channels.")
+        if not skygroup_multi_quarters and len(set([x.quarter for x in tpfs])) != 1:
+            raise ValueError("TPFs span multiple quarters")
 
         # parse tpfs
-        (
-            times,
-            flux,
-            flux_err,
-            pos_corr1,
-            pos_corr2,
-            column,
-            row,
-            unw,
-            focus_mask,
-            qual_mask,
-            saturated_mask,
-        ) = _parse_TPFs(tpfs, renormalize_tpf_bkg=renormalize_tpf_bkg, **kwargs)
+        if not skygroup_multi_quarters:
+            (
+                times,
+                flux,
+                flux_err,
+                pos_corr1,
+                pos_corr2,
+                column,
+                row,
+                unw,
+                focus_mask,
+                qual_mask,
+                saturated_mask,
+            ) = _parse_TPFs(tpfs, renormalize_tpf_bkg=renormalize_tpf_bkg, **kwargs)
+        else:
+            (
+                tpfs_tid_qs,
+                times,
+                flux,
+                flux_err,
+                pos_corr1,
+                pos_corr2,
+                column,
+                row,
+                ra,
+                dec,
+                unw,
+                focus_mask,
+                qual_mask,
+                saturated_mask,
+            ) = _parse_multi_quarter_TPFs(
+                tpfs, renormalize_tpf_bkg=renormalize_tpf_bkg, **kwargs
+            )
+            tpfs = [item for sublist in tpfs_tid_qs for item in sublist]
 
         if time_mask is not None:
             time_mask = np.copy(time_mask)[qual_mask]
@@ -910,78 +935,35 @@ class TPFMachine(Machine):
         focus_mask = focus_mask if apply_focus_mask else None
 
         # convert to RA Dec
-        locs, ra, dec = _wcs_from_tpfs(tpfs)
+        if not skygroup_multi_quarters:
+            locs, ra, dec = _wcs_from_tpfs(tpfs)
+        else:
+            locs = np.asarray([column, row])
 
         # preprocess arrays
-        (
+        (flux, flux_err, unw, locs, ra, dec, column, row,) = _preprocess(
             flux,
             flux_err,
-            # pos_corr1,
-            # pos_corr2,
             unw,
             locs,
             ra,
             dec,
             column,
             row,
-        ) = _preprocess(
-            flux,
-            flux_err,
-            # pos_corr1,
-            # pos_corr2,
-            unw,
-            locs,
-            ra,
-            dec,
-            column,
-            row,
-            tpfs,
             saturated_mask,
         )
 
         sources = _get_coord_and_query_gaia(
-            tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
+            tpfs,
+            magnitude_limit,
+            dr=dr,
+            ra=query_ra,
+            dec=query_dec,
+            rad=query_rad,
+            epoch=Time(times[len(times) // 2], format="jd").jyear,
         )
 
-        def get_tpf2source():
-            tpf2source = []
-            for tpf in tpfs:
-                tpfra, tpfdec = tpf.get_coordinates(cadence=0)
-                dra = np.abs(tpfra.ravel() - np.asarray(sources.ra)[:, None])
-                ddec = np.abs(tpfdec.ravel() - np.asarray(sources.dec)[:, None])
-                tpf2source.append(
-                    np.where(
-                        (
-                            (dra < 4 * 3 * u.arcsecond.to(u.deg))
-                            & (ddec < 4 * 3 * u.arcsecond.to(u.deg))
-                        ).any(axis=1)
-                    )[0]
-                )
-            return tpf2source
-
-        tpf2source = get_tpf2source()
-        sources = sources[
-            np.in1d(np.arange(len(sources)), np.hstack(tpf2source))
-        ].reset_index(drop=True)
-        #        sources, _ = _clean_source_list(sources, ra, dec)
-        tpf_meta["sources"] = get_tpf2source()
-
-        idx, sep, _ = match_coordinates_sky(
-            SkyCoord(tpf_meta["ra"], tpf_meta["dec"], unit="deg"),
-            SkyCoord(np.asarray(sources[["ra", "dec"]]), unit="deg"),
-        )
-        match = (sep < 1 * u.arcsec) & (
-            np.abs(
-                np.asarray(sources["phot_g_mean_mag"][idx])
-                - np.asarray(
-                    [t if t is not None else np.nan for t in tpf_meta["tpfmag"]]
-                )
-            )
-            < 0.25
-        )
-
-        sources["tpf_id"] = None
-        sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
+        sources, tpf_meta = _get_tpf2source(tpfs, sources, tpf_meta)
 
         # return a Machine object
         return TPFMachine(
@@ -1122,18 +1104,202 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     )
 
 
+def _parse_multi_quarter_TPFs(tpfs, renormalize_tpf_bkg=False, quiet=False, **kwargs):
+    """
+    Parse TPF collection to extract times, pixel fluxes, flux errors and tpf-index
+    per pixel
+    Parameters
+    ----------
+    tpfs: lightkurve TargetPixelFileCollection
+        Collection of Target Pixel files
+    Returns
+    -------
+    times: numpy.ndarray
+        Array with time values
+    flux: numpy.ndarray
+        Array with flux values per pixel
+    flux_err: numpy.ndarray
+        Array with flux errors per pixel
+    unw: numpy.ndarray
+        Array with TPF index for each pixel
+    """
+
+    # check how many quarters we have
+    quarters = np.asarray([x.quarter for x in tpfs])
+    nquarters = len(set(quarters))
+    if len(set(quarters)) > 1:
+        target_ids = np.asarray([x.targetid for x in tpfs])
+        tpfs_tid_qs = []
+        cadences = []
+        pos_corr1, pos_corr2 = [], []
+        # creat list of tuples with quarter TPFs for every target ID
+        for k, tid in enumerate(sorted(set(target_ids))):
+            mask = target_ids == tid
+            if mask.sum() != len(set(quarters)):
+                continue
+            tpf_qs = tpfs[mask][np.argsort(quarters[mask])]
+            tpfs_tid_qs.append(tpf_qs)
+            cadences.append(np.hstack([x.cadenceno for x in tpf_qs]))
+            pos_corr1.append(np.hstack([x.pos_corr1 for x in tpf_qs]))
+            pos_corr2.append(np.hstack([x.pos_corr2 for x in tpf_qs]))
+        # extract time, cadence, poscorrs, and quality values
+        cadences = np.asarray(cadences)
+        pos_corr1 = np.asarray(pos_corr1)
+        pos_corr2 = np.asarray(pos_corr2)
+        time = np.hstack([x.time.jd for x in tpfs_tid_qs[0]])
+        qual = np.hstack([x.quality for x in tpfs_tid_qs[0]])
+    else:
+        raise ValueError("TPFs are not multi quarters.")
+
+    if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
+        qual = np.hstack([tpfs_tid_qs[0][q].quality for q in range(nquarters)])
+        qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
+            qual, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
+        )
+        qual_mask &= (np.abs(pos_corr1[0]) < 5) & (np.abs(pos_corr2[0]) < 5)
+        # Cut out 1.5 days after every data gap
+        dt = np.hstack([10, np.diff(time)])
+        focus_mask = ~np.in1d(
+            np.arange(len(time)),
+            np.hstack(
+                [
+                    np.arange(t, t + int(1.5 / np.median(dt)))
+                    for t in np.where(dt > (np.median(dt) * 5))[0]
+                ]
+            ),
+        )
+        focus_mask = focus_mask[qual_mask]
+
+    elif isinstance(tpfs[0], lk.TessTargetPixelFile):
+        raise NotImplementedError("Multi quarter not implemented for TESS data")
+
+    # mask by quality
+    cadences = cadences[:, qual_mask]
+    times = time[qual_mask]
+    pos_corr1 = pos_corr1[:, qual_mask]
+    pos_corr2 = pos_corr2[:, qual_mask]
+
+    # check if all TPFs has same cadences
+    if not np.all(cadences[1:, :] - cadences[-1:, :] == 0):
+        raise ValueError("All TPFs must have same time basis")
+
+    # extract column, row, flux and flux_err from TPFs, making sure we align the pixels
+    # of same targets in different quarters.
+    # the mkding I do with npisin can be replace by Pandas merge using the col/row index
+    # as table index to merge.
+    ra, dec, column, row, fluxq, flux_errq, unw = [], [], [], [], [], [], []
+    if renormalize_tpf_bkg:
+        flux_bkgq = []
+    # we iterate over tuples of target TPFs
+    for j, aux in tqdm(
+        enumerate(tpfs_tid_qs),
+        desc="Parsing multi quarter TPFs",
+        disable=quiet,
+        total=len(tpfs_tid_qs),
+    ):
+        # find the smalles TPF of the same target in mutiple quarters to then mask out
+        # bigger TPFs.
+        # This could be addapted in the future to preserve the extra pixels, for now
+        # the easiest solution is to undersize to the smalles TPF.
+        shapes = [np.product(x.shape[1:]) for x in aux]
+        smallest = np.argmin(shapes)
+        column_smallest, row_smallest = np.meshgrid(
+            np.arange(aux[smallest].shape[2]) + aux[smallest].column,
+            np.arange(aux[smallest].shape[1]) + aux[smallest].row,
+        )
+        column.append(column_smallest.ravel())
+        row.append(row_smallest.ravel())
+        # convert to radec assuming pointing is consistent across quarters we use WCS
+        # from one quarter
+        ra_, dec_ = (
+            aux[smallest]
+            .wcs.wcs_pix2world(
+                np.vstack(
+                    [
+                        (column_smallest.ravel() - aux[smallest].column),
+                        (row_smallest.ravel() - aux[smallest].row),
+                    ]
+                ).T,
+                0.0,
+            )
+            .T
+        )
+        ra.append(ra_)
+        dec.append(dec_)
+
+        tpf_flux, tpf_flux_err = [], []
+        if renormalize_tpf_bkg:
+            flux_bkg = []
+        # we iterate over quartes for the same target to parse data
+        for i, a in enumerate(aux):
+            column_, row_ = np.meshgrid(
+                np.arange(a.shape[2]) + a.column,
+                np.arange(a.shape[1]) + a.row,
+            )
+            # create pixel mask to know which pixels to drop with respect to the
+            # smalles TPF.
+            pix_mask = np.isin(column_, column_smallest) & np.isin(row_, row_smallest)
+            tpf_flux.append(a.flux.value.reshape(a.shape[0], -1)[:, pix_mask.ravel()])
+            tpf_flux_err.append(
+                a.flux_err.value.reshape(a.shape[0], -1)[:, pix_mask.ravel()]
+            )
+            if renormalize_tpf_bkg:
+                flux_bkg.append(
+                    a.flux_bkg.value.reshape(a.shape[0], -1)[:, pix_mask.ravel()]
+                )
+        # save pix 2 TPF mapping
+        unw.append([np.zeros_like(column_smallest, dtype=int).ravel() + j])
+
+        # concatenate quarters for the same target
+        fluxq.append(np.vstack(tpf_flux))
+        flux_errq.append(np.vstack(tpf_flux_err))
+        if renormalize_tpf_bkg:
+            flux_bkgq.append(np.vstack(flux_bkg))
+
+    # append all the TPFs
+    column = np.hstack(column)
+    row = np.hstack(row)
+    ra = np.hstack(ra)
+    dec = np.hstack(dec)
+    fluxq = np.hstack(fluxq)[qual_mask]
+    flux_errq = np.hstack(flux_errq)[qual_mask]
+    if renormalize_tpf_bkg:
+        flux_bkgq = np.hstack(flux_bkgq)[qual_mask]
+        fluxq += flux_bkgq
+
+    unw = np.hstack(unw).ravel()
+
+    # masking out saturated pixels
+    sat_mask = np.nanmax(fluxq, axis=0) > 1.4e5
+
+    return (
+        # flatten TPF list to keep machine API
+        tpfs_tid_qs,
+        times,
+        fluxq,
+        flux_errq,
+        pos_corr1,
+        pos_corr2,
+        column,
+        row,
+        ra,
+        dec,
+        unw,
+        focus_mask,
+        qual_mask,
+        sat_mask,
+    )
+
+
 def _preprocess(
     flux,
     flux_err,
-    # pos_corr1,
-    # pos_corr2,
     unw,
     locs,
     ra,
     dec,
     column,
     row,
-    tpfs,
     saturated,
 ):
     """
@@ -1185,8 +1351,6 @@ def _preprocess(
     dec = dec[mask]
     flux = flux[:, mask]
     flux_err = flux_err[:, mask]
-    # pos_corr1 = pos_corr1[:, mask]
-    # pos_corr2 = pos_corr2[:, mask]
     unw = unw[mask]
 
     return (flux, flux_err, unw, locs, ra, dec, column, row)
@@ -1232,11 +1396,10 @@ def _wcs_from_tpfs(tpfs):
 
 
 def _get_coord_and_query_gaia(
-    tpfs, magnitude_limit=18, dr=3, ra=None, dec=None, rad=None
+    tpfs, magnitude_limit=18, dr=3, ra=None, dec=None, rad=None, epoch=None
 ):
     """
     Calculate ra, dec coordinates and search radius to query Gaia catalog
-
     Parameters
     ----------
     tpfs:
@@ -1249,14 +1412,11 @@ def _get_coord_and_query_gaia(
         Decs to do gaia query
     rad : float or list of floats
         Radius to do gaia query
-
     Returns
     -------
     sources: pandas.DataFrame
         Catalog with query result
     """
-    if not isinstance(tpfs, lk.TargetPixelFileCollection):
-        raise ValueError("Please pass a `lk.TargetPixelFileCollection`")
 
     # find the max circle per TPF that contain all pixel data to query Gaia
     # CH: Sometimes sources are missing from this...worth checking on
@@ -1279,13 +1439,16 @@ def _get_coord_and_query_gaia(
     else:
         raise ValueError("Please set all or None of `ra`, `dec`, `rad`")
 
+    if epoch is None:
+        epoch = Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear
+
     # query Gaia with epoch propagation
     sources = get_gaia_sources(
         tuple(ras),
         tuple(decs),
         tuple(rads),
         magnitude_limit=magnitude_limit,
-        epoch=Time(tpfs[0].time[len(tpfs[0]) // 2], format="jd").jyear,
+        epoch=epoch,
         dr=dr,
     )
 
@@ -1345,3 +1508,45 @@ def _clean_source_list(sources, ra, dec, pixel_tolerance=4):
     sources = sources[clean].reset_index(drop=True)
 
     return sources, removed_sources
+
+
+def _get_tpf2source(tpfs, sources, tpf_meta):
+    def get_tpf2source():
+        tpf2source = []
+        for tpf in tpfs:
+            tpfra, tpfdec = tpf.get_coordinates(cadence=0)
+            dra = np.abs(tpfra.ravel() - np.asarray(sources.ra)[:, None])
+            ddec = np.abs(tpfdec.ravel() - np.asarray(sources.dec)[:, None])
+            tpf2source.append(
+                np.where(
+                    (
+                        (dra < 4 * 3 * u.arcsecond.to(u.deg))
+                        & (ddec < 4 * 3 * u.arcsecond.to(u.deg))
+                    ).any(axis=1)
+                )[0]
+            )
+        return tpf2source
+
+    tpf2source = get_tpf2source()
+    sources = sources[
+        np.in1d(np.arange(len(sources)), np.hstack(tpf2source))
+    ].reset_index(drop=True)
+    #        sources, _ = _clean_source_list(sources, ra, dec)
+    tpf_meta["sources"] = get_tpf2source()
+
+    idx, sep, _ = match_coordinates_sky(
+        SkyCoord(tpf_meta["ra"], tpf_meta["dec"], unit="deg"),
+        SkyCoord(np.asarray(sources[["ra", "dec"]]), unit="deg"),
+    )
+    match = (sep < 1 * u.arcsec) & (
+        np.abs(
+            np.asarray(sources["phot_g_mean_mag"][idx])
+            - np.asarray([t if t is not None else np.nan for t in tpf_meta["tpfmag"]])
+        )
+        < 0.25
+    )
+
+    sources["tpf_id"] = None
+    sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
+
+    return sources, tpf_meta
