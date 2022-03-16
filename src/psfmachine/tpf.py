@@ -950,6 +950,7 @@ class TPFMachine(Machine):
             dec,
             column,
             row,
+            tpfs,
             saturated_mask,
         )
 
@@ -1300,6 +1301,7 @@ def _preprocess(
     dec,
     column,
     row,
+    tpfs,
     saturated,
 ):
     """
