@@ -17,6 +17,7 @@ from .utils import (
     sparse_lessthan,
     _combine_A,
     threshold_bin,
+    get_breaks,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 
@@ -645,11 +646,7 @@ class Machine(object):
         """
 
         # Where there are break points in the time array
-        dts = np.diff(self.time)
-        splits = np.append(
-            np.append(0, np.where(dts > 5 * np.median(dts))[0] + 1), len(self.time)
-        )
-        del dts
+        splits = get_breaks(self.time)
         # if using poscorr, find and add discontinuity in poscorr data
         if hasattr(self, "pos_corr1") and self.time_corrector in [
             "pos_corr",
@@ -697,9 +694,6 @@ class Machine(object):
                     )
                 )
         breaks = np.unique(np.hstack(breaks))
-        # we include the last cadance as 99% of the sequence lenght if necessary
-        if breaks[-1] < self.nt - npoints:
-            breaks = np.append(breaks, int(self.nt * 0.99))
 
         if not downsample:
             # time averaged between breaks
@@ -826,7 +820,7 @@ class Machine(object):
 
         return ta, tm, fm_raw, fm, fem
 
-    def build_time_model(self, plot=False, downsample=False, split_models=False):
+    def build_time_model(self, plot=False, downsample=False, split_time_model=False):
         """
         Builds a time model that moves the PRF model to account for the scene movement
         due to velocity aberration. It has two methods to choose from using the
@@ -843,9 +837,11 @@ class Machine(object):
         downsample: boolean
             If True the `time` and `pos_corr` arrays will be downsampled instead of
             binned.
-        split_models : boolean
-            Will split the light curve into segments to fit different time models with
-            a commong pixel normalization.
+        split_time_model : boolean, list/array of ints
+            If `True` will split the light curve into segments to fit different time
+            models with a commong pixel normalization. If `False` will fit the full
+            time series as one segment. If list or numpy array of ints, will use the
+            index values as segment breaks.
         """
         if hasattr(self, "pos_corr1") and self.time_corrector in [
             "pos_corr",
@@ -906,14 +902,16 @@ class Machine(object):
         prior_mu = np.zeros(A3.shape[1])
 
         # fit the time model for each segment
-        # we find the splits in data
-        if split_models:
-            dts = np.diff(self.time)
-            splits = np.append(
-                np.append(0, np.where(dts > 5 * np.median(dts))[0] + 1), len(self.time)
-            )
+        # use user input
+        if isinstance(split_time_model, (np.ndarray, list)):
+            # we make sure first and last index are included and sorted
+            splits = np.unique(np.append(split_time_model, [0, len(self.time)]))
         else:
-            splits = np.array([0, len(self.time)])
+            # we find the splits in data
+            if split_time_model:
+                splits = get_breaks(self.time)
+            else:
+                splits = np.array([0, len(self.time)])
 
         seg_time_model_w, pix_mask_k = [], []
         # we iterate over segements
@@ -923,7 +921,6 @@ class Machine(object):
             seg_mask = (time_binned[:, 0] >= time_original[splits[bk]]) & (
                 time_binned[:, 0] < time_original[splits[bk + 1] - 1]
             )
-            print(seg_mask)
             # need to rebuild the A3 DM to use the rigth times/poscorrs
             A2 = sparse.vstack([A_c] * time_binned[seg_mask].shape[0], format="csr")
             if hasattr(self, "pos_corr1") and self.time_corrector in [
@@ -935,16 +932,15 @@ class Machine(object):
                 )
             else:
                 A3 = _combine_A(A2, time=time_binned[seg_mask])
-            print(A3.shape)
 
             # No saturated pixels
             k = (
-                (flux_binned_raw < 1.4e5).any(axis=0)[None, :]
+                (flux_binned_raw < 1.4e5).all(axis=0)[None, :]
                 * np.ones(flux_binned_raw[seg_mask].shape, bool)
             ).ravel()
             # No faint pixels
             k &= (
-                (flux_binned_raw[seg_mask] > 10).any(axis=0)[None, :]
+                (flux_binned_raw[seg_mask] > 100).all(axis=0)[None, :]
                 * np.ones(flux_binned_raw[seg_mask].shape, bool)
             ).ravel()
             # No huge variability
@@ -1060,8 +1056,7 @@ class Machine(object):
         )
         # find the right mask that select the binned times andd flux
         A2 = sparse.vstack([A_c] * time_binned[seg_mask].shape[0], format="csr")
-        # Cartesian spline with time dependence
-        # Cartesian spline with time dependence
+
         if hasattr(self, "pos_corr1") and self.time_corrector in [
             "pos_corr",
             "centroid",
@@ -1078,7 +1073,6 @@ class Machine(object):
             A3.dot(self.time_model_w[segment]).reshape(flux_binned[seg_mask].shape) + 1
         )
         fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
-        # this is currently breaking when doing just 1 segment. Works fine for multiple.
         k1 = (
             self._time_masked[segment]
             .reshape(flux_binned[seg_mask].shape)[0]
