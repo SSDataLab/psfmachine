@@ -219,7 +219,7 @@ class FFIMachine(Machine):
             ra,
             dec,
             wcs,
-            magnitude_limit=18 if metadata["TELESCOP"] == "Kepler" else 15,
+            magnitude_limit=18 if metadata["TELESCOP"] == "Kepler" else 17,
             epoch=time.jyear.mean(),
             ngrid=ngrid,
             dr=3,

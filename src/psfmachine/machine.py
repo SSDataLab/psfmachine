@@ -1062,7 +1062,6 @@ class Machine(object):
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
-
         # gaia estimate flux values per pixel to be used as flux priors
         self.source_flux_estimates = np.copy(np.asarray(self.sources.phot_g_mean_flux))
 
