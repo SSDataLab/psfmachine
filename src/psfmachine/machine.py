@@ -1048,9 +1048,6 @@ class Machine(object):
             radius=self.time_radius,
             spacing=self.cartesian_knot_spacing,
         )
-        # if self.seg_splits.shape[0] == 2 and segment == 0:
-        #     seg_mask = np.ones(time_binned.shape[0], dtype=bool)
-        # else:
         seg_mask = (time_binned[:, 0] >= time_original[self.seg_splits[segment]]) & (
             time_binned[:, 0] < time_original[self.seg_splits[segment + 1] - 1]
         )
