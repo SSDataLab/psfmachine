@@ -542,3 +542,21 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
         np.hstack(new_z),
         np.hstack(new_z_err),
     )
+
+
+def get_breaks(time):
+    """
+    Finds discontinuity in the time array and return the break indexes.
+
+    Parameters
+    ----------
+    time : numpy.ndarray
+        Array with time values
+
+    Returns
+    -------
+    splits : numpy.ndarray
+        An array of indexes with the break positions
+    """
+    dts = np.diff(time)
+    return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
