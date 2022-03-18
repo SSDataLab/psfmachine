@@ -118,16 +118,7 @@ class FFIMachine(Machine):
             ).mask
         ).ravel()
         self._remove_background(mask=mask)
-
-        # remove nan pixels
-        # valid_pix = np.isfinite(self.flux).sum(axis=0).astype(bool)
-        # self.flux = self.flux[:, valid_pix]
-        # self.flux_err = self.flux_err[:, valid_pix]
-        # self.ra = self.ra[valid_pix]
-        # self.dec = self.dec[valid_pix]
-        # self.row = self.row[valid_pix]
-        # self.column = self.column[valid_pix]
-
+        
         # init `machine` object
         super().__init__(
             time,
@@ -209,20 +200,7 @@ class FFIMachine(Machine):
             row,
             metadata,
         ) = _load_file(fname, extension=extension)
-        # create cutouts if asked
-        # if cutout_size is not None:
-        #     flux, flux_err, ra, dec, column, row = _do_image_cutout(
-        #         flux,
-        #         flux_err,
-        #         ra,
-        #         dec,
-        #         column,
-        #         row,
-        #         cutout_size=cutout_size,
-        #         cutout_origin=cutout_origin,
-        #     )
-        # hardcoded: the grid size to do the Gaia tiled query. This is different for
-        # cutouts and full channel. TESS and Kepler also need different grid sizes.
+
         if metadata["TELESCOP"] == "Kepler":
             ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
         else:
@@ -1065,127 +1043,6 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], square=True, **kwarg
     else:
         sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
     return sources
-
-
-#
-# def _do_image_cutout(
-#     flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
-# ):
-#     """
-#     Creates a cutout of the full image. Return data arrays corresponding to the cutout.
-#
-#     Parameters
-#     ----------
-#     flux : numpy.ndarray
-#         Data array with Flux values, correspond to full size image.
-#     flux_err : numpy.ndarray
-#         Data array with Flux errors values, correspond to full size image.
-#     ra : numpy.ndarray
-#         Data array with RA values, correspond to full size image.
-#     dec : numpy.ndarray
-#         Data array with Dec values, correspond to full size image.
-#     column : numpy.ndarray
-#         Data array with pixel column values, correspond to full size image.
-#     row : numpy.ndarray
-#         Data array with pixel raw values, correspond to full size image.
-#     cutout_size : int
-#         Size in pixels of the cutout, assumedto be squared. Default is 100.
-#     cutout_origin : tuple of ints
-#         Origin of the cutout following matrix indexing. Default is [0 ,0].
-#
-#     Returns
-#     -------
-#     flux : numpy.ndarray
-#         Data array with Flux values of the cutout.
-#     flux_err : numpy.ndarray
-#         Data array with Flux errors values of the cutout.
-#     ra : numpy.ndarray
-#         Data array with RA values of the cutout.
-#     dec : numpy.ndarray
-#         Data array with Dec values of the cutout.
-#     column : numpy.ndarray
-#         Data array with pixel column values of the cutout.
-#     row : numpy.ndarray
-#         Data array with pixel raw values of the cutout.
-#     """
-#     if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
-#         cutout_size + cutout_origin[1] <= flux.shape[2]
-#     ):
-#         column = column[
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#         row = row[
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#         flux = flux[
-#             :,
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#         flux_err = flux_err[
-#             :,
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#         ra = ra[
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#         dec = dec[
-#             cutout_origin[0] : cutout_origin[0] + cutout_size,
-#             cutout_origin[1] : cutout_origin[1] + cutout_size,
-#         ]
-#     else:
-#         raise ValueError("Cutout size is larger than image shape ", flux.shape)
-#
-#     return flux, flux_err, ra, dec, column, row
-
-
-#
-# def _remove_overscan(telescope, imgs):
-#     """
-#     Removes overscan of the CCD. Return the image data with overscan columns and rows
-#     removed, also return 2D data arrays with pixel columns and row values.
-#
-#     Parameters
-#     ----------
-#     telescope : string
-#         Name of the telescope.
-#     imgs : numpy.ndarray
-#         Array of 2D images to. Has shape of [n_times, image_height, image_width].
-#
-#     Returns
-#     -------
-#     row_2d : numpy.ndarray
-#         Data array with pixel row values
-#     col_2d : numpy.ndarray
-#         Data array with pixel column values
-#     flux_2d : numpy.ndarray
-#         Data array with flux values
-#     """
-#     if telescope == "Kepler":
-#         # CCD overscan for Kepler
-#         r_min = 20
-#         r_max = 1044
-#         c_min = 12
-#         c_max = 1112
-#     elif telescope == "TESS":
-#         # CCD overscan for TESS
-#         r_min = 0
-#         r_max = 2048
-#         c_min = 45
-#         c_max = 2093
-#     else:
-#         raise TypeError("File is not from Kepler or TESS mission")
-#     # remove overscan
-#     row_2d, col_2d = np.mgrid[: imgs[0].shape[0], : imgs[0].shape[1]]
-#     col_2d = col_2d[r_min:r_max, c_min:c_max]
-#     row_2d = row_2d[r_min:r_max, c_min:c_max]
-#     flux_2d = imgs[:, r_min:r_max, c_min:c_max]
-#
-#     return row_2d, col_2d, flux_2d
 
 
 def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):
