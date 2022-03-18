@@ -134,9 +134,14 @@ def test_poscorr_smooth():
         poscorr2_binned,
     ) = machine._time_bin(npoints=100)
 
-    assert np.isclose(
-        poscorr1_smooth, np.nanmedian(machine.pos_corr1, axis=0), atol=1e-3
-    ).all()
-    assert np.isclose(
-        poscorr2_smooth, np.nanmedian(machine.pos_corr2, axis=0), atol=1e-3
-    ).all()
+    median_pc1 = np.nanmedian(machine.pos_corr1, axis=0)
+    median_pc2 = np.nanmedian(machine.pos_corr2, axis=0)
+    median_pc1 = (median_pc1 - median_pc1.mean()) / (
+        median_pc1.max() - median_pc1.mean()
+    )
+    median_pc2 = (median_pc2 - median_pc2.mean()) / (
+        median_pc2.max() - median_pc2.mean()
+    )
+
+    assert np.isclose(poscorr1_smooth, median_pc1, atol=1e-3).all()
+    assert np.isclose(poscorr2_smooth, median_pc2, atol=1e-3).all()
