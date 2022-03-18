@@ -603,7 +603,7 @@ def _load_image(
     c_min += cutout_origin[1]
     if (r_min > r_max) | (c_min > c_max):
         raise ValueError("`cutout_origin` must be within the image.")
-    if cutout_size != None:
+    if cutout_size is not None:
         r_max = np.min([r_min + cutout_size, r_max])
         c_max = np.min([c_min + cutout_size, c_max])
     if return_coords:

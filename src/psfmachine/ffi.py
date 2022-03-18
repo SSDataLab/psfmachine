@@ -7,12 +7,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 from astropy.io import fits
-from astropy.stats import SigmaClip
 from astropy.time import Time
 from astropy.wcs import WCS
 import astropy.units as u
 from astropy.stats import sigma_clip
-from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
 from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model, _load_image
@@ -97,8 +95,6 @@ class FFIMachine(Machine):
         self.meta = meta
         self.wcs = wcs
 
-        # keep 2d image for easy plotting
-        #        self.flux_2d = flux
         self.image_shape = flux.shape[1:]
         # reshape flux and flux_err as [ntimes, npix]
         self.flux = flux.reshape(flux.shape[0], -1)
@@ -118,7 +114,7 @@ class FFIMachine(Machine):
             ).mask
         ).ravel()
         self._remove_background(mask=mask)
-        
+
         # init `machine` object
         super().__init__(
             time,
@@ -592,15 +588,6 @@ class FFIMachine(Machine):
         ).tocsr()
         self.uncontaminated_source_mask.eliminate_zeros()
 
-        # self.column = self.column[good_pixels]
-        # self.row = self.row[good_pixels]
-        # self.ra = self.ra[good_pixels]
-        # self.dec = self.dec[good_pixels]
-        # self.flux = self.flux[:, good_pixels]
-        # self.flux_err = self.flux_err[:, good_pixels]
-        #
-        # return
-
     def residuals(self, plot=False, zoom=False, metric="residuals"):
         """
         Get the residuals (model - image) and compute statistics. It creates a model
@@ -966,12 +953,7 @@ def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
     tdx = np.argsort(times)
     times = times[tdx]
 
-    # remove overscan of image
-    # row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(imgs)[tdx])
-    # kepler FFIs have uncent maps stored in different files, so we use Poison noise as
-    # flux error for now.
     imgs = np.asarray(imgs)
-    # flux_err_2d = np.sqrt(np.abs(imgs))
     imgs_err = np.asarray(imgs_err)
 
     # convert to RA and Dec

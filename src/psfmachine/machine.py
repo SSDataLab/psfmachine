@@ -401,9 +401,6 @@ class Machine(object):
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
-            sourcef = np.log10(
-                mask.astype(float).multiply(self.source_flux_estimates[:, None]).data
-            )
             rbins = np.linspace(0, self.radius * 5, 50)
             masks = np.asarray(
                 [
@@ -458,6 +455,7 @@ class Machine(object):
                 marker="*",
                 s=100,
             )
+            return fig
 
     def _time_bin(self, npoints=200, downsample=False):
         """Bin the flux data down in time. If using `pos_corr`s as corrector, it will
