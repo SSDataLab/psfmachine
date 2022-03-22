@@ -611,7 +611,6 @@ class TPFMachine(Machine):
 
         # create source mask and uncontaminated pixel mask
         self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
 
         # open file
         hdu = fits.open(input)
@@ -647,7 +646,7 @@ class TPFMachine(Machine):
         # work in arcseconds
         self._get_mean_model()
         # remove background pixels and recreate mean model
-        self._update_source_mask_remove_bkg_pixels()
+        # self._update_source_mask_remove_bkg_pixels()
 
         if plot:
             return self.plot_shape_model()

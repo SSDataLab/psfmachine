@@ -176,7 +176,10 @@ class Machine(object):
         self.poscorr_filter_size = 12
         self.cartesian_knot_spacing = "linear"
         self.pixel_scale = (
-            np.hypot(np.min(np.diff(self.ra)), np.min(np.diff(self.dec))) * u.deg
+            np.hypot(
+                np.min(np.abs(np.diff(self.ra))), np.min(np.abs(np.diff(self.dec)))
+            )
+            * u.deg
         ).to(u.arcsecond)
 
         # disble tqdm prgress bar when running in HPC
@@ -278,16 +281,13 @@ class Machine(object):
                     for idx in range(len(self.sources))
                 ]
             ).transpose(1, 0, 2)
-            self.dra = self.dra * (u.deg)
-            self.ddec = self.ddec * (u.deg)
+        #            self.dra = self.dra * (u.deg)
+        #            self.ddec = self.ddec * (u.deg)
 
         # convertion to polar coordinates
-        self.r = (
-            np.hypot(
-                self.dx,
-                self.dy,
-            )
-            * 3600
+        self.r = np.hypot(
+            self.dx * (u.deg.to(u.arcsecond)),
+            self.dy * (u.deg.to(u.arcsecond)),
         )
         self.phi = np.arctan2(
             self.dy,
@@ -351,7 +351,7 @@ class Machine(object):
         # then rebuild r, phi as sparse.
         nnz_inds = sparse_mask.nonzero()
         # convert radial dist to arcseconds
-        r_vals = np.hypot(self.dx.data, self.dy.data) * 3600
+        r_vals = np.hypot(self.dx.data, self.dy.data) * (u.deg.to(u.arcsecond))
         phi_vals = np.arctan2(self.dy.data, self.dx.data)
         self.r = sparse.csr_matrix(
             (r_vals, (nnz_inds[0], nnz_inds[1])),
@@ -382,8 +382,8 @@ class Machine(object):
             Upper limit on radius of circular apertures in arcsecond.
         """
         self.radius = 2 * self.pixel_scale.to(u.arcsecond).value
-        if not isinstance(self.r, sparse.csr_matrix):
-            self.rough_mask = sparse.csr_matrix(self.r < self.radius[:, None])
+        if not sparse.issparse(self.r):
+            self.rough_mask = sparse.csr_matrix(self.r < self.radius)
         else:
             self.rough_mask = sparse_lessthan(self.r, self.radius)
         self.source_mask = self.rough_mask.copy()
@@ -397,7 +397,7 @@ class Machine(object):
             r = mask.multiply(self.r).data
             max_f = np.log10(
                 mask.astype(float)
-                .multiply(np.max(self.flux[self.time_mask], axis=0))
+                .multiply(np.nanmax(self.flux[self.time_mask], axis=0))
                 .multiply(1 / self.source_flux_estimates[:, None])
                 .data
             )
@@ -411,13 +411,22 @@ class Machine(object):
             fbins = np.asarray([np.nanpercentile(max_f[m], 20) for m in masks])
             rbins = rbins[1:] - np.median(np.diff(rbins))
             k = np.isfinite(fbins)
+            if not k.any():
+                raise ValueError("Can not find source mask")
             l = np.polyfit(rbins[k], fbins[k], 1)
 
-            mean_model = self.r.copy()
-            mean_model.data = 10 ** np.polyval(l, mean_model.data)
-            self.source_mask = (
-                mean_model.multiply(self.source_flux_estimates[:, None])
-            ) > source_flux_limit
+            if sparse.issparse(r):
+                mean_model = self.r.copy()
+                mean_model.data = 10 ** np.polyval(l, mean_model.data)
+                self.source_mask = (
+                    mean_model.multiply(self.source_flux_estimates[:, None])
+                ) > source_flux_limit
+            else:
+                mean_model = 10 ** np.polyval(l, self.r)
+                self.source_mask = (
+                    sparse.csr_matrix(mean_model * self.source_flux_estimates[:, None])
+                    > source_flux_limit
+                )
             self.uncontaminated_source_mask = _find_uncontaminated_pixels(
                 self.source_mask
             )
@@ -425,8 +434,8 @@ class Machine(object):
 
     def _get_centroid(self, plot=False):
         radius = 1.5 * self.pixel_scale.to(u.arcsecond).value
-        if not isinstance(self.r, sparse.csr_matrix):
-            mask = sparse.csr_matrix(self.r < radius[:, None])
+        if not sparse.issparse(self.r):
+            mask = sparse.csr_matrix(self.r < radius)
         else:
             mask = sparse_lessthan(self.r, radius)
         mask = _find_uncontaminated_pixels(mask)
@@ -440,10 +449,9 @@ class Machine(object):
             .data
         )
         bm, nx, ny, nz, nze = threshold_bin(x, y, c, bins=20)
-        k = bm > 10
         self.ra_centroid, self.dec_centroid = (
-            np.average(nx[k], weights=(nz / nze)[k]) * u.deg,
-            np.average(ny[k], weights=(nz / nze)[k]) * u.deg,
+            np.average(nx, weights=(nz / nze)) * u.deg,
+            np.average(ny, weights=(nz / nze)) * u.deg,
         )
         if plot:
             fig = plt.figure(figsize=(5, 5))
@@ -831,8 +839,10 @@ class Machine(object):
             A3 = _combine_A(A2, time=time_binned)
 
         dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dx).data * 3600,
-            self.uncontaminated_source_mask.multiply(self.dy).data * 3600,
+            self.uncontaminated_source_mask.multiply(self.dx).data
+            * (u.deg.to(u.arcsecond)),
+            self.uncontaminated_source_mask.multiply(self.dy).data
+            * (u.deg.to(u.arcsecond)),
         )
         model = A3.dot(self.time_model_w).reshape(flux_binned.shape) + 1
         fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")

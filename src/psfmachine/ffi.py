@@ -13,7 +13,12 @@ import astropy.units as u
 from astropy.stats import sigma_clip
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model, _load_image
+from .utils import (
+    do_tiled_query,
+    _make_A_cartesian,
+    solve_linear_model,
+    _load_ffi_image,
+)
 from .tpf import _clean_source_list
 
 from .machine import Machine
@@ -185,17 +190,12 @@ class FFIMachine(Machine):
             A Machine class object built from the FFI.
         """
         # load FITS files and parse arrays
-        (
-            wcs,
-            time,
-            flux,
-            flux_err,
-            ra,
-            dec,
-            column,
-            row,
-            metadata,
-        ) = _load_file(fname, extension=extension)
+        (wcs, time, flux, flux_err, ra, dec, column, row, metadata,) = _load_file(
+            fname,
+            extension=extension,
+            cutout_size=cutout_size,
+            cutout_origin=cutout_origin,
+        )
 
         if metadata["TELESCOP"] == "Kepler":
             ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
@@ -460,7 +460,7 @@ class FFIMachine(Machine):
                     self.column.max() - self.column.min() + 1,
                 ]
             )
-            n_knots = cutout_size // pixel_knot_spacing
+            n_knots = np.min([cutout_size // pixel_knot_spacing, 1])
             if mask is None:
                 k = np.ones(self.flux.shape[1])
             else:
@@ -473,7 +473,9 @@ class FFIMachine(Machine):
                 n_knots=n_knots,
             )
             ws = np.linalg.solve(
-                X[k].T.dot(X[k]).toarray(), X[k].T.dot(self.flux[:, k].T)
+                X[k].T.dot(X[k]).toarray()
+                + np.diag(1 / (np.ones(X.shape[1]) * 1000000)),
+                X[k].T.dot(self.flux[:, k].T),
             )
             bkg = X.dot(ws).T
 
@@ -900,7 +902,7 @@ def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
             raise ValueError("FFI is not from Kepler or TESS.")
         if i == 0:
             wcs = WCS(hdr)
-            col_2d, row_2d, f2d = _load_image(
+            col_2d, row_2d, f2d = _load_ffi_image(
                 telescopes[-1],
                 f,
                 extension,
@@ -911,14 +913,16 @@ def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
             imgs.append(f2d)
         else:
             imgs.append(
-                _load_image(telescopes[-1], f, extension, cutout_size, cutout_origin)
+                _load_ffi_image(
+                    telescopes[-1], f, extension, cutout_size, cutout_origin
+                )
             )
-        if telescopes[-1].lower() in ["tess", "kepler"]:
+        if telescopes[-1].lower() in ["tess"]:
             imgs_err.append(
-                _load_image(telescopes[-1], f, 2, cutout_size, cutout_origin)
+                _load_ffi_image(telescopes[-1], f, 2, cutout_size, cutout_origin)
             )
         else:
-            raise ValueError("Must be Kepler or TESS")
+            imgs_err.append(imgs[-1] ** 0.5)
 
     # check for integrity of files, same telescope, all FFIs and same quarter/campaign
     if len(set(telescopes)) != 1:

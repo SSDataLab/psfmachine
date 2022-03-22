@@ -566,7 +566,7 @@ def _find_uncontaminated_pixels(mask):
     return new_mask
 
 
-def _load_image(
+def _load_ffi_image(
     telescope,
     fname,
     extension,
@@ -585,6 +585,7 @@ def _load_image(
     extension: int
         Extension to cut out of the image
     """
+    f = fitsio.FITS(fname)[extension]
     if telescope.lower() == "kepler":
         # CCD overscan for Kepler
         r_min = 20
@@ -599,6 +600,10 @@ def _load_image(
         c_max = 2093
     else:
         raise TypeError("File is not from Kepler or TESS mission")
+    # If the image dimension is not the FFI shape, we change the r_max and c_max
+    dims = f.get_dims()
+    if dims != [r_max, c_max]:
+        r_max, c_max = np.asarray(dims)
     r_min += cutout_origin[0]
     c_min += cutout_origin[1]
     if (r_min > r_max) | (c_min > c_max):
@@ -608,5 +613,5 @@ def _load_image(
         c_max = np.min([c_min + cutout_size, c_max])
     if return_coords:
         row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
-        return col_2d, row_2d, fitsio.FITS(fname)[extension][r_min:r_max, c_min:c_max]
-    return fitsio.FITS(fname)[extension][r_min:r_max, c_min:c_max]
+        return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
+    return f[r_min:r_max, c_min:c_max]
