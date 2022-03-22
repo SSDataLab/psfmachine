@@ -5,7 +5,6 @@ import numpy as np
 from scipy import sparse
 import pytest
 import lightkurve as lk
-import numpy as np
 from astropy.utils.data import get_pkg_data_filename
 
 from psfmachine import TPFMachine
