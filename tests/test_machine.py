@@ -19,7 +19,7 @@ tpfs = lk.collections.TargetPixelFileCollection(tpfs)
 def test_create_delta_sparse_arrays():
     machine = TPFMachine.from_TPFs(tpfs)
     # create numpy arrays
-    machine._create_delta_arrays()
+    # machine._create_delta_arrays()
     non_sparse_arr = machine.__dict__.copy()
 
     # check for main attrs shape
@@ -44,12 +44,13 @@ def test_create_delta_sparse_arrays():
 
     # manually mask numpy arrays to compare them vs sparse array
     dist_lim = 40
-    mask = (np.abs(non_sparse_arr["dra"].value) <= dist_lim / 3600) & (
-        np.abs(non_sparse_arr["ddec"].value) <= dist_lim / 3600
+    mask = (np.abs(non_sparse_arr["dra"]) <= dist_lim / 3600) & (
+        np.abs(non_sparse_arr["ddec"]) <= dist_lim / 3600
     )
 
     # create sparse arrays
-    machine._create_delta_sparse_arrays(dist_lim=dist_lim)
+    del machine.dra
+    machine._update_delta_sparse_arrays(dist_lim=dist_lim)
     sparse_arr = machine.__dict__.copy()
 
     assert sparse_arr["dra"].shape == non_sparse_arr["dra"].shape
@@ -68,10 +69,10 @@ def test_create_delta_sparse_arrays():
     assert sparse_arr["phi"].data.shape == (853,)
 
     # compare sparse array vs numpy array values
-    assert (non_sparse_arr["dra"][mask].value == sparse_arr["dra"].data).all()
-    assert (non_sparse_arr["ddec"][mask].value == sparse_arr["ddec"].data).all()
-    assert (non_sparse_arr["r"][mask].value == sparse_arr["r"].data).all()
-    assert (non_sparse_arr["phi"][mask].value == sparse_arr["phi"].data).all()
+    assert (non_sparse_arr["dra"][mask] == sparse_arr["dra"].data).all()
+    assert (non_sparse_arr["ddec"][mask] == sparse_arr["ddec"].data).all()
+    assert np.allclose(non_sparse_arr["r"][mask], sparse_arr["r"].data)
+    assert np.allclose(non_sparse_arr["phi"][mask], sparse_arr["phi"].data)
 
 
 @pytest.mark.remote_data

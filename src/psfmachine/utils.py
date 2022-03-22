@@ -7,6 +7,7 @@ import diskcache
 from scipy import sparse
 from patsy import dmatrix
 import pyia
+import fitsio
 
 # size_limit is 1GB
 cache = diskcache.Cache(directory="~/.psfmachine-cache")
@@ -197,32 +198,40 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
 
 
 def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
+    # Must be odd
+    n_odd_knots = n_knots if n_knots % 2 == 1 else n_knots + 1
     if spacing == "sqrt":
-        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
+        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
         x_knots = np.sign(x_knots) * x_knots ** 2
+        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
+        y_knots = np.sign(y_knots) * y_knots ** 2
     else:
-        x_knots = np.linspace(-radius, radius, n_knots)
+        x_knots = np.linspace(-radius, radius, n_odd_knots)
+        y_knots = np.linspace(-radius, radius, n_odd_knots)
     x_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(x), "knots": x_knots},
+                {
+                    "x": list(np.hstack([x_knots.min(), x, x_knots.max()])),
+                    "knots": x_knots,
+                },
             )
-        )
+        )[1:-1]
     )
-    if spacing == "sqrt":
-        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
-        y_knots = np.sign(y_knots) * y_knots ** 2
-    else:
-        y_knots = np.linspace(-radius, radius, n_knots)
     y_spline = sparse.csr_matrix(
         np.asarray(
             dmatrix(
                 "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(y), "knots": y_knots},
+                {
+                    "x": list(np.hstack([y_knots.min(), y, y_knots.max()])),
+                    "knots": y_knots,
+                },
             )
-        )
+        )[1:-1]
     )
+    x_spline = x_spline[:, np.asarray(x_spline.sum(axis=0))[0] != 0]
+    y_spline = y_spline[:, np.asarray(y_spline.sum(axis=0))[0] != 0]
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
         format="csr",
@@ -402,7 +411,7 @@ def sparse_lessthan(arr, limit):
     return masked_arr
 
 
-def _combine_A(A, poscorr=None, time=None):
+def _combine_A(A, time, poscorr=None):
     """
     Combines a design matrix A (cartesian) with a time corrector type.
     If poscorr is provided, A will be combined with both axis of the pos corr as a
@@ -424,14 +433,16 @@ def _combine_A(A, poscorr=None, time=None):
         A2 = sparse.hstack(
             [
                 A,
+                A.multiply(time.ravel()[:, None]),
+                A.multiply(time.ravel()[:, None] ** 2),
                 A.multiply(poscorr[0].ravel()[:, None]),
                 A.multiply(poscorr[1].ravel()[:, None]),
-                A.multiply((poscorr[0] * poscorr[1]).ravel()[:, None]),
+                A.multiply((poscorr[0].ravel() * poscorr[1].ravel())[:, None]),
             ],
             format="csr",
         )
         return A2
-    elif time is not None:
+    elif poscorr is None:
         # Cartesian spline with time dependence
         A2 = sparse.hstack(
             [
@@ -542,3 +553,65 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
         np.hstack(new_z),
         np.hstack(new_z_err),
     )
+
+
+def _find_uncontaminated_pixels(mask):
+    """
+    creates a mask of shape nsources x npixels where targets are not contaminated.
+    This mask is used to select pixels to build the PSF model.
+    """
+
+    new_mask = mask.multiply(np.asarray(mask.sum(axis=0) == 1)[0]).tocsr()
+    new_mask.eliminate_zeros()
+    return new_mask
+
+
+def _load_ffi_image(
+    telescope,
+    fname,
+    extension,
+    cutout_size=None,
+    cutout_origin=[0, 0],
+    return_coords=False,
+):
+    """Use fitsio to load an image
+
+    Parameters
+    ----------
+    telescope: str
+        String for the telescope
+    fname: str
+        Path to the filename
+    extension: int
+        Extension to cut out of the image
+    """
+    f = fitsio.FITS(fname)[extension]
+    if telescope.lower() == "kepler":
+        # CCD overscan for Kepler
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
+    elif telescope.lower() == "tess":
+        # CCD overscan for TESS
+        r_min = 0
+        r_max = 2048
+        c_min = 45
+        c_max = 2093
+    else:
+        raise TypeError("File is not from Kepler or TESS mission")
+    # If the image dimension is not the FFI shape, we change the r_max and c_max
+    dims = f.get_dims()
+    if dims != [r_max, c_max]:
+        r_max, c_max = np.asarray(dims)
+    r_min += cutout_origin[0]
+    c_min += cutout_origin[1]
+    if (r_min > r_max) | (c_min > c_max):
+        raise ValueError("`cutout_origin` must be within the image.")
+    if cutout_size is not None:
+        r_max = np.min([r_min + cutout_size, r_max])
+        c_max = np.min([c_min + cutout_size, c_max])
+    if return_coords:
+        row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
+        return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
+    return f[r_min:r_max, c_min:c_max]
