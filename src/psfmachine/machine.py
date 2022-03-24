@@ -732,19 +732,18 @@ class Machine(object):
             )
         else:
             # use breaks as downsample points
-            dwns_idx = breaks
-            tm = self.time[dwns_idx]
+            tm = self.time[breaks]
             ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
             fm = np.asarray(
                 [
                     self.uncontaminated_source_mask.multiply(self.flux[idx]).data
-                    for idx in dwns_idx
+                    for idx in breaks
                 ]
             )
             fem = np.asarray(
                 [
                     self.uncontaminated_source_mask.multiply(self.flux_err[idx]).data
-                    for idx in dwns_idx
+                    for idx in breaks
                 ]
             )
 
@@ -803,8 +802,8 @@ class Machine(object):
                     [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
                 ).ravel()[:, None] * np.ones(fm.shape)
             else:
-                pc1_bin = pc1_smooth[dwns_idx][:, None] * np.ones(fm.shape)
-                pc2_bin = pc2_smooth[dwns_idx][:, None] * np.ones(fm.shape)
+                pc1_bin = pc1_smooth[breaks][:, None] * np.ones(fm.shape)
+                pc2_bin = pc2_smooth[breaks][:, None] * np.ones(fm.shape)
 
             return (
                 ta,
@@ -933,12 +932,12 @@ class Machine(object):
             else:
                 A3 = _combine_A(A2, time=time_binned[seg_mask])
 
-            # No saturated pixels
+            # No saturated pixels, 1e5 is a hardcoded value for Kepler.
             k = (
-                (flux_binned_raw < 1.4e5).all(axis=0)[None, :]
+                (flux_binned_raw < 1e5).all(axis=0)[None, :]
                 * np.ones(flux_binned_raw[seg_mask].shape, bool)
             ).ravel()
-            # No faint pixels
+            # No faint pixels, 100 is a hardcoded value for Kepler.
             k &= (
                 (flux_binned_raw[seg_mask] > 100).all(axis=0)[None, :]
                 * np.ones(flux_binned_raw[seg_mask].shape, bool)
