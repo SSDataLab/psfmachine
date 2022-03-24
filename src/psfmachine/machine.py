@@ -906,7 +906,7 @@ class Machine(object):
         if isinstance(split_time_model, (np.ndarray, list)):
             # we make sure first and last index are included and sorted
             splits = np.unique(np.append(split_time_model, [0, len(self.time)]))
-        else:
+        elif isinstance(split_time_model, bool):
             # we find the splits in data
             if split_time_model:
                 splits = get_breaks(self.time)
