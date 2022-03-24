@@ -132,7 +132,7 @@ def test_poscorr_smooth():
         poscorr2_smooth,
         poscorr1_binned,
         poscorr2_binned,
-    ) = machine._time_bin(npoints=100)
+    ) = machine._time_bin(npoints=3)
 
     median_pc1 = np.nanmedian(machine.pos_corr1, axis=0)
     median_pc2 = np.nanmedian(machine.pos_corr2, axis=0)
@@ -145,3 +145,22 @@ def test_poscorr_smooth():
 
     assert np.isclose(poscorr1_smooth, median_pc1, atol=1e-3).all()
     assert np.isclose(poscorr2_smooth, median_pc2, atol=1e-3).all()
+
+
+@pytest.mark.remote_data
+def test_segment_time_model():
+    # testing segment with the current test dataset we have that only has 10 cadences
+    # isn't the best, but we can still do some sanity checks.
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False, n_time_points=3)
+    machine.build_shape_model(plot=False)
+    # no segments
+    machine.build_time_model(split_time_model=False, downsample=True)
+    assert machine.time_model_w.shape[0] == machine.seg_splits.shape[0] - 1
+    assert machine.time_model_w.shape[0] == machine._time_masked.shape[0]
+
+    # need tighter knot spacing
+    machine.n_time_points = 2
+    # user defined segments
+    machine.build_time_model(split_time_model=[5], downsample=True)
+    assert machine.time_model_w.shape[0] == machine.seg_splits.shape[0] - 1
+    assert machine.time_model_w.shape[0] == machine._time_masked.shape[0]

@@ -732,6 +732,10 @@ class Machine(object):
             )
         else:
             # use breaks as downsample points
+            # when working with short light curves, need to make sure the last break
+            # point isn't the lenght of the time.
+            if breaks[-1] == self.nt:
+                breaks[-1] -= 1
             tm = self.time[breaks]
             ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
             fm = np.asarray(
