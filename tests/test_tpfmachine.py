@@ -60,6 +60,10 @@ def test_parse_TPFs():
     assert ra.shape == (345,)
     assert dec.shape == (345,)
 
+    # save-keep valid pixels for later testing
+    mask = np.isfinite(flux).all(axis=0) & ~sat_mask
+    locs_s = [f"{x[0]}_{x[1]}" for x in locs.T[mask]]
+
     flux, flux_err, unw, locs, ra, dec, column, row = _preprocess(
         flux,
         flux_err,
@@ -73,6 +77,17 @@ def test_parse_TPFs():
         sat_mask,
     )
 
+    # check all original pixels show only once after preprocess
+    # cheking no duplicated pixels remain
+    _, unique_idx = np.unique(locs, axis=1, return_index=True)
+    unique_idx = np.in1d(np.arange(len(ra)), unique_idx)
+    assert (~unique_idx).sum() == 0
+
+    # valid non-duplicated pixels
+    locs_su = [f"{x[0]}_{x[1]}" for x in locs.T]
+    # check we don't loose valid pixels
+    assert np.isin(locs_s, locs_su).all()
+
     assert np.isfinite(flux).all()
     assert np.isfinite(flux_err).all()
     assert np.isfinite(locs).all()
@@ -84,11 +99,6 @@ def test_parse_TPFs():
     assert dec.shape == (287,)
     assert flux.shape == (10, 287)
     assert flux_err.shape == (10, 287)
-
-    # cheking no duplicated pixels remain
-    _, unique_idx = np.unique(locs, axis=1, return_index=True)
-    unique_idx = np.in1d(np.arange(len(ra)), unique_idx)
-    assert (~unique_idx).sum() == 0
 
     sources = _get_coord_and_query_gaia(tpfs)
 
