@@ -79,11 +79,16 @@ def test_parse_TPFs():
     assert np.isfinite(ra).all()
     assert np.isfinite(dec).all()
 
-    assert locs.shape == (2, 285)
-    assert ra.shape == (285,)
-    assert dec.shape == (285,)
-    assert flux.shape == (10, 285)
-    assert flux_err.shape == (10, 285)
+    assert locs.shape == (2, 287)
+    assert ra.shape == (287,)
+    assert dec.shape == (287,)
+    assert flux.shape == (10, 287)
+    assert flux_err.shape == (10, 287)
+
+    # cheking no duplicated pixels remain
+    _, unique_idx = np.unique(locs, axis=1, return_index=True)
+    unique_idx = np.in1d(np.arange(len(ra)), unique_idx)
+    assert (~unique_idx).sum() == 0
 
     sources = _get_coord_and_query_gaia(tpfs)
 
