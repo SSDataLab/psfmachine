@@ -1088,7 +1088,7 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     sat_mask = []
     for tpf in tpfs:
         # Keplerish saturation limit
-        saturated = np.nanmax(tpf.flux, axis=0).T.value > 1.4e5
+        saturated = np.nanmax(tpf.flux, axis=0).T.value > 1.2e5
         saturated = np.hstack(
             (np.gradient(saturated.astype(float))[1] != 0) | saturated
         )
