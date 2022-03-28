@@ -1089,9 +1089,10 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     for tpf in tpfs:
         # Keplerish saturation limit
         saturated = np.nanmax(tpf.flux, axis=0).T.value > 1.2e5
-        saturated = np.hstack(
-            (np.gradient(saturated.astype(float))[1] != 0) | saturated
-        )
+        # add 3 pixels before and after bleed column to be generous
+        for k in range(3):
+            saturated = (np.gradient(saturated.astype(float))[1] != 0) | saturated
+        saturated = np.hstack(saturated)
         sat_mask.append(np.hstack(saturated))
     sat_mask = np.hstack(sat_mask)
     pos_corr1, pos_corr2 = np.swapaxes(
