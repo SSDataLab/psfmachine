@@ -24,18 +24,18 @@ def test_create_delta_sparse_arrays():
 
     # check for main attrs shape
     assert non_sparse_arr["time"].shape == (10,)
-    assert non_sparse_arr["flux"].shape == (10, 285)
-    assert non_sparse_arr["flux_err"].shape == (10, 285)
-    assert non_sparse_arr["column"].shape == (285,)
-    assert non_sparse_arr["row"].shape == (285,)
-    assert non_sparse_arr["ra"].shape == (285,)
-    assert non_sparse_arr["dec"].shape == (285,)
+    assert non_sparse_arr["flux"].shape == (10, 287)
+    assert non_sparse_arr["flux_err"].shape == (10, 287)
+    assert non_sparse_arr["column"].shape == (287,)
+    assert non_sparse_arr["row"].shape == (287,)
+    assert non_sparse_arr["ra"].shape == (287,)
+    assert non_sparse_arr["dec"].shape == (287,)
     assert non_sparse_arr["sources"].shape == (19, 13)
 
-    assert non_sparse_arr["dra"].shape == (19, 285)
-    assert non_sparse_arr["ddec"].shape == (19, 285)
-    assert non_sparse_arr["r"].shape == (19, 285)
-    assert non_sparse_arr["phi"].shape == (19, 285)
+    assert non_sparse_arr["dra"].shape == (19, 287)
+    assert non_sparse_arr["ddec"].shape == (19, 287)
+    assert non_sparse_arr["r"].shape == (19, 287)
+    assert non_sparse_arr["phi"].shape == (19, 287)
     # check dra ddec r and phi are numpy arrays
     assert isinstance(non_sparse_arr["dra"], np.ndarray)
     assert isinstance(non_sparse_arr["ddec"], np.ndarray)
@@ -62,10 +62,10 @@ def test_create_delta_sparse_arrays():
     assert isinstance(sparse_arr["r"], sparse.csr_matrix)
     assert isinstance(sparse_arr["phi"], sparse.csr_matrix)
     # check for non-zero values shape
-    assert sparse_arr["dra"].data.shape == (853,)
-    assert sparse_arr["ddec"].data.shape == (853,)
-    assert sparse_arr["r"].data.shape == (853,)
-    assert sparse_arr["phi"].data.shape == (853,)
+    assert sparse_arr["dra"].data.shape == (861,)
+    assert sparse_arr["ddec"].data.shape == (861,)
+    assert sparse_arr["r"].data.shape == (861,)
+    assert sparse_arr["phi"].data.shape == (861,)
 
     # compare sparse array vs numpy array values
     assert (non_sparse_arr["dra"][mask].value == sparse_arr["dra"].data).all()
@@ -85,7 +85,7 @@ def test_compute_aperture_photometry():
     )
     # compute max aperture
     machine.create_aperture_mask(percentile=0)
-    assert machine.aperture_mask.shape == (19, 285)
+    assert machine.aperture_mask.shape == (19, 287)
     # some sources way outside the TPF can have 0-size aperture
     assert (machine.aperture_mask.sum(axis=1) >= 0).all()
     assert machine.FLFRCSAP.shape == (19,)
@@ -104,7 +104,7 @@ def test_compute_aperture_photometry():
     assert (machine.FLFRCSAP[np.isfinite(machine.FLFRCSAP)] <= 1).all()
 
     machine.compute_aperture_photometry(aperture_size="optimal")
-    assert machine.aperture_mask.shape == (19, 285)
+    assert machine.aperture_mask.shape == (19, 287)
     # some sources way outside the TPF can have 0-size aperture
     assert (machine.aperture_mask.sum(axis=1) >= 0).all()
     # check aperture size is within range
