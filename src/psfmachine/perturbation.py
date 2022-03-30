@@ -183,7 +183,7 @@ class PerturbationMatrix:
             Number of points to either bin down to or downsample to
         """
 
-        if method is "downsample":
+        if method == "downsample":
             points = []
             b = np.hstack([0, self.breaks, self.shape[0] - 1])
             for b1, b2 in zip(b[:-1], b[1:]):
