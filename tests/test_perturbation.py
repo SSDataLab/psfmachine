@@ -2,7 +2,7 @@
 import numpy as np
 from scipy import sparse
 import pytest
-from psfmachine.perturbation import PerturbationMatrix
+from psfmachine.perturbation import PerturbationMatrix, PerturbationMatrix3D
 
 
 def test_perturbation_matrix():
@@ -69,3 +69,49 @@ def test_perturbation_matrix():
     w = p_low.fit(p_low.bin_vectors(y))
     model = p.dot(w)
     assert model.shape[0] == 200
+
+
+def test_perturbation_matrix3d():
+    time = np.arange(0, 10, 1)
+    # 13 x 13 pixels, evenly spaced in x and y
+    dx, dy = np.mgrid[:13, :13] - 6 + 0.01
+    dx, dy = dx.ravel(), dy.ravel()
+
+    # ntime x npixels
+    flux = (
+        np.random.normal(0, 0.01, size=(10, 169))
+        + 2 * dx[None, :] ** 2 * 3 * dy[None, :]
+    )
+    flux_err = np.ones((10, 169)) * 0.01
+
+    p3 = PerturbationMatrix3D(time=time, dx=dx, dy=dy, nknots=4, radius=5)
+    assert p3.cartesian_matrix.shape == (169, 81)
+    assert p3.vectors.shape == (10, 4)
+    assert p3.matrix.shape == (1690, 324)
+    assert p3.shape == (1690, 324)
+    w = p3.fit(flux.ravel(), flux_err.ravel())
+    assert w.shape[0] == 324
+    model = p3.dot(w).reshape(flux.shape)
+    chi = np.sum((flux - model) ** 2 / (flux_err ** 2)) / (
+        p3.shape[0] - p3.shape[1] - 1
+    )
+    assert chi < 1.5
+
+    time = np.arange(0, 100, 1)
+    flux = (
+        np.random.normal(0, 0.01, size=(100, 169))
+        + 2 * dx[None, :] ** 2 * 3 * dy[None, :]
+    )
+    flux_err = np.ones((100, 169)) * 0.01
+
+    p3 = PerturbationMatrix3D(time=time, dx=dx, dy=dy, nknots=4, radius=5)
+    assert p3.to_low_res(resolution=20).shape == (169 * 6, 81 * 4)
+    assert p3.to_low_res(resolution=20).vectors.shape == (6, 4)
+
+    p3l = p3.to_low_res(resolution=10)
+    w = p3l.fit(p3l.bin_vectors(flux).ravel(), p3l.bin_vectors(flux_err).ravel())
+    model = p3.dot(w).reshape(flux.shape)
+    chi = np.sum((flux - model) ** 2 / (flux_err ** 2)) / (
+        p3.shape[0] - p3.shape[1] - 1
+    )
+    assert chi < 1.5

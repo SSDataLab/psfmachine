@@ -196,33 +196,25 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
     return X1
 
 
-def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt"):
-    if spacing == "sqrt":
-        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
-        x_knots = np.sign(x_knots) * x_knots ** 2
-    else:
-        x_knots = np.linspace(-radius, radius, n_knots)
-    x_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(x), "knots": x_knots},
+def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt"):
+    def spline(v):
+        if knot_spacing_type == "sqrt":
+            knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
+            knots = np.sign(knots) * knots ** 2
+        else:
+            knots = np.linspace(-radius, radius, n_knots)
+        return sparse.csr_matrix(
+            np.asarray(
+                dmatrix(
+                    "bs(x, knots=knots, degree=3, include_intercept=True)",
+                    {"x": list(v), "knots": knots},
+                )
             )
         )
-    )
-    if spacing == "sqrt":
-        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
-        y_knots = np.sign(y_knots) * y_knots ** 2
-    else:
-        y_knots = np.linspace(-radius, radius, n_knots)
-    y_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=3, include_intercept=True)",
-                {"x": list(y), "knots": y_knots},
-            )
-        )
-    )
+
+    x_spline = spline(x)
+    y_spline = spline(y)
+
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
         format="csr",
