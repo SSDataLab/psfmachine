@@ -1,9 +1,7 @@
 """Classes to deal with perturbation matrices"""
 
-from dataclasses import dataclass
 import numpy as np
 from scipy import sparse
-from typing import Optional
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
 
@@ -11,6 +9,23 @@ import matplotlib.pyplot as plt
 class PerturbationMatrix(object):
     """
     Class to handle perturbation matrices in PSFMachine
+
+    Parameters
+    ----------
+    time : np.ndarray
+        Array of time values
+    other_vectors: list or np.ndarray
+        Other detrending vectors (e.g. centroids)
+    poly_order: int
+        Polynomial order to use for detrending, default 3
+    focus : bool
+        Whether to correct focus using a simple exponent model
+    segments: bool
+        Whether to fit portions of data where there is a significant time break as separate segments
+    resolution: int
+        How many cadences to bin down via `bin_method`
+    bin_method: str
+        How to bin the data under the hood. Default is by mean binning.
     """
 
     def __init__(
@@ -21,7 +36,8 @@ class PerturbationMatrix(object):
         focus=False,
         cbvs=False,
         segments=True,
-        clean=True,
+        resolution=10,
+        bin_method="bin",
     ):
 
         self.time = time
@@ -30,7 +46,8 @@ class PerturbationMatrix(object):
         self.focus = focus
         self.cbvs = cbvs
         self.segments = segments
-        self.clean = clean
+        self.resolution = resolution
+        self.bin_method = bin_method
         self.vectors = np.vstack(
             [self.time ** idx for idx in range(self.poly_order + 1)]
         ).T
@@ -41,15 +58,14 @@ class PerturbationMatrix(object):
         self._validate()
         if self.segments:
             self._cut_segments()
-        if self.clean:
-            self._clean_vectors()
+        self._clean_vectors()
 
     def __repr__(self):
-        return f"PerturbationMatrix"
+        return "PerturbationMatrix"
 
     @property
     def prior_mu(self):
-        return np.ones(self.shape[1])
+        return np.zeros(self.shape[1])
 
     @property
     def prior_sigma(self):
@@ -130,75 +146,55 @@ class PerturbationMatrix(object):
         #        self.vectors = np.hstack([self.vectors, cbvs])
         raise NotImplementedError
 
-    def fit(self, y, ye=None, mask=None):
-        if mask is None:
-            mask = np.ones(len(y), bool)
-        elif not isinstance(mask, np.ndarray):
-            raise ValueError("Pass a mask of booleans")
-        if ye is None:
-            ye = np.ones(len(y))
-        if mask.sum() == 0:
-            raise ValueError("All points in perturbation matrix are masked")
-        X = self.matrix[mask]
-        if (y.ndim == 1) and (ye.ndim == 1):
-            sigma_w_inv = X.T.dot(X.multiply(1 / ye[mask, None] ** 2)) + np.diag(
-                1 / self.prior_sigma ** 2
-            )
-            B = X.T.dot(y[mask] / ye[mask] ** 2) + self.prior_mu / self.prior_sigma ** 2
-            w = np.linalg.solve(sigma_w_inv, B)
-        elif (y.ndim == 2) and (ye.ndim == 1):
-            sigma_w_inv = X.T.dot(X.multiply(1 / ye[mask, None] ** 2)) + np.diag(
-                1 / self.prior_sigma ** 2
-            )
-            B = (
-                X.T.dot(y[mask] / ye[mask, None] ** 2)
-                + self.prior_mu[:, None] / self.prior_sigma[:, None] ** 2
-            )
-            w = np.linalg.solve(sigma_w_inv, B)
-        elif (y.ndim == 2) and (ye.ndim == 2):
-            w = []
-            for y1, ye1 in zip(y.T, ye.T):
-                sigma_w_inv = X.T.dot(X.multiply(1 / ye1[mask, None] ** 2)) + np.diag(
-                    1 / self.prior_sigma ** 2
-                )
-                B = (
-                    X.T.dot(y1[mask] / ye1[mask] ** 2)
-                    + self.prior_mu / self.prior_sigma ** 2
-                )
-                w.append(np.linalg.solve(sigma_w_inv, B))
-            w = np.asarray(w).T
-        else:
-            raise ValueError("Can not parse input dimensions")
-        return w
+    def fit(self, flux, flux_err=None):
+        if flux_err is None:
+            flux_err = np.ones(len(flux_err))
 
-    def dot(self, weights):
-        return np.asarray(self.matrix.dot(weights))
+        y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
+        X = self.matrix
+        sigma_w_inv = X.T.dot(X.multiply(1 / ye[:, None] ** 2)) + np.diag(
+            1 / self.prior_sigma ** 2
+        )
+        B = X.T.dot(y / ye ** 2) + self.prior_mu / self.prior_sigma ** 2
+        self.weights = np.linalg.solve(sigma_w_inv, B)
+        return self.weights
+
+    def model(self, time_indices=None):
+        if time_indices is None:
+            time_indices = np.ones(len(self.time), bool)
+        return self.vectors[time_indices].dot(self.weights)
 
     @property
     def matrix(self):
-        return sparse.csr_matrix(self.vectors)
+        return sparse.csr_matrix(self.bin_func(self.vectors))
 
     @property
     def shape(self):
         return self.vectors.shape
 
-    def bin_vectors(self, var):
+    def bin_func(self, var, **kwargs):
         """
         Bins down an input variable to the same time resolution as `self`
         """
-        return var
+        if self.bin_method.lower() == "downsample":
+            func = self._get_downsample_func()
+        elif self.bin_method.lower() == "bin":
+            func = self._get_bindown_func()
+        else:
+            raise NotImplementedError
+        return func(var, **kwargs)
 
-    def _get_downsample_func(self, resolution):
+    def _get_downsample_func(self):
         points = []
         b = np.hstack([0, self.breaks, len(self.time) - 1])
         for b1, b2 in zip(b[:-1], b[1:]):
-            p = np.arange(b1, b2, resolution)
+            p = np.arange(b1, b2, self.resolution)
             if p[-1] != b2:
                 p = np.hstack([p, b2])
             points.append(p)
-        points = np.hstack(points)
+        points = np.unique(np.hstack(points))
 
-        def bin_func(x):
+        def func(x, quad=False):
             """
             Bins down an input variable to the same time resolution as `self`
             """
@@ -207,38 +203,68 @@ class PerturbationMatrix(object):
             else:
                 raise ValueError("Wrong size to bin")
 
-        return bin_func
+        return func
 
-    def to_low_res(self, resolution=20, method="downsample"):
-        """
-        Convert to a lower resolution matrix
-        Parameters
-        ----------
-        resolution: int
-            Number of points to either bin down to or downsample to
-        """
-
-        if method == "downsample":
-            bin_func = self._get_downsample_func(resolution)
-
-        # Make new object, turn off all additional vectors and cleaning
-        # It will inherrit those from the "other_vectors" variable
-        low_res_pm = PerturbationMatrix(
-            time=bin_func(self.time),
-            other_vectors=bin_func(self.vectors[:, self.poly_order + 1 :]),
-            segments=False,
-            clean=False,
-            focus=False,
-            cbvs=False,
+    def _get_bindown_func(self):
+        b = np.hstack([0, self.breaks, len(self.time) - 1])
+        points = np.hstack(
+            [np.arange(b1, b2, self.resolution) for b1, b2 in zip(b[:-1], b[1:])]
         )
-        low_res_pm.bin_vectors = bin_func
-        return low_res_pm
+        points = points[~np.in1d(points, np.hstack([0, len(self.time) - 1]))]
+        points = np.sort(np.unique(np.hstack([points, self.breaks])))
+
+        def func(x, quad=False):
+            """
+            Bins down an input variable to the same time resolution as `self`
+            """
+            if x.shape[0] == len(self.time):
+                if not quad:
+                    return np.asarray(
+                        [i.mean(axis=0) for i in np.array_split(x, points)]
+                    )
+                else:
+                    return (
+                        np.asarray(
+                            [
+                                np.sum(i ** 2, axis=0) / (len(i) ** 2)
+                                for i in np.array_split(x, points)
+                            ]
+                        )
+                        ** 0.5
+                    )
+            else:
+                raise ValueError("Wrong size to bin")
+
+        return func
 
 
 class PerturbationMatrix3D(PerturbationMatrix):
-    """3D perturbation matrix in time, row, column
+    """Class to handle 3D perturbation matrices in PSFMachine
 
-    NOTE: Radius seems like a bad way of parameterizing something in -cartesian- space?!
+    Parameters
+    ----------
+    time : np.ndarray
+        Array of time values
+    dx: np.ndarray
+        Pixel positions in x separation from source center
+    dy : np.ndaray
+        Pixel positions in y separation from source center
+    other_vectors: list or np.ndarray
+        Other detrending vectors (e.g. centroids)
+    poly_order: int
+        Polynomial order to use for detrending, default 3
+    nknots: int
+        Number of knots for the cartesian spline
+    radius: float
+        Radius out to which to calculate the cartesian spline
+    focus : bool
+        Whether to correct focus using a simple exponent model
+    segments: bool
+        Whether to fit portions of data where there is a significant time break as separate segments
+    resolution: int
+        How many cadences to bin down via `bin_method`
+    bin_method: str
+        How to bin the data under the hood. Default is by mean binning.
     """
 
     def __init__(
@@ -253,7 +279,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         focus=False,
         cbvs=False,
         segments=True,
-        clean=True,
+        resolution=10,
+        bin_method="downsample",
     ):
         self.dx = dx
         self.dy = dy
@@ -273,11 +300,12 @@ class PerturbationMatrix3D(PerturbationMatrix):
             focus=focus,
             cbvs=cbvs,
             segments=segments,
-            clean=clean,
+            resolution=resolution,
+            bin_method=bin_method,
         )
 
     def __repr__(self):
-        return f"PerturbationMatrix3D"
+        return "PerturbationMatrix3D"
 
     @property
     def shape(self):
@@ -294,40 +322,43 @@ class PerturbationMatrix3D(PerturbationMatrix):
                     [self.cartesian_matrix * vector[idx] for idx in range(len(vector))],
                     format="csr",
                 )
-                for vector in self.vectors.T
+                for vector in self.bin_func(self.vectors).T
             ],
             format="csr",
         )
         return C
 
-    def to_low_res(self, resolution=20, method="downsample"):
-        """
-        Convert to a lower resolution matrix
-        Parameters
-        ----------
-        resolution: int
-            Number of points to either bin down to or downsample to
-        """
-
-        if method == "downsample":
-            bin_func = self._get_downsample_func(resolution)
-
-        # Make new object, turn off all additional vectors and cleaning
-        # It will inherrit those from the "other_vectors" variable
-        low_res_pm = PerturbationMatrix3D(
-            time=bin_func(self.time),
-            dx=self.dx,
-            dy=self.dy,
-            nknots=self.nknots,
-            radius=self.radius,
-            other_vectors=bin_func(self.vectors[:, self.poly_order + 1 :]),
-            segments=False,
-            clean=False,
-            focus=False,
-            cbvs=False,
+    def model(self, time_indices=None):
+        """We build the matrix for every frame"""
+        if time_indices is None:
+            time_indices = np.arange(len(self.time))
+        time_indices = np.atleast_1d(time_indices)
+        if isinstance(time_indices[0], bool):
+            time_indices = np.where(time_indices[0])[0]
+        return np.asarray(
+            [
+                sparse.hstack(
+                    [
+                        sparse.vstack(
+                            self.cartesian_matrix * vector[time_index],
+                            format="csr",
+                        )
+                        for vector in (self.vectors).T
+                    ],
+                    format="csr",
+                ).dot(self.weights)
+                for time_index in time_indices
+            ]
         )
-        low_res_pm.bin_vectors = bin_func
-        return low_res_pm
 
-
-#     """"
+    def plot_model(self, time_index=0):
+        if not hasattr(self, "weights"):
+            raise ValueError("Run `fit` first.")
+        fig, ax = plt.subplots()
+        ax.scatter(self.dx, self.dy, c=self.model(time_index)[0])
+        ax.set(
+            xlabel=r"$\delta$x",
+            ylabel=r"$\delta$y",
+            title=f"Perturbation Model [Cadence {time_index}]",
+        )
+        return fig
