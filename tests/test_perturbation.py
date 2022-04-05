@@ -118,3 +118,35 @@ def test_perturbation_matrix3d():
             p3.shape[0] - p3.shape[1] - 1
         )
         assert chi < 3
+
+    # Add in one bad pixel
+    flux[:, 100] = 1e5
+    pixel_mask = np.ones(169, bool)
+    pixel_mask[100] = False
+
+    for bin_method in ["downsample", "bin"]:
+        p3 = PerturbationMatrix3D(
+            time=time,
+            dx=dx,
+            dy=dy,
+            nknots=4,
+            radius=5,
+            poly_order=2,
+            bin_method=bin_method,
+        )
+        w = p3.fit(flux, flux_err)
+        model = p3.model()
+        chi = np.sum(
+            (flux[:, pixel_mask] - model[:, pixel_mask]) ** 2
+            / (flux_err[:, pixel_mask] ** 2)
+        ) / (p3.shape[0] - p3.shape[1] - 1)
+        # Without the pixel masking the model doesn't fit
+        assert chi > 3
+        w = p3.fit(flux, flux_err, pixel_mask=pixel_mask)
+        model = p3.model()
+        chi = np.sum(
+            (flux[:, pixel_mask] - model[:, pixel_mask]) ** 2
+            / (flux_err[:, pixel_mask] ** 2)
+        ) / (p3.shape[0] - p3.shape[1] - 1)
+        # with pixel masking, it should fit
+        assert chi < 3

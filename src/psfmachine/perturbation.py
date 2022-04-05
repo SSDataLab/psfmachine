@@ -314,8 +314,10 @@ class PerturbationMatrix3D(PerturbationMatrix):
             self.bin_func(self.vectors), self.cartesian_matrix.shape[1], axis=1
         )
         repeat2d = np.repeat(repeat1d, self.cartesian_matrix.shape[0], axis=0)
-        self.matrix = sparse.vstack([self._cartesian_stacked] * self.nbins).multiply(
-            repeat2d
+        self.matrix = (
+            sparse.vstack([self._cartesian_stacked] * self.nbins)
+            .multiply(repeat2d)
+            .tocsr()
         )
         self.matrix.eliminate_zeros()
 
@@ -328,6 +330,29 @@ class PerturbationMatrix3D(PerturbationMatrix):
             self.cartesian_matrix.shape[0] * self.time.shape[0],
             self.cartesian_matrix.shape[1] * self.vectors.shape[1],
         )
+
+    def fit(self, flux, flux_err=None, pixel_mask=None):
+        if pixel_mask is not None:
+            if not isinstance(pixel_mask, np.ndarray):
+                raise ValueError("`pixel_mask` must be an `np.ndarray`")
+            if not pixel_mask.shape[0] == flux.shape[-1]:
+                raise ValueError(
+                    f"`pixel_mask` must be shape {flux.shape[-1]} (npixels)"
+                )
+        else:
+            pixel_mask = np.ones(flux.shape[-1], bool)
+        if flux_err is None:
+            flux_err = np.ones(len(flux_err))
+
+        y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
+        k = (np.ones(self.nbins, bool)[:, None] * pixel_mask).ravel()
+        X = self.matrix
+        sigma_w_inv = X[k].T.dot(X[k].multiply(1 / ye[k, None] ** 2)) + np.diag(
+            1 / self.prior_sigma ** 2
+        )
+        B = X[k].T.dot(y[k] / ye[k] ** 2) + self.prior_mu / self.prior_sigma ** 2
+        self.weights = np.linalg.solve(sigma_w_inv, B)
+        return self.weights
 
     def model(self, time_indices=None):
         """We build the matrix for every frame"""
