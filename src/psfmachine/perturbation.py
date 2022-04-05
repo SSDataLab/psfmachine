@@ -59,6 +59,7 @@ class PerturbationMatrix(object):
         if self.segments:
             self._cut_segments()
         self._clean_vectors()
+        self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
     def __repr__(self):
         return "PerturbationMatrix"
@@ -168,10 +169,6 @@ class PerturbationMatrix(object):
         return self.vectors[time_indices].dot(self.weights)
 
     @property
-    def matrix(self):
-        return sparse.csr_matrix(self.bin_func(self.vectors))
-
-    @property
     def shape(self):
         return self.vectors.shape
 
@@ -196,6 +193,7 @@ class PerturbationMatrix(object):
                 p = np.hstack([p, b2])
             points.append(p)
         points = np.unique(np.hstack(points))
+        self.nbins = len(points)
 
         def func(x, quad=False):
             """
@@ -215,6 +213,7 @@ class PerturbationMatrix(object):
         )
         points = points[~np.in1d(points, np.hstack([0, len(self.time) - 1]))]
         points = np.unique(np.hstack([points, self.breaks]))
+        self.nbins = len(points) + 1
 
         def func(x, quad=False):
             """
@@ -307,6 +306,19 @@ class PerturbationMatrix3D(PerturbationMatrix):
             bin_method=bin_method,
         )
 
+        self._cartesian_stacked = sparse.hstack(
+            [self.cartesian_matrix for idx in range(self.vectors.shape[1])],
+            format="csr",
+        )
+        repeat1d = np.repeat(
+            self.bin_func(self.vectors), self.cartesian_matrix.shape[1], axis=1
+        )
+        repeat2d = np.repeat(repeat1d, self.cartesian_matrix.shape[0], axis=0)
+        self.matrix = sparse.vstack([self._cartesian_stacked] * self.nbins).multiply(
+            repeat2d
+        )
+        self.matrix.eliminate_zeros()
+
     def __repr__(self):
         return "PerturbationMatrix3D"
 
@@ -317,20 +329,6 @@ class PerturbationMatrix3D(PerturbationMatrix):
             self.cartesian_matrix.shape[1] * self.vectors.shape[1],
         )
 
-    @property
-    def matrix(self):
-        C = sparse.hstack(
-            [
-                sparse.vstack(
-                    [self.cartesian_matrix * vector[idx] for idx in range(len(vector))],
-                    format="csr",
-                )
-                for vector in self.bin_func(self.vectors).T
-            ],
-            format="csr",
-        )
-        return C
-
     def model(self, time_indices=None):
         """We build the matrix for every frame"""
         if time_indices is None:
@@ -338,17 +336,11 @@ class PerturbationMatrix3D(PerturbationMatrix):
         time_indices = np.atleast_1d(time_indices)
         if isinstance(time_indices[0], bool):
             time_indices = np.where(time_indices[0])[0]
+
         return np.asarray(
             [
-                sparse.hstack(
-                    [
-                        sparse.vstack(
-                            self.cartesian_matrix * vector[time_index],
-                            format="csr",
-                        )
-                        for vector in (self.vectors).T
-                    ],
-                    format="csr",
+                self._cartesian_stacked.multiply(
+                    np.repeat(self.vectors[time_index], self.cartesian_matrix.shape[1])
                 ).dot(self.weights)
                 for time_index in time_indices
             ]
