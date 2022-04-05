@@ -134,7 +134,7 @@ class PerturbationMatrix(object):
 
     def plot(self):
         fig, ax = plt.subplots()
-        ax.plot(self.time, self.vectors + np.arange(self.shape[1]) * 0.1, c="k")
+ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
         ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
         return fig
 
