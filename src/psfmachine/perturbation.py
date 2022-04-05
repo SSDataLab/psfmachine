@@ -1,6 +1,8 @@
 """Classes to deal with perturbation matrices"""
 
 import numpy as np
+import numpy.typing as npt
+from typing import Optional
 from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
@@ -25,19 +27,19 @@ class PerturbationMatrix(object):
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
-        How to bin the data under the hood. Default is by mean binning.
+        How to bin the data under the hood. Default is by mean binning. Options are 'downsample' and 'bin'
     """
 
     def __init__(
         self,
-        time,
-        other_vectors=None,
-        poly_order=3,
-        focus=False,
-        cbvs=False,
-        segments=True,
-        resolution=10,
-        bin_method="bin",
+        time: npt.ArrayLike,
+        other_vectors: Optional[list] = None,
+        poly_order: int = 3,
+        focus: bool = False,
+        cbvs: bool = False,
+        segments: bool = True,
+        resolution: int = 10,
+        bin_method: str = "bin",
     ):
 
         self.time = time
@@ -77,8 +79,10 @@ class PerturbationMatrix(object):
         return np.where(np.diff(self.time) / np.median(np.diff(self.time)) > 5)[0] + 1
 
     def _validate(self):
-        # Check that the shape is correct etc
-        # Check the priors are right
+        """
+        Checks that the `other_vectors` are the right dimensions.
+        """
+
         if self.other_vectors is not None:
             if isinstance(self.other_vectors, (list, np.ndarray)):
                 self.other_vectors = np.atleast_2d(self.other_vectors)
@@ -93,6 +97,11 @@ class PerturbationMatrix(object):
         return
 
     def _cut_segments(self):
+        """
+        Cuts the data into "segments" wherever there is a break. Breaks are defined
+        as anywhere where there is a gap in data of more than 5 times the median
+        time between observations.
+        """
         x = np.array_split(np.arange(len(self.time)), self.breaks)
         masks = np.asarray(
             [np.in1d(np.arange(len(self.time)), x1).astype(float) for x1 in x]
@@ -104,7 +113,15 @@ class PerturbationMatrix(object):
             ]
         )
 
-    def _get_focus_change(self, exptime=100):
+    def _get_focus_change(self, exptime: float = 100):
+        """
+        Finds a simple model for the focus change
+
+        Parameters
+        ----------
+        exptime: float
+            The timescale for an exponential decay.
+        """
         focus = np.asarray(
             [
                 np.exp(-exptime * (self.time - self.time[b]))
@@ -117,6 +134,7 @@ class PerturbationMatrix(object):
                 for b in np.hstack([0, self.breaks])
             ]
         )
+        focus[focus < 1e-10] = 0
         self.vectors = np.hstack([self.vectors, np.nansum(focus, axis=0)[:, None]])
         return
 
@@ -150,20 +168,51 @@ class PerturbationMatrix(object):
         #        self.vectors = np.hstack([self.vectors, cbvs])
         raise NotImplementedError
 
-    def fit(self, flux, flux_err=None):
+    def _fit_linalg(self, y, ye, k=None):
+        """Hidden method to fit data with linalg"""
+        if k is None:
+            k = np.ones(y.shape[0], bool)
+        X = self.matrix[k]
+        sigma_w_inv = X.T.dot(X.multiply(1 / ye[k, None] ** 2)) + np.diag(
+            1 / self.prior_sigma ** 2
+        )
+        B = X.T.dot(y[k] / ye[k] ** 2) + self.prior_mu / self.prior_sigma ** 2
+        return np.linalg.solve(sigma_w_inv, B)
+
+    def fit(self, flux: npt.ArrayLike, flux_err: Optional[npt.ArrayLike] = None):
+        """
+        Fits flux to find the best fit model weights. Optionally will include flux errors.
+        Sets the `self.weights` attribute with best fit weights.
+
+        Parameters
+        ----------
+        flux: npt.ArrayLike
+            Array of flux values. Should have shape ntimes.
+        flux: npt.ArrayLike
+            Optional flux errors. Should have shape ntimes.
+        """
         if flux_err is None:
             flux_err = np.ones(len(flux_err))
 
         y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
-        X = self.matrix
-        sigma_w_inv = X.T.dot(X.multiply(1 / ye[:, None] ** 2)) + np.diag(
-            1 / self.prior_sigma ** 2
-        )
-        B = X.T.dot(y / ye ** 2) + self.prior_mu / self.prior_sigma ** 2
-        self.weights = np.linalg.solve(sigma_w_inv, B)
+        self.weights = self._fit_linalg(y, ye)
         return self.weights
 
-    def model(self, time_indices=None):
+    def model(self, time_indices: Optional[list] = None):
+        """Returns the best fit model at given `time_indices`.
+
+        Parameters
+        ----------
+        time_indices: list
+            Optionally pass a list of integers. Model will be evaluated at those indices.
+
+        Returns
+        -------
+        model: npt.ArrayLike
+            Array of values with the same shape as the `flux` used in `self.fit`
+        """
+        if not hasattr(self, "weights"):
+            raise ValueError("Run `fit` first.")
         if time_indices is None:
             time_indices = np.ones(len(self.time), bool)
         return self.vectors[time_indices].dot(self.weights)
@@ -175,6 +224,12 @@ class PerturbationMatrix(object):
     def bin_func(self, var, **kwargs):
         """
         Bins down an input variable to the same time resolution as `self`
+
+        Parameters
+        ----------
+        var: npt.ArrayLike
+            Array of values with at least 1 dimension. The first dimension must be
+            the same shape as `self.time`
         """
         if self.bin_method.lower() == "downsample":
             func = self._get_downsample_func()
@@ -185,6 +240,7 @@ class PerturbationMatrix(object):
         return func(var, **kwargs)
 
     def _get_downsample_func(self):
+        """Builds a function to lower the resolution of the data through downsampling"""
         points = []
         b = np.hstack([0, self.breaks, len(self.time) - 1])
         for b1, b2 in zip(b[:-1], b[1:]):
@@ -207,6 +263,7 @@ class PerturbationMatrix(object):
         return func
 
     def _get_bindown_func(self):
+        """Builds a function to lower the resolution of the data through binning"""
         b = np.hstack([0, self.breaks, len(self.time) - 1])
         points = np.hstack(
             [np.arange(b1, b2, self.resolution) for b1, b2 in zip(b[:-1], b[1:])]
@@ -271,18 +328,18 @@ class PerturbationMatrix3D(PerturbationMatrix):
 
     def __init__(
         self,
-        time,
-        dx,
-        dy,
-        other_vectors=None,
-        poly_order=3,
-        nknots=10,
-        radius=8,
-        focus=False,
-        cbvs=False,
-        segments=True,
-        resolution=10,
-        bin_method="downsample",
+        time: npt.ArrayLike,
+        dx: npt.ArrayLike,
+        dy: npt.ArrayLike,
+        other_vectors: Optional[list] = None,
+        poly_order: int = 3,
+        nknots: int = 10,
+        radius: float = 8,
+        focus: bool = False,
+        cbvs: bool = False,
+        segments: bool = True,
+        resolution: int = 10,
+        bin_method: str = "downsample",
     ):
         self.dx = dx
         self.dy = dy
@@ -331,7 +388,26 @@ class PerturbationMatrix3D(PerturbationMatrix):
             self.cartesian_matrix.shape[1] * self.vectors.shape[1],
         )
 
-    def fit(self, flux, flux_err=None, pixel_mask=None):
+    def fit(
+        self,
+        flux: npt.ArrayLike,
+        flux_err: Optional[npt.ArrayLike] = None,
+        pixel_mask: Optional[npt.ArrayLike] = None,
+    ):
+        """
+        Fits flux to find the best fit model weights. Optionally will include flux errors.
+        Sets the `self.weights` attribute with best fit weights.
+
+        Parameters
+        ----------
+        flux: npt.ArrayLike
+            Array of flux values. Should have shape ntimes x npixels.
+        flux_err: npt.ArrayLike
+            Optional flux errors. Should have shape ntimes x npixels.
+        pixel_mask: npt.ArrayLike
+            Pixel mask to apply. Values that are `True` will be used in the fit. Values that are `False` will be masked.
+            Should have shape npixels.
+        """
         if pixel_mask is not None:
             if not isinstance(pixel_mask, np.ndarray):
                 raise ValueError("`pixel_mask` must be an `np.ndarray`")
@@ -346,16 +422,24 @@ class PerturbationMatrix3D(PerturbationMatrix):
 
         y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
         k = (np.ones(self.nbins, bool)[:, None] * pixel_mask).ravel()
-        X = self.matrix
-        sigma_w_inv = X[k].T.dot(X[k].multiply(1 / ye[k, None] ** 2)) + np.diag(
-            1 / self.prior_sigma ** 2
-        )
-        B = X[k].T.dot(y[k] / ye[k] ** 2) + self.prior_mu / self.prior_sigma ** 2
-        self.weights = np.linalg.solve(sigma_w_inv, B)
-        return self.weights
+        self.weights = self._fit_linalg(y, ye, k=k)
+        return
 
-    def model(self, time_indices=None):
-        """We build the matrix for every frame"""
+    def model(self, time_indices: Optional[list] = None):
+        """Returns the best fit model at given `time_indices`.
+
+        Parameters
+        ----------
+        time_indices: list
+            Optionally pass a list of integers. Model will be evaluated at those indices.
+
+        Returns
+        -------
+        model: npt.ArrayLike
+            Array of values with the same shape as the `flux` used in `self.fit`
+        """
+        if not hasattr(self, "weights"):
+            raise ValueError("Run `fit` first")
         if time_indices is None:
             time_indices = np.arange(len(self.time))
         time_indices = np.atleast_1d(time_indices)

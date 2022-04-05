@@ -36,7 +36,8 @@ def test_perturbation_matrix():
     res = 10
     p = PerturbationMatrix(time=time, focus=False, resolution=res)
     y, ye = np.random.normal(1, 0.01, size=200), np.ones(200) * 0.01
-    w = p.fit(y, ye)
+    p.fit(y, ye)
+    w = p.weights
     assert w.shape[0] == p.shape[1]
     assert np.isfinite(w).all()
     model = p.model()
@@ -55,7 +56,8 @@ def test_perturbation_matrix():
         with pytest.raises(ValueError):
             p.bin_func(y[:-4])
 
-        w = p.fit(y, ye)
+        p.fit(y, ye)
+        w = p.weights
         model = p.model()
         assert model.shape[0] == 200
         chi = np.sum((y - model) ** 2 / (ye ** 2)) / (p.shape[0] - p.shape[1] - 1)
@@ -84,7 +86,8 @@ def test_perturbation_matrix3d():
     assert p3.vectors.shape == (10, 2)
     assert p3.shape == (1690, 81 * 2)
     assert p3.matrix.shape == (169 * 3, 81 * 2)
-    w = p3.fit(flux, flux_err)
+    p3.fit(flux, flux_err)
+    w = p3.weights
     assert w.shape[0] == 81 * 2
     model = p3.model()
     assert model.shape == flux.shape
@@ -111,7 +114,8 @@ def test_perturbation_matrix3d():
             poly_order=2,
             bin_method=bin_method,
         )
-        w = p3.fit(flux, flux_err)
+        p3.fit(flux, flux_err)
+        w = p3.weights
         model = p3.model()
         assert model.shape == flux.shape
         chi = np.sum((flux - model) ** 2 / (flux_err ** 2)) / (
@@ -134,7 +138,8 @@ def test_perturbation_matrix3d():
             poly_order=2,
             bin_method=bin_method,
         )
-        w = p3.fit(flux, flux_err)
+        p3.fit(flux, flux_err)
+        w = p3.weights
         model = p3.model()
         chi = np.sum(
             (flux[:, pixel_mask] - model[:, pixel_mask]) ** 2
@@ -142,7 +147,8 @@ def test_perturbation_matrix3d():
         ) / (p3.shape[0] - p3.shape[1] - 1)
         # Without the pixel masking the model doesn't fit
         assert chi > 3
-        w = p3.fit(flux, flux_err, pixel_mask=pixel_mask)
+        p3.fit(flux, flux_err, pixel_mask=pixel_mask)
+        w = p3.weights
         model = p3.model()
         chi = np.sum(
             (flux[:, pixel_mask] - model[:, pixel_mask]) ** 2
