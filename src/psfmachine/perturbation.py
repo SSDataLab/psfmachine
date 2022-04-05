@@ -211,7 +211,7 @@ ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
             [np.arange(b1, b2, self.resolution) for b1, b2 in zip(b[:-1], b[1:])]
         )
         points = points[~np.in1d(points, np.hstack([0, len(self.time) - 1]))]
-        points = np.sort(np.unique(np.hstack([points, self.breaks])))
+        points = np.unique(np.hstack([points, self.breaks]))
 
         def func(x, quad=False):
             """
