@@ -126,7 +126,10 @@ class PerturbationMatrix(object):
             nvec += 1
         if self.cbvs:
             nvec += self.ncbvs
-        s = nvec * (len(self.breaks) + 1)
+        if self.segments:
+            s = nvec * (len(self.breaks) + 1)
+        else:
+            s = nvec
         X = self.vectors[:, :s]
         w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
         self.vectors[:, s:] -= X.dot(w)
@@ -134,7 +137,7 @@ class PerturbationMatrix(object):
 
     def plot(self):
         fig, ax = plt.subplots()
-ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
+        ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
         ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
         return fig
 
