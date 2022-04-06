@@ -4,7 +4,6 @@ Defines the main Machine object that fit a mean PRF model to sources
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from scipy.ndimage import gaussian_filter1d
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -12,10 +11,8 @@ from astropy.stats import sigma_clip
 
 from .utils import (
     _make_A_polar,
-    _make_A_cartesian,
     solve_linear_model,
     sparse_lessthan,
-    _combine_A,
     threshold_bin,
     get_breaks,
     smooth_vector,
@@ -638,14 +635,14 @@ class Machine(object):
         ----------
         plot: boolean
             Plot a diagnostic figure.
-        bin_method: boolean
-            If True the `time` and `pos_corr` arrays will be downsampled instead of
-            binned.
-        split_time_segments : boolean, list/array of ints
+        bin_method: string
+            Type of bin method, options are "bin" and "downsample".
+        split_time_segments : boolean
             If `True` will split the light curve into segments to fit different time
-            models with a commong pixel normalization. If `False` will fit the full
-            time series as one segment. If list or numpy array of ints, will use the
-            index values as segment breaks.
+            models with a common pixel normalization. If `False` will fit the full
+            time series as one segment.
+        focus_component: boolean
+            Add a component that models th focus change at the begining of a segment.
         """
         # create the time and space basis
         _whitened_time = (self.time - self.time.mean()) / (
@@ -677,11 +674,18 @@ class Machine(object):
                 mpc1 = self.ra_centroid.to("arcsec").value / 4
                 mpc2 = self.dec_centroid.to("arcsec").value / 4
 
-            # we smooth the vectors
+            # smooth the vectors
             mpc1_smooth, mpc2_smooth = smooth_vector(
                 [mpc1, mpc2], splits=splits, filter_size=self.poscorr_filter_size
             )
-            # we combine them as the first order
+            # normalize components
+            mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
+                mpc1_smooth.max() - mpc1_smooth.mean()
+            )
+            mpc2_smooth = (mpc2_smooth - mpc2_smooth.mean()) / (
+                mpc2_smooth.max() - mpc2_smooth.mean()
+            )
+            # combine them as the first order
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
 
         # create a 3D perturbation matrix

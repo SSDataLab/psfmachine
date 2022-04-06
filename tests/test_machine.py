@@ -120,19 +120,13 @@ def test_compute_aperture_photometry():
 @pytest.mark.remote_data
 def test_poscorr_smooth():
     machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
-    machine._get_source_mask()
-    machine.poscorr_filter_size = 0.4
-    (
-        time_original,
-        time_binned,
-        flux_binned_raw,
-        flux_binned,
-        flux_err_binned,
-        poscorr1_smooth,
-        poscorr2_smooth,
-        poscorr1_binned,
-        poscorr2_binned,
-    ) = machine._time_bin(npoints=3)
+    machine.build_shape_model(plot=False)
+    # no segments
+    machine.time_corrector = "pos_corr"
+    machine.poscorr_filter_size = 1
+    machine.build_time_model(
+        split_time_segments=False, bin_method="bin", focus_component=False
+    )
 
     median_pc1 = np.nanmedian(machine.pos_corr1, axis=0)
     median_pc2 = np.nanmedian(machine.pos_corr2, axis=0)
@@ -143,24 +137,29 @@ def test_poscorr_smooth():
         median_pc2.max() - median_pc2.mean()
     )
 
-    assert np.isclose(poscorr1_smooth, median_pc1, atol=1e-3).all()
-    assert np.isclose(poscorr2_smooth, median_pc2, atol=1e-3).all()
+    assert np.isclose(machine.P3.other_vectors[:, 0], median_pc1, atol=0.5).all()
+    assert np.isclose(machine.P3.other_vectors[:, 1], median_pc2, atol=0.5).all()
 
 
 @pytest.mark.remote_data
 def test_segment_time_model():
     # testing segment with the current test dataset we have that only has 10 cadences
     # isn't the best, but we can still do some sanity checks.
-    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False, n_time_points=3)
+    machine = TPFMachine.from_TPFs(
+        tpfs, apply_focus_mask=False, n_time_points=3, time_corrector="polynomial"
+    )
     machine.build_shape_model(plot=False)
     # no segments
-    machine.build_time_model(split_time_model=False, downsample=True)
-    assert machine.time_model_w.shape[0] == machine.seg_splits.shape[0] - 1
-    assert machine.time_model_w.shape[0] == machine._time_masked.shape[0]
+    machine.build_time_model(
+        split_time_segments=False, bin_method="bin", focus_component=False
+    )
+    assert machine.P3.vectors.shape == (10, 4)
 
-    # need tighter knot spacing
-    machine.n_time_points = 2
+    # fake 2 time breaks
+    machine.time[4:] += 0.5
+    machine.time[7:] += 0.41
     # user defined segments
-    machine.build_time_model(split_time_model=[5], downsample=True)
-    assert machine.time_model_w.shape[0] == machine.seg_splits.shape[0] - 1
-    assert machine.time_model_w.shape[0] == machine._time_masked.shape[0]
+    machine.build_time_model(
+        split_time_segments=True, bin_method="bin", focus_component=False
+    )
+    assert machine.P3.vectors.shape == (10, 4 * 3)
