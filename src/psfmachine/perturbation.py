@@ -6,6 +6,7 @@ from typing import Optional
 from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
+from matplotlib import cm
 
 
 class PerturbationMatrix(object):
@@ -23,11 +24,13 @@ class PerturbationMatrix(object):
     focus : bool
         Whether to correct focus using a simple exponent model
     segments: bool
-        Whether to fit portions of data where there is a significant time break as separate segments
+        Whether to fit portions of data where there is a significant time break as
+        separate segments
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
-        How to bin the data under the hood. Default is by mean binning. Options are 'downsample' and 'bin'
+        How to bin the data under the hood. Default is by mean binning. Options are
+        'downsample' and 'bin'
     """
 
     def __init__(
@@ -155,9 +158,37 @@ class PerturbationMatrix(object):
         return
 
     def plot(self):
-        fig, ax = plt.subplots()
-        ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
-        ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
+        """
+        Creates a diagnostic plot showing the vector components. Will show the full
+        (line) and bindown (dots) version of the components.
+
+        """
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+        fig.suptitle("Vectors")
+        bin_time = self.bin_func(self.time)
+        bin_vec = self.bin_func(self.vectors)
+        colors = cm.get_cmap('Set1', self.vectors.shape[1])
+        for k in range(self.vectors.shape[1]):
+            ax[0].plot(self.time, self.vectors[:, k] + k * 0.1, color=colors(k))
+            ax[0].plot(
+                bin_time,
+                bin_vec[:, k] + k * 0.1,
+                marker=".",
+                lw=0,
+                color=colors(k),
+            )
+        ax[0].set(xlabel="Time", ylabel="Vector", yticks=[])
+
+        im = ax[1].imshow(
+            self.vectors.T,
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            vmin=-1,
+            vmax=1,
+        )
+        ax[1].set(xlabel="Time Index", yticks=range(self.vectors.shape[1]))
+        plt.colorbar(im, ax=ax[1])
         return fig
 
     def _get_cbvs(self):
@@ -319,7 +350,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
     focus : bool
         Whether to correct focus using a simple exponent model
     segments: bool
-        Whether to fit portions of data where there is a significant time break as separate segments
+        Whether to fit portions of data where there is a significant time break as
+        separate segments
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
@@ -395,8 +427,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         pixel_mask: Optional[npt.ArrayLike] = None,
     ):
         """
-        Fits flux to find the best fit model weights. Optionally will include flux errors.
-        Sets the `self.weights` attribute with best fit weights.
+        Fits flux to find the best fit model weights. Optionally will include flux
+        errors. Sets the `self.weights` attribute with best fit weights.
 
         Parameters
         ----------
@@ -405,8 +437,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         flux_err: npt.ArrayLike
             Optional flux errors. Should have shape ntimes x npixels.
         pixel_mask: npt.ArrayLike
-            Pixel mask to apply. Values that are `True` will be used in the fit. Values that are `False` will be masked.
-            Should have shape npixels.
+            Pixel mask to apply. Values that are `True` will be used in the fit.
+            Values that are `False` will be masked. Should have shape npixels.
         """
         if pixel_mask is not None:
             if not isinstance(pixel_mask, np.ndarray):
@@ -455,11 +487,28 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
-    def plot_model(self, time_index=0):
+    def plot_model(self, time_index: int = 0):
+        """Creates a diagnostic plot with the perturbation model at a given cadences
+
+        Parameters
+        ----------
+        time_index: int
+            Time index (cadence) to show in the figure.
+        """
         if not hasattr(self, "weights"):
             raise ValueError("Run `fit` first.")
-        fig, ax = plt.subplots()
-        ax.scatter(self.dx, self.dy, c=self.model(time_index)[0])
+        fig, ax = plt.subplots(figsize=(6, 5))
+        im = ax.scatter(
+            self.dx,
+            self.dy,
+            c=self.model(time_index)[0],
+            s=2,
+            cmap="viridis",
+            vmin=0.8,
+            vmax=1.2,
+        )
+        cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+        cbar.set_label("Perturbation Value")
         ax.set(
             xlabel=r"$\delta$x",
             ylabel=r"$\delta$y",
