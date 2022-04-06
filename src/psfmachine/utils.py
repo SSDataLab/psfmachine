@@ -6,6 +6,7 @@ import diskcache
 
 from scipy import sparse
 from patsy import dmatrix
+from scipy.ndimage import gaussian_filter1d
 import pyia
 
 # size_limit is 1GB
@@ -552,3 +553,41 @@ def get_breaks(time):
     """
     dts = np.diff(time)
     return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
+
+
+def smooth_vector(v, splits=None, filter_size=13, mode="mirror"):
+    """
+    Smooth out a vector
+
+    Parameters
+    ----------
+    v : numpy.ndarray or list of numpy.ndarray
+        Arrays to be smoothen in the last axis
+    splits : list of index
+        List of index where `v` has discontinuity
+    filter_size : int
+        Filter window size
+    mode : str
+        The `mode` parameter determines how the input array is extended
+        beyond its boundaries. Options are {'reflect', 'constant', 'nearest', 'mirror',
+        'wrap'}. Default is 'mirror'
+    """
+    v_smooth = []
+    if isinstance(v, list):
+        v = np.asarray(v)
+    else:
+        v = np.atleast_2d(v)
+
+    if splits is None:
+        splits = [0, v.shape[1]]
+
+    for i in range(1, len(splits)):
+        v_smooth.append(
+            gaussian_filter1d(
+                v[:, splits[i - 1] : splits[i]],
+                filter_size,
+                mode=mode,
+                axis=1,
+            )
+        )
+    return np.hstack(v_smooth)
