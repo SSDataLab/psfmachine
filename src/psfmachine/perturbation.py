@@ -283,7 +283,7 @@ class PerturbationMatrix(object):
         return func
 
     def pca(self, y, ncomponents=5):
-        """In place operation to add the principal components of `y` to `other_vectors`
+        """In place operation to add the principal components of `y` to the design matrix
 
         Parameters
         ----------
