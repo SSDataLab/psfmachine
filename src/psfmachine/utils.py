@@ -555,7 +555,7 @@ def get_breaks(time):
     return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
 
 
-def smooth_vector(v, splits=None, filter_size=13, mode="mirror"):
+def smooth_vector(v, time=None, filter_size=13, mode="mirror"):
     """
     Smooth out a vector
 
@@ -563,8 +563,8 @@ def smooth_vector(v, splits=None, filter_size=13, mode="mirror"):
     ----------
     v : numpy.ndarray or list of numpy.ndarray
         Arrays to be smoothen in the last axis
-    splits : list of index
-        List of index where `v` has discontinuity
+    time : numpy.ndarray
+        Time array of same shape of `v` last axis used to find data discontinuity.
     filter_size : int
         Filter window size
     mode : str
@@ -578,8 +578,22 @@ def smooth_vector(v, splits=None, filter_size=13, mode="mirror"):
     else:
         v = np.atleast_2d(v)
 
-    if splits is None:
+    if time is None:
         splits = [0, v.shape[1]]
+    elif isinstance(time, np.ndarray):
+        splits = get_breaks(time)
+        # find poscorr discontinuity in each axis
+        grads = np.gradient(v, time, axis=1)
+        # the 7-sigma here is hardcoded and found to work ok
+        splits = np.unique(
+            np.concatenate(
+                [splits, np.hstack([np.where(g > 7 * g.std())[0] for g in grads])]
+            )
+        )
+    else:
+        raise ValueError(
+            "`time` optional argument invalid, pass None or an array like."
+        )
 
     for i in range(1, len(splits)):
         v_smooth.append(

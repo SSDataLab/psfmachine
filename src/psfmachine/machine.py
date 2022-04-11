@@ -659,7 +659,6 @@ class Machine(object):
         uncontaminated_pixels = uncontaminated_pixels.data
 
         # add other vectors if asked, centroids or poscorrs
-        splits = get_breaks(self.time)
         self.poscorr_filter_size = (
             0.1 if self.poscorr_filter_size < 0.5 else self.poscorr_filter_size
         )
@@ -676,7 +675,9 @@ class Machine(object):
 
             # smooth the vectors
             mpc1_smooth, mpc2_smooth = smooth_vector(
-                [mpc1, mpc2], splits=splits, filter_size=self.poscorr_filter_size
+                [mpc1, mpc2],
+                time=self.time,
+                filter_size=self.poscorr_filter_size,
             )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
