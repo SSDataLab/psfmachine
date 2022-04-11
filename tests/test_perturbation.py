@@ -63,7 +63,7 @@ def test_perturbation_matrix():
         chi = np.sum((y - model) ** 2 / (ye ** 2)) / (p.shape[0] - p.shape[1] - 1)
         assert chi < 3
 
-    # chi = np.sum((y - model) ** 2 / (ye ** 2), axis=0) / (p.shape[0] - p.shape[1] - 1)
+    # Test PCA
     flux = np.random.normal(1, 0.1, size=(200, 100))
     assert p.matrix.shape == (20, 8)
     p.pca(flux, ncomponents=5)

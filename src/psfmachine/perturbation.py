@@ -29,6 +29,8 @@ class PerturbationMatrix(object):
         How many cadences to bin down via `bin_method`
     bin_method: str
         How to bin the data under the hood. Default is by mean binning. Options are 'downsample' and 'bin'
+    focus_exptime: float
+        Time for the exponent for focus change, if used
     """
 
     def __init__(
@@ -40,6 +42,7 @@ class PerturbationMatrix(object):
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "bin",
+        focus_exptime=50,
     ):
 
         self.time = time
@@ -49,6 +52,7 @@ class PerturbationMatrix(object):
         self.segments = segments
         self.resolution = resolution
         self.bin_method = bin_method
+        self.focus_exptime = focus_exptime
         self._vectors = np.vstack(
             [
                 (self.time - self.time.mean()) ** idx
@@ -112,18 +116,11 @@ class PerturbationMatrix(object):
             [vectors[:, idx][:, None] * masks for idx in range(vectors.shape[1])]
         )
 
-    def _get_focus_change(self, exptime: float = 100):
-        """
-        Finds a simple model for the focus change
-
-        Parameters
-        ----------
-        exptime: float
-            The timescale for an exponential decay.
-        """
+    def _get_focus_change(self):
+        """Finds a simple model for the focus change"""
         focus = np.asarray(
             [
-                np.exp(-exptime * (self.time - self.time[b]))
+                np.exp(-self.focus_exptime * (self.time - self.time[b]))
                 for b in np.hstack([0, self.breaks])
             ]
         )
