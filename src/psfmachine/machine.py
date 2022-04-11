@@ -14,8 +14,7 @@ from .utils import (
     solve_linear_model,
     sparse_lessthan,
     threshold_bin,
-    get_breaks,
-    smooth_vector,
+    spline_smooth,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 from .perturbation import PerturbationMatrix3D
@@ -134,8 +133,6 @@ class Machine(object):
         time_corrector: string
             The type of time corrector that will be used to build the time model,
             default is a "polynomial" for a polynomial in time, it can also be "pos_corr"
-        poscorr_filter_size: int
-            Standard deviation for Gaussian kernel to be used to smooth the pos_corrs
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
@@ -167,10 +164,6 @@ class Machine(object):
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
         self.time_corrector = "polynomial"
-        # if pos_corr, then we can smooth the vector with a Gaussian kernel of size
-        # poscorr_filter_size, if this is < 0.5 -> no smoothing, default is 12
-        # beacause of 6hr-CDPP
-        self.poscorr_filter_size = 12
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
@@ -659,9 +652,6 @@ class Machine(object):
         uncontaminated_pixels = uncontaminated_pixels.data
 
         # add other vectors if asked, centroids or poscorrs
-        self.poscorr_filter_size = (
-            0.1 if self.poscorr_filter_size < 0.5 else self.poscorr_filter_size
-        )
         if self.time_corrector == "polynomial":
             other_vectors = None
         else:
@@ -674,10 +664,9 @@ class Machine(object):
                 mpc2 = self.dec_centroid.to("arcsec").value / 4
 
             # smooth the vectors
-            mpc1_smooth, mpc2_smooth = smooth_vector(
+            mpc1_smooth, mpc2_smooth = spline_smooth(
                 [mpc1, mpc2],
                 time=self.time,
-                filter_size=self.poscorr_filter_size,
             )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (

@@ -7,6 +7,7 @@ import diskcache
 from scipy import sparse
 from patsy import dmatrix
 from scipy.ndimage import gaussian_filter1d
+from scipy import interpolate
 import pyia
 
 # size_limit is 1GB
@@ -552,38 +553,42 @@ def get_breaks(time):
         An array of indexes with the break positions
     """
     dts = np.diff(time)
-    return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
+    return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time) - 1])
 
 
-def smooth_vector(v, time=None, filter_size=13, mode="mirror"):
+def gaussian_smooth(y, x=None, filter_size=13, mode="mirror"):
     """
-    Smooth out a vector
+    Applies a Gaussian smoothing to a curve.
 
     Parameters
     ----------
-    v : numpy.ndarray or list of numpy.ndarray
+    y : numpy.ndarray or list of numpy.ndarray
         Arrays to be smoothen in the last axis
-    time : numpy.ndarray
-        Time array of same shape of `v` last axis used to find data discontinuity.
+    x : numpy.ndarray
+        Time array of same shape of `y` last axis used to find data discontinuity.
     filter_size : int
         Filter window size
     mode : str
         The `mode` parameter determines how the input array is extended
         beyond its boundaries. Options are {'reflect', 'constant', 'nearest', 'mirror',
         'wrap'}. Default is 'mirror'
-    """
-    v_smooth = []
-    if isinstance(v, list):
-        v = np.asarray(v)
-    else:
-        v = np.atleast_2d(v)
 
-    if time is None:
-        splits = [0, v.shape[1]]
-    elif isinstance(time, np.ndarray):
-        splits = get_breaks(time)
+    Returns
+    -------
+    y_smooth : numpy.ndarray
+        Smooth array.
+    """
+    if isinstance(y, list):
+        y = np.asarray(y)
+    else:
+        y = np.atleast_2d(y)
+
+    if x is None:
+        splits = [0, y.shape[1]]
+    elif isinstance(x, np.ndarray):
+        splits = get_breaks(x)
         # find poscorr discontinuity in each axis
-        grads = np.gradient(v, time, axis=1)
+        grads = np.gradient(y, x, axis=1)
         # the 7-sigma here is hardcoded and found to work ok
         splits = np.unique(
             np.concatenate(
@@ -591,17 +596,75 @@ def smooth_vector(v, time=None, filter_size=13, mode="mirror"):
             )
         )
     else:
-        raise ValueError(
-            "`time` optional argument invalid, pass None or an array like."
-        )
+        raise ValueError("`x` optional argument invalid, pass None or an array like.")
 
+    y_smooth = []
     for i in range(1, len(splits)):
-        v_smooth.append(
+        y_smooth.append(
             gaussian_filter1d(
-                v[:, splits[i - 1] : splits[i]],
+                y[:, splits[i - 1] : splits[i]],
                 filter_size,
                 mode=mode,
                 axis=1,
             )
         )
-    return np.hstack(v_smooth)
+    return np.hstack(y_smooth)
+
+
+def spline_smooth(y, x, weights=None, degree=3, do_splits=True):
+    """
+    Applies a spline smoothing to a curve.
+
+    Parameters
+    ----------
+    y : numpy.ndarray or list of numpy.ndarray
+        Arrays to be smoothen in the last axis
+    x : numpy.ndarray
+        Time array of same shape of `y` last axis.
+    weights : numpy.ndarray or list of numpy.ndarray
+        Optional array of weights the same shape as `y`.
+    degree : int
+        Degree of the psline fit, default is 3.
+    do_splits : boolean
+        Do the splines per segments with splits defined by data discontinuity.
+
+    Returns
+    -------
+    y_smooth : numpy.ndarray
+        Smooth array.
+    """
+    if isinstance(y, list):
+        y = np.asarray(y)
+    else:
+        y = np.atleast_2d(y)
+
+    if do_splits:
+        splits = get_breaks(x)
+        # find poscorr discontinuity in each axis
+        grads = np.gradient(y, x, axis=1)
+        # the 7-sigma here is hardcoded and found to work ok
+        splits = np.unique(
+            np.concatenate(
+                [splits, np.hstack([np.where(g > 7 * g.std())[0] for g in grads])]
+            )
+        )
+    else:
+        splits = [0, -1]
+    if weights is None:
+        s = 5e-4
+        weights = np.ones_like(y)
+    else:
+        if isinstance(weights, list):
+            weights = np.asarray(weights)
+        else:
+            weights = np.atleast_2d(weights)
+        # s = weights.shape[-1] - np.sqrt(2 * weights.shape[-1])
+        s = 1.9e-10
+        if y.shape != weights.shape:
+            raise ValueError("Inconsistent shape between `v` and `weights`")
+
+    y_smooth = []
+    for y_, w in zip(y, weights):
+        tck = interpolate.splrep(x, y_, w=w, s=s, xb=x[splits], k=degree)
+        y_smooth.append(interpolate.splev(x, tck, der=0))
+    return np.array(y_smooth)
