@@ -612,8 +612,8 @@ class Machine(object):
         self,
         plot=False,
         bin_method="bin",
-        split_time_segments=False,
-        focus_component=False,
+        segments=False,
+        focus=False,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -630,11 +630,11 @@ class Machine(object):
             Plot a diagnostic figure.
         bin_method: string
             Type of bin method, options are "bin" and "downsample".
-        split_time_segments : boolean
+        segments : boolean
             If `True` will split the light curve into segments to fit different time
             models with a common pixel normalization. If `False` will fit the full
             time series as one segment.
-        focus_component: boolean
+        focus: boolean
             Add a component that models th focus change at the begining of a segment.
         """
         # create the time and space basis
@@ -683,8 +683,8 @@ class Machine(object):
             time=_whitened_time,
             dx=dx,
             dy=dy,
-            segments=split_time_segments,
-            focus=focus_component,
+            segments=segments,
+            focus=focus,
             resolution=self.n_time_points,
             other_vectors=other_vectors,
             bin_method=bin_method,
