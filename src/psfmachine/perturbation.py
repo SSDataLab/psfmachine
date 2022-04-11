@@ -6,6 +6,7 @@ from typing import Optional
 from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
+from fbpca import pca
 
 
 class PerturbationMatrix(object):
@@ -36,7 +37,6 @@ class PerturbationMatrix(object):
         other_vectors: Optional[list] = None,
         poly_order: int = 3,
         focus: bool = False,
-        cbvs: bool = False,
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "bin",
@@ -46,20 +46,20 @@ class PerturbationMatrix(object):
         self.other_vectors = other_vectors
         self.poly_order = poly_order
         self.focus = focus
-        self.cbvs = cbvs
         self.segments = segments
         self.resolution = resolution
         self.bin_method = bin_method
-        self.vectors = np.vstack(
-            [self.time ** idx for idx in range(self.poly_order + 1)]
+        self._vectors = np.vstack(
+            [
+                (self.time - self.time.mean()) ** idx
+                for idx in range(self.poly_order + 1)
+            ]
         ).T
-        if self.cbvs:
-            self._get_cbvs()
         if self.focus:
             self._get_focus_change()
         self._validate()
         if self.segments:
-            self._cut_segments()
+            self.vectors = self._cut_segments(self.vectors)
         self._clean_vectors()
         self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
@@ -93,10 +93,12 @@ class PerturbationMatrix(object):
                         raise ValueError("Must pass other vectors in the right shape")
             else:
                 raise ValueError("Must pass a list as other vectors")
-            self.vectors = np.hstack([self.vectors, self.other_vectors])
+            self.vectors = np.hstack([self._vectors.copy(), self.other_vectors])
+        else:
+            self.vectors = self._vectors.copy()
         return
 
-    def _cut_segments(self):
+    def _cut_segments(self, vectors):
         """
         Cuts the data into "segments" wherever there is a break. Breaks are defined
         as anywhere where there is a gap in data of more than 5 times the median
@@ -106,11 +108,8 @@ class PerturbationMatrix(object):
         masks = np.asarray(
             [np.in1d(np.arange(len(self.time)), x1).astype(float) for x1 in x]
         ).T
-        self.vectors = np.hstack(
-            [
-                self.vectors[:, idx][:, None] * masks
-                for idx in range(self.vectors.shape[1])
-            ]
+        return np.hstack(
+            [vectors[:, idx][:, None] * masks for idx in range(vectors.shape[1])]
         )
 
     def _get_focus_change(self, exptime: float = 100):
@@ -135,7 +134,7 @@ class PerturbationMatrix(object):
             ]
         )
         focus[focus < 1e-10] = 0
-        self.vectors = np.hstack([self.vectors, np.nansum(focus, axis=0)[:, None]])
+        self._vectors = np.hstack([self._vectors, np.nansum(focus, axis=0)[:, None]])
         return
 
     def _clean_vectors(self):
@@ -143,8 +142,6 @@ class PerturbationMatrix(object):
         nvec = self.poly_order + 1
         if self.focus:
             nvec += 1
-        if self.cbvs:
-            nvec += self.ncbvs
         if self.segments:
             s = nvec * (len(self.breaks) + 1)
         else:
@@ -159,14 +156,6 @@ class PerturbationMatrix(object):
         ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
         ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
         return fig
-
-    def _get_cbvs(self):
-        self.ncbvs = 0
-        # use lightkurve to get CBVs for a given time?????????
-        # Might need channel information maybe
-        # self.ncbvs = ....
-        #        self.vectors = np.hstack([self.vectors, cbvs])
-        raise NotImplementedError
 
     def _fit_linalg(self, y, ye, k=None):
         """Hidden method to fit data with linalg"""
@@ -296,6 +285,32 @@ class PerturbationMatrix(object):
 
         return func
 
+    def pca(self, y, ncomponents=5):
+        """In place operation to add the principal components of `y` to `other_vectors`
+
+        Parameters
+        ----------
+        y: np.ndarray
+            Input flux array to take PCA of.
+        """
+        if not y.ndim == 2:
+            raise ValueError("Must pass a 2D `y`")
+        if not y.shape[0] == len(self.time):
+            raise ValueError(f"Must pass a `y` with shape ({len(self.time)}, X)")
+
+        # Clean out any time series have significant contribution from one component
+        k = np.ones(y.shape[1], bool)
+        for count in range(3):
+            U, s, V = pca(y[:, k], ncomponents, n_iter=30)
+            k[k] &= (np.abs(V) < 0.5).all(axis=0)
+
+        self._vectors = np.hstack([self._vectors, U])
+        if self.segments:
+            self._vectors = self._cut_segments(self._vectors)
+        self._validate()
+        self._clean_vectors()
+        self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
+
 
 class PerturbationMatrix3D(PerturbationMatrix):
     """Class to handle 3D perturbation matrices in PSFMachine
@@ -336,7 +351,6 @@ class PerturbationMatrix3D(PerturbationMatrix):
         nknots: int = 10,
         radius: float = 8,
         focus: bool = False,
-        cbvs: bool = False,
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "downsample",
@@ -357,7 +371,6 @@ class PerturbationMatrix3D(PerturbationMatrix):
             other_vectors=other_vectors,
             poly_order=poly_order,
             focus=focus,
-            cbvs=cbvs,
             segments=segments,
             resolution=resolution,
             bin_method=bin_method,
