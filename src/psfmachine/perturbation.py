@@ -8,6 +8,7 @@ from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
 from fbpca import pca
 from astropy.convolution import convolve, Box1DKernel
+from .utils import spline1d
 
 
 class PerturbationMatrix(object):
@@ -287,7 +288,7 @@ class PerturbationMatrix(object):
 
         return func
 
-    def pca(self, y, ncomponents=5, box_width=100):
+    def pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
@@ -295,9 +296,14 @@ class PerturbationMatrix(object):
         y: np.ndarray
             Input flux array to take PCA of.
         """
-        return self._pca(y, ncomponents=ncomponents, box_width=box_width)
+        return self._pca(
+            y,
+            ncomponents=ncomponents,
+            long_time_scale=long_time_scale,
+            med_time_scale=med_time_scale,
+        )
 
-    def _pca(self, y, ncomponents=5, box_width=100):
+    def _pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
         """This hidden method allows us to update the pca method for other classes"""
         if not y.ndim == 2:
             raise ValueError("Must pass a 2D `y`")
@@ -307,33 +313,91 @@ class PerturbationMatrix(object):
         # Clean out any time series have significant contribution from one component
         k = np.nansum(y, axis=0) != 0
 
-        long_y = np.vstack(
+        X = sparse.hstack(
             [
-                np.hstack(
-                    [
-                        convolve(y[m, idx], Box1DKernel(100), boundary="extend")
-                        for m in self.segment_masks.astype(bool).T
-                    ]
-                )
-                for idx in range(y.shape[1])
+                spline1d(
+                    self.time,
+                    np.linspace(
+                        self.time[m].min(),
+                        self.time[m].max(),
+                        int(
+                            np.ceil(
+                                (self.time[m].max() - self.time[m].min())
+                                / long_time_scale
+                            )
+                        ),
+                    )[1:-1],
+                    degree=3,
+                )[:, 1:]
+                for m in self.segment_masks.astype(bool).T
             ]
-        ).T
+        )
+        X = sparse.hstack([X, sparse.csr_matrix(np.ones(X.shape[0])).T]).tocsr()
+        X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
+        long_y = X.dot(
+            np.linalg.solve(
+                X.T.dot(X).toarray() + np.diag(1 / (np.ones(X.shape[1]) * 1e10)),
+                X.T.dot(y),
+            )
+        )
 
-        med_y = np.vstack(
+        X = sparse.hstack(
             [
-                np.hstack(
-                    [
-                        convolve(
-                            y[m, idx] / long_y[m, idx],
-                            Box1DKernel(15),
-                            boundary="extend",
-                        )
-                        for m in self.segment_masks.astype(bool).T
-                    ]
-                )
-                for idx in range(y.shape[1])
+                spline1d(
+                    self.time,
+                    np.linspace(
+                        self.time[m].min(),
+                        self.time[m].max(),
+                        int(
+                            np.ceil(
+                                (self.time[m].max() - self.time[m].min())
+                                / med_time_scale
+                            )
+                        ),
+                    )[1:-1],
+                    degree=3,
+                )[:, 1:]
+                for m in self.segment_masks.astype(bool).T
             ]
-        ).T
+        )
+        X = sparse.hstack([X, sparse.csr_matrix(np.ones(X.shape[0])).T]).tocsr()
+        X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
+
+        med_y = X.dot(
+            np.linalg.solve(
+                X.T.dot(X).toarray() + np.diag(1 / (np.ones(X.shape[1]) * 1e10)),
+                X.T.dot(y - long_y),
+            )
+        )
+
+        #
+        # long_y = np.vstack(
+        #     [
+        #         np.hstack(
+        #             [
+        #                 convolve(y[m, idx], Box1DKernel(100), boundary="extend")
+        #                 for m in self.segment_masks.astype(bool).T
+        #             ]
+        #         )
+        #         for idx in range(y.shape[1])
+        #     ]
+        # ).T
+
+        # med_y = np.vstack(
+        #     [
+        #         np.hstack(
+        #             [
+        #                 convolve(
+        #                     y[m, idx] / long_y[m, idx],
+        #                     Box1DKernel(15),
+        #                     boundary="extend",
+        #                 )
+        #                 for m in self.segment_masks.astype(bool).T
+        #             ]
+        #         )
+        #         for idx in range(y.shape[1])
+        #     ]
+        # ).T
 
         for count in range(3):
             U1, s, V = pca(np.nan_to_num(long_y)[:, k], ncomponents, n_iter=30)
@@ -517,7 +581,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
-    def pca(self, y, ncomponents=5, box_width=100):
+    def pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
@@ -525,7 +589,12 @@ class PerturbationMatrix3D(PerturbationMatrix):
         y: np.ndarray
             Input flux array to take PCA of.
         """
-        self._pca(y, ncomponents=5, box_width=box_width)
+        self._pca(
+            y,
+            ncomponents=5,
+            long_time_scale=long_time_scale,
+            med_time_scale=med_time_scale,
+        )
         self._get_cartesian_stacked()
 
     def plot_model(self, time_index=0):
