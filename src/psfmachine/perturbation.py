@@ -369,35 +369,6 @@ class PerturbationMatrix(object):
             )
         )
 
-        #
-        # long_y = np.vstack(
-        #     [
-        #         np.hstack(
-        #             [
-        #                 convolve(y[m, idx], Box1DKernel(100), boundary="extend")
-        #                 for m in self.segment_masks.astype(bool).T
-        #             ]
-        #         )
-        #         for idx in range(y.shape[1])
-        #     ]
-        # ).T
-
-        # med_y = np.vstack(
-        #     [
-        #         np.hstack(
-        #             [
-        #                 convolve(
-        #                     y[m, idx] / long_y[m, idx],
-        #                     Box1DKernel(15),
-        #                     boundary="extend",
-        #                 )
-        #                 for m in self.segment_masks.astype(bool).T
-        #             ]
-        #         )
-        #         for idx in range(y.shape[1])
-        #     ]
-        # ).T
-
         for count in range(3):
             U1, s, V = pca(np.nan_to_num(long_y)[:, k], ncomponents, n_iter=30)
             k[k] &= (np.abs(V) < 0.5).all(axis=0)
