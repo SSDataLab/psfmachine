@@ -7,6 +7,7 @@ from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
 from fbpca import pca
+from astropy.convolution import convolve, Box1DKernel
 
 
 class PerturbationMatrix(object):
@@ -94,18 +95,24 @@ class PerturbationMatrix(object):
     def breaks(self):
         return np.where(np.diff(self.time) / np.median(np.diff(self.time)) > 5)[0] + 1
 
+    @property
+    def segment_masks(self):
+        x = np.array_split(np.arange(len(self.time)), self.breaks)
+        return np.asarray(
+            [np.in1d(np.arange(len(self.time)), x1).astype(float) for x1 in x]
+        ).T
+
     def _cut_segments(self, vectors):
         """
         Cuts the data into "segments" wherever there is a break. Breaks are defined
         as anywhere where there is a gap in data of more than 5 times the median
         time between observations.
         """
-        x = np.array_split(np.arange(len(self.time)), self.breaks)
-        masks = np.asarray(
-            [np.in1d(np.arange(len(self.time)), x1).astype(float) for x1 in x]
-        ).T
         return np.hstack(
-            [vectors[:, idx][:, None] * masks for idx in range(vectors.shape[1])]
+            [
+                vectors[:, idx][:, None] * self.segment_masks
+                for idx in range(vectors.shape[1])
+            ]
         )
 
     def _get_focus_change(self):
@@ -176,7 +183,7 @@ class PerturbationMatrix(object):
             Optional flux errors. Should have shape ntimes.
         """
         if flux_err is None:
-            flux_err = np.ones(len(flux_err))
+            flux_err = np.ones_like(flux)
 
         y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
         self.weights = self._fit_linalg(y, ye)
@@ -280,7 +287,7 @@ class PerturbationMatrix(object):
 
         return func
 
-    def pca(self, y, ncomponents=5):
+    def pca(self, y, ncomponents=5, box_width=100):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
@@ -288,21 +295,55 @@ class PerturbationMatrix(object):
         y: np.ndarray
             Input flux array to take PCA of.
         """
-        return self._pca(y, ncomponents=ncomponents)
+        return self._pca(y, ncomponents=ncomponents, box_width=box_width)
 
-    def _pca(self, y, ncomponents=5):
-        """This hidden method allows us to update the pca method for other classes
-        """
+    def _pca(self, y, ncomponents=5, box_width=100):
+        """This hidden method allows us to update the pca method for other classes"""
         if not y.ndim == 2:
             raise ValueError("Must pass a 2D `y`")
         if not y.shape[0] == len(self.time):
             raise ValueError(f"Must pass a `y` with shape ({len(self.time)}, X)")
 
         # Clean out any time series have significant contribution from one component
-        k = np.ones(y.shape[1], bool)
+        k = np.nansum(y, axis=0) != 0
+
+        long_y = np.vstack(
+            [
+                np.hstack(
+                    [
+                        convolve(y[m, idx], Box1DKernel(100), boundary="extend")
+                        for m in self.segment_masks.astype(bool).T
+                    ]
+                )
+                for idx in range(y.shape[1])
+            ]
+        ).T
+
+        med_y = np.vstack(
+            [
+                np.hstack(
+                    [
+                        convolve(
+                            y[m, idx] / long_y[m, idx],
+                            Box1DKernel(15),
+                            boundary="extend",
+                        )
+                        for m in self.segment_masks.astype(bool).T
+                    ]
+                )
+                for idx in range(y.shape[1])
+            ]
+        ).T
+
         for count in range(3):
-            self._pca_components, s, V = pca(y[:, k], ncomponents, n_iter=30)
+            U1, s, V = pca(np.nan_to_num(long_y)[:, k], ncomponents, n_iter=30)
             k[k] &= (np.abs(V) < 0.5).all(axis=0)
+
+        for count in range(3):
+            U2, s, V = pca(np.nan_to_num(med_y)[:, k], ncomponents, n_iter=30)
+            k[k] &= (np.abs(V) < 0.5).all(axis=0)
+
+        self._pca_components = np.hstack([U1, U2])
 
         if self.other_vectors is not None:
             self.vectors = np.hstack(
@@ -439,7 +480,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         else:
             pixel_mask = np.ones(flux.shape[-1], bool)
         if flux_err is None:
-            flux_err = np.ones(len(flux_err))
+            flux_err = np.ones_like(flux)
 
         y, ye = self.bin_func(flux).ravel(), self.bin_func(flux_err, quad=True).ravel()
         k = (np.ones(self.nbins, bool)[:, None] * pixel_mask).ravel()
@@ -476,7 +517,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
-    def pca(self, y, ncomponents=5):
+    def pca(self, y, ncomponents=5, box_width=100):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
@@ -484,7 +525,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         y: np.ndarray
             Input flux array to take PCA of.
         """
-        self._pca(y, ncomponents=5)
+        self._pca(y, ncomponents=5, box_width=box_width)
         self._get_cartesian_stacked()
 
     def plot_model(self, time_index=0):

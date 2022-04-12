@@ -65,9 +65,16 @@ def test_perturbation_matrix():
 
     # Test PCA
     flux = np.random.normal(1, 0.1, size=(200, 100))
+    p = PerturbationMatrix(time=time, focus=False)
     assert p.matrix.shape == (20, 8)
-    p.pca(flux, ncomponents=5)
-    assert p.matrix.shape == (20, 18)
+    p.pca(flux, ncomponents=2)
+    assert p.matrix.shape == (20, 16)
+    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    p.fit(y, ye)
+    p = PerturbationMatrix(time=time, focus=False, segments=False)
+    assert p.matrix.shape == (20, 4)
+    p.pca(flux, ncomponents=2)
+    assert p.matrix.shape == (20, 8)
     assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
     p.fit(y, ye)
 
