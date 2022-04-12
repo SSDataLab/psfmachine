@@ -129,6 +129,19 @@ def test_perturbation_matrix3d():
         )
         assert chi < 3
 
+    p3 = PerturbationMatrix3D(
+        time=time,
+        dx=dx,
+        dy=dy,
+        nknots=4,
+        radius=5,
+        poly_order=2,
+        bin_method=bin_method,
+    )
+    p3.pca(flux, ncomponents=5)
+    p3.fit(flux, flux_err)
+
+
     # Add in one bad pixel
     flux[:, 100] = 1e5
     pixel_mask = np.ones(169, bool)

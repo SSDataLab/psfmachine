@@ -140,6 +140,7 @@ class PerturbationMatrix(object):
             X = self.vectors[:, :s]
             w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
             self.vectors[:, s:] -= X.dot(w)
+            # Each segment has mean zero
             self.vectors[:, s:] -= np.asarray(
                 [v[v != 0].mean() * (v != 0) for v in self.vectors[:, s:].T]
             ).T
@@ -279,7 +280,11 @@ class PerturbationMatrix(object):
 
         return func
 
+
     def pca(self, y, ncomponents=5):
+        return self._pca(y, ncomponents=ncomponents)
+
+    def _pca(self, y, ncomponents=5):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
@@ -352,6 +357,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "downsample",
+        focus_exptime: float = 50,
     ):
         self.dx = dx
         self.dy = dy
@@ -372,8 +378,11 @@ class PerturbationMatrix3D(PerturbationMatrix):
             segments=segments,
             resolution=resolution,
             bin_method=bin_method,
+            focus_exptime=focus_exptime,
         )
+        self._get_cartesian_stacked()
 
+    def _get_cartesian_stacked(self):
         self._cartesian_stacked = sparse.hstack(
             [self.cartesian_matrix for idx in range(self.vectors.shape[1])],
             format="csr",
@@ -466,6 +475,10 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
+    def pca(self, y, ncomponents=5):
+        self._pca(y, ncomponents=5)
+        self._get_cartesian_stacked()
+        
     def plot_model(self, time_index=0):
         if not hasattr(self, "weights"):
             raise ValueError("Run `fit` first.")
