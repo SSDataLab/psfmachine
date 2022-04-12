@@ -713,7 +713,7 @@ class Machine(object):
         # bindown flux arrays
         flux_binned_raw = P.bin_func(flux)
         flux_binned = P.bin_func(flux_norm)
-        flux_err_binned = P.bin_func(flux_err_norm)
+        flux_err_binned = P.bin_func(flux_err_norm, quad=True)
 
         # No saturated pixels, 1e5 is a hardcoded value for Kepler.
         k = (flux_binned_raw < 1e5).all(axis=0)[None, :] * np.ones(
@@ -757,26 +757,13 @@ class Machine(object):
             return self.plot_time_model()
         return
 
-    def _get_perturbed_model(self, time_indices=None):
+    def perturbed_model(self, time_index):
         """
-        Computes the perturbed model at given times
+        Computes the perturbed model at a given time
         """
-        if time_indices is None:
-            time_indices = np.arange(len(self.time))
-        time_indices = np.atleast_1d(time_indices)
-        if isinstance(time_indices[0], bool):
-            time_indices = np.where(time_indices[0])[0]
-
-        perturbed_model = []
-        for tdx in time_indices:
-            X = self.mean_model.copy()
-            X.data *= self.P.model(time_indices=tdx).ravel()
-            perturbed_model.append(X)
-        self.perturbed_model = perturbed_model
-
-        return
-
-        # raise NotImplementedError
+        X = self.mean_model.copy()
+        X.data *= self.P.model(time_indices=time_index).ravel()
+        return X
 
     def plot_time_model(self):
         """
@@ -1289,7 +1276,7 @@ class Machine(object):
                         "aberration."
                     )
 
-                X.data *= self.P.model(time_indices=tdx).ravel()
+                X = self.perturbed_model(tdx)
 
                 sigma_w_inv = X.T.dot(
                     X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
