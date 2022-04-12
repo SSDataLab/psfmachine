@@ -667,9 +667,10 @@ class Machine(object):
                 mpc2 = self.dec_centroid.to("arcsec").value / 4
 
             # smooth the vectors
-            mpc1_smooth, mpc2_smooth = spline_smooth(
+            mpc1_smooth, mpc2_smooth = bspline_smooth(
                 [mpc1, mpc2],
-                time=self.time,
+                x=self.time,
+                do_segments=segments,
             )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
@@ -733,6 +734,8 @@ class Machine(object):
         k &= uncontaminated_pixels
 
         if pca_ncomponents > 0:
+            # select only bright pixels
+            k &= (flux_binned_raw > 300).all(axis=0)
             P3.pca(flux_norm[:, k], ncomponents=pca_ncomponents)
 
         # iterate to remvoe outliers
