@@ -6,7 +6,7 @@ from typing import Optional
 from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from fbpca import pca
 
 
 class PerturbationMatrix(object):
@@ -24,13 +24,13 @@ class PerturbationMatrix(object):
     focus : bool
         Whether to correct focus using a simple exponent model
     segments: bool
-        Whether to fit portions of data where there is a significant time break as
-        separate segments
+        Whether to fit portions of data where there is a significant time break as separate segments
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
-        How to bin the data under the hood. Default is by mean binning. Options are
-        'downsample' and 'bin'
+        How to bin the data under the hood. Default is by mean binning. Options are 'downsample' and 'bin'
+    focus_exptime: float
+        Time for the exponent for focus change, if used
     """
 
     def __init__(
@@ -39,30 +39,31 @@ class PerturbationMatrix(object):
         other_vectors: Optional[list] = None,
         poly_order: int = 3,
         focus: bool = False,
-        cbvs: bool = False,
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "bin",
+        focus_exptime=50,
     ):
 
         self.time = time
         self.other_vectors = other_vectors
         self.poly_order = poly_order
         self.focus = focus
-        self.cbvs = cbvs
         self.segments = segments
         self.resolution = resolution
         self.bin_method = bin_method
-        self.vectors = np.vstack(
-            [self.time ** idx for idx in range(self.poly_order + 1)]
+        self.focus_exptime = focus_exptime
+        self._vectors = np.vstack(
+            [
+                (self.time - self.time.mean()) ** idx
+                for idx in range(self.poly_order + 1)
+            ]
         ).T
-        if self.cbvs:
-            self._get_cbvs()
         if self.focus:
             self._get_focus_change()
         self._validate()
         if self.segments:
-            self._cut_segments()
+            self.vectors = self._cut_segments(self.vectors)
         self._clean_vectors()
         self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
@@ -96,10 +97,12 @@ class PerturbationMatrix(object):
                         raise ValueError("Must pass other vectors in the right shape")
             else:
                 raise ValueError("Must pass a list as other vectors")
-            self.vectors = np.hstack([self.vectors, self.other_vectors])
+            self.vectors = np.hstack([self._vectors.copy(), self.other_vectors])
+        else:
+            self.vectors = self._vectors.copy()
         return
 
-    def _cut_segments(self):
+    def _cut_segments(self, vectors):
         """
         Cuts the data into "segments" wherever there is a break. Breaks are defined
         as anywhere where there is a gap in data of more than 5 times the median
@@ -109,25 +112,15 @@ class PerturbationMatrix(object):
         masks = np.asarray(
             [np.in1d(np.arange(len(self.time)), x1).astype(float) for x1 in x]
         ).T
-        self.vectors = np.hstack(
-            [
-                self.vectors[:, idx][:, None] * masks
-                for idx in range(self.vectors.shape[1])
-            ]
+        return np.hstack(
+            [vectors[:, idx][:, None] * masks for idx in range(vectors.shape[1])]
         )
 
-    def _get_focus_change(self, exptime: float = 100):
-        """
-        Finds a simple model for the focus change
-
-        Parameters
-        ----------
-        exptime: float
-            The timescale for an exponential decay.
-        """
+    def _get_focus_change(self):
+        """Finds a simple model for the focus change"""
         focus = np.asarray(
             [
-                np.exp(-exptime * (self.time - self.time[b]))
+                np.exp(-self.focus_exptime * (self.time - self.time[b]))
                 for b in np.hstack([0, self.breaks])
             ]
         )
@@ -138,7 +131,7 @@ class PerturbationMatrix(object):
             ]
         )
         focus[focus < 1e-10] = 0
-        self.vectors = np.hstack([self.vectors, np.nansum(focus, axis=0)[:, None]])
+        self._vectors = np.hstack([self._vectors, np.nansum(focus, axis=0)[:, None]])
         return
 
     def _clean_vectors(self):
@@ -146,8 +139,6 @@ class PerturbationMatrix(object):
         nvec = self.poly_order + 1
         if self.focus:
             nvec += 1
-        if self.cbvs:
-            nvec += self.ncbvs
         if self.segments:
             s = nvec * (len(self.breaks) + 1)
         else:
@@ -158,46 +149,10 @@ class PerturbationMatrix(object):
         return
 
     def plot(self):
-        """
-        Creates a diagnostic plot showing the vector components. Will show the full
-        (line) and bindown (dots) version of the components.
-
-        """
-        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-        fig.suptitle("Vectors")
-        bin_time = self.bin_func(self.time)
-        bin_vec = self.bin_func(self.vectors)
-        colors = cm.get_cmap('Set1', self.vectors.shape[1])
-        for k in range(self.vectors.shape[1]):
-            ax[0].plot(self.time, self.vectors[:, k] + k * 0.1, color=colors(k))
-            ax[0].plot(
-                bin_time,
-                bin_vec[:, k] + k * 0.1,
-                marker=".",
-                lw=0,
-                color=colors(k),
-            )
-        ax[0].set(xlabel="Time", ylabel="Vector", yticks=[])
-
-        im = ax[1].imshow(
-            self.vectors.T,
-            origin="lower",
-            aspect="auto",
-            interpolation="nearest",
-            vmin=-1,
-            vmax=1,
-        )
-        ax[1].set(xlabel="Time Index", yticks=range(self.vectors.shape[1]))
-        plt.colorbar(im, ax=ax[1])
+        fig, ax = plt.subplots()
+        ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
+        ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
         return fig
-
-    def _get_cbvs(self):
-        self.ncbvs = 0
-        # use lightkurve to get CBVs for a given time?????????
-        # Might need channel information maybe
-        # self.ncbvs = ....
-        #        self.vectors = np.hstack([self.vectors, cbvs])
-        raise NotImplementedError
 
     def _fit_linalg(self, y, ye, k=None):
         """Hidden method to fit data with linalg"""
@@ -327,6 +282,32 @@ class PerturbationMatrix(object):
 
         return func
 
+    def pca(self, y, ncomponents=5):
+        """In place operation to add the principal components of `y` to the design matrix
+
+        Parameters
+        ----------
+        y: np.ndarray
+            Input flux array to take PCA of.
+        """
+        if not y.ndim == 2:
+            raise ValueError("Must pass a 2D `y`")
+        if not y.shape[0] == len(self.time):
+            raise ValueError(f"Must pass a `y` with shape ({len(self.time)}, X)")
+
+        # Clean out any time series have significant contribution from one component
+        k = np.ones(y.shape[1], bool)
+        for count in range(3):
+            U, s, V = pca(y[:, k], ncomponents, n_iter=30)
+            k[k] &= (np.abs(V) < 0.5).all(axis=0)
+
+        self._vectors = np.hstack([self._vectors, U])
+        if self.segments:
+            self._vectors = self._cut_segments(self._vectors)
+        self._validate()
+        self._clean_vectors()
+        self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
+
 
 class PerturbationMatrix3D(PerturbationMatrix):
     """Class to handle 3D perturbation matrices in PSFMachine
@@ -350,8 +331,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
     focus : bool
         Whether to correct focus using a simple exponent model
     segments: bool
-        Whether to fit portions of data where there is a significant time break as
-        separate segments
+        Whether to fit portions of data where there is a significant time break as separate segments
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
@@ -368,7 +348,6 @@ class PerturbationMatrix3D(PerturbationMatrix):
         nknots: int = 10,
         radius: float = 8,
         focus: bool = False,
-        cbvs: bool = False,
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "downsample",
@@ -389,7 +368,6 @@ class PerturbationMatrix3D(PerturbationMatrix):
             other_vectors=other_vectors,
             poly_order=poly_order,
             focus=focus,
-            cbvs=cbvs,
             segments=segments,
             resolution=resolution,
             bin_method=bin_method,
@@ -427,8 +405,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         pixel_mask: Optional[npt.ArrayLike] = None,
     ):
         """
-        Fits flux to find the best fit model weights. Optionally will include flux
-        errors. Sets the `self.weights` attribute with best fit weights.
+        Fits flux to find the best fit model weights. Optionally will include flux errors.
+        Sets the `self.weights` attribute with best fit weights.
 
         Parameters
         ----------
@@ -437,8 +415,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         flux_err: npt.ArrayLike
             Optional flux errors. Should have shape ntimes x npixels.
         pixel_mask: npt.ArrayLike
-            Pixel mask to apply. Values that are `True` will be used in the fit.
-            Values that are `False` will be masked. Should have shape npixels.
+            Pixel mask to apply. Values that are `True` will be used in the fit. Values that are `False` will be masked.
+            Should have shape npixels.
         """
         if pixel_mask is not None:
             if not isinstance(pixel_mask, np.ndarray):
@@ -487,28 +465,11 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
-    def plot_model(self, time_index: int = 0):
-        """Creates a diagnostic plot with the perturbation model at a given cadences
-
-        Parameters
-        ----------
-        time_index: int
-            Time index (cadence) to show in the figure.
-        """
+    def plot_model(self, time_index=0):
         if not hasattr(self, "weights"):
             raise ValueError("Run `fit` first.")
-        fig, ax = plt.subplots(figsize=(6, 5))
-        im = ax.scatter(
-            self.dx,
-            self.dy,
-            c=self.model(time_index)[0],
-            s=2,
-            cmap="viridis",
-            vmin=0.8,
-            vmax=1.2,
-        )
-        cbar = fig.colorbar(im, ax=ax, shrink=0.7)
-        cbar.set_label("Perturbation Value")
+        fig, ax = plt.subplots()
+        ax.scatter(self.dx, self.dy, c=self.model(time_index)[0])
         ax.set(
             xlabel=r"$\delta$x",
             ylabel=r"$\delta$y",
