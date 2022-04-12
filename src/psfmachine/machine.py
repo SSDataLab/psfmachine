@@ -466,7 +466,8 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 1), np.log10(self.source_flux_estimates)
+            np.polyfit(test_f[ok], l[ok], poly_order),
+            np.log10(self.source_flux_estimates),
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -614,6 +615,8 @@ class Machine(object):
         bin_method="bin",
         segments=False,
         focus=False,
+        focus_exptime=50,
+        pca_ncomponents=0,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -688,6 +691,7 @@ class Machine(object):
             resolution=self.n_time_points,
             other_vectors=other_vectors,
             bin_method=bin_method,
+            focus_exptime=focus_exptime,
         )
 
         # get uncontaminated pixel norm-flux
@@ -727,6 +731,9 @@ class Machine(object):
         k = np.all(k, axis=0)
         # combine good-behaved pixels with uncontaminated pixels
         k &= uncontaminated_pixels
+
+        if pca_ncomponents > 0:
+            P3.pca(flux_norm[:, k], ncomponents=pca_ncomponents)
 
         # iterate to remvoe outliers
         for count in [0, 1, 2]:
