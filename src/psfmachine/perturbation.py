@@ -484,7 +484,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         y: np.ndarray
             Input flux array to take PCA of.
         """
-        self._pca(y, ncomponents=5)
+        self._pca(y, ncomponents=ncomponents)
         self._get_cartesian_stacked()
 
     def plot_model(self, time_index=0):
