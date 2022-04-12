@@ -7,7 +7,6 @@ from scipy import sparse
 from psfmachine.utils import _make_A_cartesian
 import matplotlib.pyplot as plt
 from fbpca import pca
-from astropy.convolution import convolve, Box1DKernel
 from .utils import spline1d
 
 
