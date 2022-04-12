@@ -68,22 +68,8 @@ def test_perturbation_matrix():
     assert p.matrix.shape == (20, 8)
     p.pca(flux, ncomponents=5)
     assert p.matrix.shape == (20, 18)
-    for bin_method in ["downsample", "bin"]:
-        s = 200 / res + 1 if bin_method == "downsample" else 200 / res
-        p = PerturbationMatrix(
-            time=time, focus=False, resolution=res, bin_method=bin_method
-        )
-        assert len(p.bin_func(y)) == s
-        assert len(p.bin_func(ye, quad=True)) == s
-        with pytest.raises(ValueError):
-            p.bin_func(y[:-4])
-
-        p.fit(y, ye)
-        w = p.weights
-        model = p.model()
-        assert model.shape[0] == 200
-        chi = np.sum((y - model) ** 2 / (ye ** 2)) / (p.shape[0] - p.shape[1] - 1)
-        assert chi < 3
+    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    p.fit(y, ye)
 
 
 def test_perturbation_matrix3d():

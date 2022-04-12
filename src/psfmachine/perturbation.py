@@ -46,7 +46,7 @@ class PerturbationMatrix(object):
     ):
 
         self.time = time
-        self.other_vectors = other_vectors
+        self.other_vectors = np.nan_to_num(other_vectors)
         self.poly_order = poly_order
         self.focus = focus
         self.segments = segments
@@ -61,7 +61,19 @@ class PerturbationMatrix(object):
         ).T
         if self.focus:
             self._get_focus_change()
-        self._validate()
+        if self.other_vectors is not None:
+            if isinstance(self.other_vectors, (list, np.ndarray)):
+                self.other_vectors = np.atleast_2d(self.other_vectors)
+                if self.other_vectors.shape[0] != len(self.time):
+                    if self.other_vectors.shape[1] == len(self.time):
+                        self.other_vectors = self.other_vectors.T
+                    else:
+                        raise ValueError("Must pass other vectors in the right shape")
+            else:
+                raise ValueError("Must pass a list as other vectors")
+            self.vectors = np.hstack([self._vectors.copy(), self.other_vectors])
+        else:
+            self.vectors = self._vectors.copy()
         if self.segments:
             self.vectors = self._cut_segments(self.vectors)
         self._clean_vectors()
@@ -81,26 +93,6 @@ class PerturbationMatrix(object):
     @property
     def breaks(self):
         return np.where(np.diff(self.time) / np.median(np.diff(self.time)) > 5)[0] + 1
-
-    def _validate(self):
-        """
-        Checks that the `other_vectors` are the right dimensions.
-        """
-
-        if self.other_vectors is not None:
-            if isinstance(self.other_vectors, (list, np.ndarray)):
-                self.other_vectors = np.atleast_2d(self.other_vectors)
-                if self.other_vectors.shape[0] != len(self.time):
-                    if self.other_vectors.shape[1] == len(self.time):
-                        self.other_vectors = self.other_vectors.T
-                    else:
-                        raise ValueError("Must pass other vectors in the right shape")
-            else:
-                raise ValueError("Must pass a list as other vectors")
-            self.vectors = np.hstack([self._vectors.copy(), self.other_vectors])
-        else:
-            self.vectors = self._vectors.copy()
-        return
 
     def _cut_segments(self, vectors):
         """
@@ -143,9 +135,14 @@ class PerturbationMatrix(object):
             s = nvec * (len(self.breaks) + 1)
         else:
             s = nvec
-        X = self.vectors[:, :s]
-        w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
-        self.vectors[:, s:] -= X.dot(w)
+
+        if s != self.vectors.shape[1]:
+            X = self.vectors[:, :s]
+            w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
+            self.vectors[:, s:] -= X.dot(w)
+            self.vectors[:, s:] -= np.asarray(
+                [v[v != 0].mean() * (v != 0) for v in self.vectors[:, s:].T]
+            ).T
         return
 
     def plot(self):
@@ -283,7 +280,7 @@ class PerturbationMatrix(object):
         return func
 
     def pca(self, y, ncomponents=5):
-        """In place operation to add the principal components of `y` to the design matrix
+        """Adds the principal components of `y` to the design matrix
 
         Parameters
         ----------
@@ -298,13 +295,17 @@ class PerturbationMatrix(object):
         # Clean out any time series have significant contribution from one component
         k = np.ones(y.shape[1], bool)
         for count in range(3):
-            U, s, V = pca(y[:, k], ncomponents, n_iter=30)
+            self._pca_components, s, V = pca(y[:, k], ncomponents, n_iter=30)
             k[k] &= (np.abs(V) < 0.5).all(axis=0)
 
-        self._vectors = np.hstack([self._vectors, U])
+        if self.other_vectors is not None:
+            self.vectors = np.hstack(
+                [self._vectors, self.other_vectors, self._pca_components]
+            )
+        else:
+            self.vectors = np.hstack([self._vectors, self._pca_components])
         if self.segments:
-            self._vectors = self._cut_segments(self._vectors)
-        self._validate()
+            self.vectors = self._cut_segments(self.vectors)
         self._clean_vectors()
         self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
