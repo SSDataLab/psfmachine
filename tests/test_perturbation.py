@@ -63,7 +63,20 @@ def test_perturbation_matrix():
         chi = np.sum((y - model) ** 2 / (ye ** 2)) / (p.shape[0] - p.shape[1] - 1)
         assert chi < 3
 
-    # chi = np.sum((y - model) ** 2 / (ye ** 2), axis=0) / (p.shape[0] - p.shape[1] - 1)
+    # Test PCA
+    flux = np.random.normal(1, 0.1, size=(200, 100))
+    p = PerturbationMatrix(time=time, focus=False)
+    assert p.matrix.shape == (20, 8)
+    p.pca(flux, ncomponents=2)
+    assert p.matrix.shape == (20, 16)
+    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    p.fit(y, ye)
+    p = PerturbationMatrix(time=time, focus=False, segments=False)
+    assert p.matrix.shape == (20, 4)
+    p.pca(flux, ncomponents=2)
+    assert p.matrix.shape == (20, 8)
+    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    p.fit(y, ye)
 
 
 def test_perturbation_matrix3d():
@@ -122,6 +135,18 @@ def test_perturbation_matrix3d():
             p3.shape[0] - p3.shape[1] - 1
         )
         assert chi < 3
+
+    p3 = PerturbationMatrix3D(
+        time=time,
+        dx=dx,
+        dy=dy,
+        nknots=4,
+        radius=5,
+        poly_order=2,
+        bin_method=bin_method,
+    )
+    p3.pca(flux, ncomponents=5)
+    p3.fit(flux, flux_err)
 
     # Add in one bad pixel
     flux[:, 100] = 1e5

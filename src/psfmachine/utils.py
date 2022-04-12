@@ -197,24 +197,30 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
     return X1
 
 
-def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt"):
-    def spline(v):
-        if knot_spacing_type == "sqrt":
-            knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
-            knots = np.sign(knots) * knots ** 2
-        else:
-            knots = np.linspace(-radius, radius, n_knots)
-        return sparse.csr_matrix(
-            np.asarray(
-                dmatrix(
-                    "bs(x, knots=knots, degree=3, include_intercept=True)",
-                    {"x": list(v), "knots": knots},
-                )
+def spline1d(x, knots, degree=3):
+    """Make a spline in a 1D variable `x`"""
+    X = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=degree, include_intercept=True)",
+                {"x": list(x), "knots": knots, "degree": degree},
             )
         )
+    )
+    if not X.shape[0] == x.shape[0]:
+        raise ValueError("`patsy` has made the wrong matrix.")
+    X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
+    return X
 
-    x_spline = spline(x)
-    y_spline = spline(y)
+
+def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt", degree=3):
+    if knot_spacing_type == "sqrt":
+        knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
+        knots = np.sign(knots) * knots ** 2
+    else:
+        knots = np.linspace(-radius, radius, n_knots)
+    x_spline = spline1d(x, knots=knots, degree=degree)
+    y_spline = spline1d(y, knots=knots, degree=degree)
 
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
