@@ -7,7 +7,6 @@ import diskcache
 from scipy import sparse
 from patsy import dmatrix
 from scipy.ndimage import gaussian_filter1d
-from scipy import interpolate
 import pyia
 
 # size_limit is 1GB
