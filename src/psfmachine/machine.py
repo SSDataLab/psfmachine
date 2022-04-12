@@ -14,7 +14,7 @@ from .utils import (
     solve_linear_model,
     sparse_lessthan,
     threshold_bin,
-    spline_smooth,
+    bspline_smooth,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 from .perturbation import PerturbationMatrix3D
@@ -466,7 +466,7 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], poly_order),
+            np.polyfit(test_f[ok], l[ok], 1),
             np.log10(self.source_flux_estimates),
         )
         source_radius_limit[
