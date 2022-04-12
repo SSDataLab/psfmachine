@@ -141,7 +141,6 @@ def test_perturbation_matrix3d():
     p3.pca(flux, ncomponents=5)
     p3.fit(flux, flux_err)
 
-
     # Add in one bad pixel
     flux[:, 100] = 1e5
     pixel_mask = np.ones(169, bool)

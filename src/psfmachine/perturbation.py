@@ -280,17 +280,18 @@ class PerturbationMatrix(object):
 
         return func
 
-
     def pca(self, y, ncomponents=5):
-        return self._pca(y, ncomponents=ncomponents)
-
-    def _pca(self, y, ncomponents=5):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
         ----------
         y: np.ndarray
             Input flux array to take PCA of.
+        """
+        return self._pca(y, ncomponents=ncomponents)
+
+    def _pca(self, y, ncomponents=5):
+        """This hidden method allows us to update the pca method for other classes
         """
         if not y.ndim == 2:
             raise ValueError("Must pass a 2D `y`")
@@ -476,9 +477,16 @@ class PerturbationMatrix3D(PerturbationMatrix):
         )
 
     def pca(self, y, ncomponents=5):
+        """Adds the principal components of `y` to the design matrix
+
+        Parameters
+        ----------
+        y: np.ndarray
+            Input flux array to take PCA of.
+        """
         self._pca(y, ncomponents=5)
         self._get_cartesian_stacked()
-        
+
     def plot_model(self, time_index=0):
         if not hasattr(self, "weights"):
             raise ValueError("Run `fit` first.")
