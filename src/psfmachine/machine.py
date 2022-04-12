@@ -683,7 +683,7 @@ class Machine(object):
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
 
         # create a 3D perturbation matrix
-        P3 = PerturbationMatrix3D(
+        P = PerturbationMatrix3D(
             time=_whitened_time,
             dx=dx,
             dy=dy,
@@ -711,9 +711,9 @@ class Machine(object):
         flux_err_norm = flux_err / np.nanmean(flux, axis=0)
 
         # bindown flux arrays
-        flux_binned_raw = P3.bin_func(flux)
-        flux_binned = P3.bin_func(flux_norm)
-        flux_err_binned = P3.bin_func(flux_err_norm)
+        flux_binned_raw = P.bin_func(flux)
+        flux_binned = P.bin_func(flux_norm)
+        flux_err_binned = P.bin_func(flux_err_norm)
 
         # No saturated pixels, 1e5 is a hardcoded value for Kepler.
         k = (flux_binned_raw < 1e5).all(axis=0)[None, :] * np.ones(
@@ -736,13 +736,13 @@ class Machine(object):
         if pca_ncomponents > 0:
             # select only bright pixels
             k &= (flux_binned_raw > 300).all(axis=0)
-            P3.pca(flux_norm[:, k], ncomponents=pca_ncomponents)
+            P.pca(flux_norm[:, k], ncomponents=pca_ncomponents)
 
         # iterate to remvoe outliers
         for count in [0, 1, 2]:
             # need to add pixel_mask=k
-            P3.fit(flux_norm, flux_err=flux_err_norm, pixel_mask=k)
-            res = flux_binned - P3.matrix.dot(P3.weights).reshape(flux_binned.shape)
+            P.fit(flux_norm, flux_err=flux_err_norm, pixel_mask=k)
+            res = flux_binned - P.matrix.dot(P.weights).reshape(flux_binned.shape)
             # res = np.ma.masked_array(res, (~k).reshape(flux_binned.shape))
             res = np.ma.masked_array(res, ~np.tile(k, flux_binned.shape[0]).T)
             bad_targets = sigma_clip(res, sigma=5).mask
@@ -752,7 +752,7 @@ class Machine(object):
         # bookkeeping
         self.flux_binned = flux_binned
         self._time_masked_pix = k
-        self.P3 = P3
+        self.P = P
         if plot:
             return self.plot_time_model()
         return
@@ -770,7 +770,7 @@ class Machine(object):
         perturbed_model = []
         for tdx in time_indices:
             X = self.mean_model.copy()
-            X.data *= self.P3.model(time_indices=tdx).ravel()
+            X.data *= self.P.model(time_indices=tdx).ravel()
             perturbed_model.append(X)
         self.perturbed_model = perturbed_model
 
@@ -787,14 +787,12 @@ class Machine(object):
         fig : matplotlib.Figure
             Figure.
         """
-        model_binned = self.P3.matrix.dot(self.P3.weights).reshape(
-            self.flux_binned.shape
-        )
+        model_binned = self.P.matrix.dot(self.P.weights).reshape(self.flux_binned.shape)
         fig, ax = plt.subplots(2, 2, figsize=(9, 7), facecolor="w")
         # k1 = self._time_masked_pix.reshape(self.flux_binned.shape)[0].astype(bool)
         im = ax[0, 0].scatter(
-            self.P3.dx[self._time_masked_pix],
-            self.P3.dy[self._time_masked_pix],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
             c=self.flux_binned[0, self._time_masked_pix],
             s=3,
             vmin=0.5,
@@ -803,8 +801,8 @@ class Machine(object):
             rasterized=True,
         )
         ax[0, 1].scatter(
-            self.P3.dx[self._time_masked_pix],
-            self.P3.dy[self._time_masked_pix],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
             c=self.flux_binned[-1, self._time_masked_pix],
             s=3,
             vmin=0.5,
@@ -813,8 +811,8 @@ class Machine(object):
             rasterized=True,
         )
         ax[1, 0].scatter(
-            self.P3.dx[self._time_masked_pix],
-            self.P3.dy[self._time_masked_pix],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
             c=model_binned[0, self._time_masked_pix],
             s=3,
             vmin=0.5,
@@ -823,8 +821,8 @@ class Machine(object):
             rasterized=True,
         )
         ax[1, 1].scatter(
-            self.P3.dx[self._time_masked_pix],
-            self.P3.dy[self._time_masked_pix],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
             c=model_binned[-1, self._time_masked_pix],
             s=3,
             vmin=0.5,
@@ -1285,13 +1283,13 @@ class Machine(object):
             self.model_flux[tdx] = X.dot(self.ws[tdx])
 
             if fit_va:
-                if not hasattr(self, "P3"):
+                if not hasattr(self, "P"):
                     raise ValueError(
                         "Please use `build_time_model` before fitting with velocity "
                         "aberration."
                     )
 
-                X.data *= self.P3.model(time_indices=tdx).ravel()
+                X.data *= self.P.model(time_indices=tdx).ravel()
 
                 sigma_w_inv = X.T.dot(
                     X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
