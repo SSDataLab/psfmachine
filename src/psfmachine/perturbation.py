@@ -591,7 +591,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         """
         self._pca(
             y,
-            ncomponents=5,
+            ncomponents=ncomponents,
             long_time_scale=long_time_scale,
             med_time_scale=med_time_scale,
         )
