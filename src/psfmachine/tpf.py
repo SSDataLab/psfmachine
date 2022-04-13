@@ -6,6 +6,7 @@ import lightkurve as lk
 from astropy.coordinates import SkyCoord, match_coordinates_sky
 from astropy.time import Time
 from astropy.io import fits
+from astropy.stats import sigma_clip
 import astropy.units as u
 import matplotlib.pyplot as plt
 from matplotlib import patches
@@ -142,6 +143,21 @@ class TPFMachine(Machine):
         bkg_flux = self.flux
         # keep track of which pixels comes from TPFs
         pixels_in_tpf = np.ones_like(self.row, dtype=bool)
+
+        # enheance pixel mask
+        time_corr = np.nanpercentile(bkg_flux, 20, axis=1)[:, None]
+        med_flux = np.median(bkg_flux - time_corr, axis=0)[None, :]
+
+        f = bkg_flux - med_flux
+        f -= np.median(f)
+        # Mask out pixels that are particularly bright.
+        _mask = (f - time_corr).std(axis=0) < 500
+        if not _mask.any():
+            raise ValueError("All the input pixels are brighter than 500 counts.")
+        _mask &= (f - time_corr).std(axis=0) < 30
+        _mask &= ~sigma_clip(med_flux[0]).mask
+        _mask &= ~sigma_clip(np.std(f - time_corr, axis=0)).mask
+        bkg_pixel_mask &= _mask
 
         if data_augment:
             # augment background pixels
