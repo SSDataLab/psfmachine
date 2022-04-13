@@ -50,7 +50,7 @@ class Machine(object):
         n_r_knots=10,
         n_phi_knots=15,
         n_time_knots=10,
-        n_time_points=200,
+        time_resolution=200,
         time_radius=8,
         rmin=1,
         rmax=16,
@@ -86,7 +86,7 @@ class Machine(object):
             Number of radial knots in the spline model.
         n_phi_knots: int
             Number of azimuthal knots in the spline model.
-        n_time_points: int
+        time_resolution: int
             Number of time points to bin by when fitting for velocity aberration.
         time_radius: float
             The radius around sources, out to which the velocity aberration model
@@ -157,7 +157,7 @@ class Machine(object):
         self.n_r_knots = n_r_knots
         self.n_phi_knots = n_phi_knots
         self.n_time_knots = n_time_knots
-        self.n_time_points = n_time_points
+        self.time_resolution = time_resolution
         self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
@@ -689,7 +689,7 @@ class Machine(object):
             dy=dy,
             segments=segments,
             focus=focus,
-            resolution=self.n_time_points,
+            resolution=self.time_resolution,
             other_vectors=other_vectors,
             bin_method=bin_method,
             focus_exptime=focus_exptime,
