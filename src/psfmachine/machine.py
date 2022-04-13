@@ -1277,6 +1277,7 @@ class Machine(object):
                     )
 
                 X = self.perturbed_model(tdx)
+                X = X.T
 
                 sigma_w_inv = X.T.dot(
                     X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
