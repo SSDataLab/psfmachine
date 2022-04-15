@@ -414,7 +414,7 @@ class PerturbationMatrix3D(PerturbationMatrix):
         dy: npt.ArrayLike,
         other_vectors: Optional[list] = None,
         poly_order: int = 3,
-        nknots: int = 10,
+        nknots: int = 7,
         radius: float = 8,
         focus: bool = False,
         segments: bool = True,
