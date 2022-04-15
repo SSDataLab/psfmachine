@@ -1,6 +1,7 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
 import os
 import logging
+import warnings
 import numpy as np
 import lightkurve as lk
 from astropy.coordinates import SkyCoord, match_coordinates_sky
@@ -1033,7 +1034,10 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
         qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
             tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
         )
-        qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
+        if not np.isnan(tpfs[0].pos_corr1).all():
+            qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (
+                np.abs(tpfs[0].pos_corr2) < 5
+            )
         # Cut out 1.5 days after every data gap
         dt = np.hstack([10, np.diff(time)])
         focus_mask = ~np.in1d(
@@ -1080,10 +1084,19 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
     if renormalize_tpf_bkg:
-        flux_bkg = np.hstack(
-            [np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
-        )
-        flux += flux_bkg
+        # we check if TPF data is bkg subtracted
+        if fits.getheader(tpfs[0].path, ext=1)["BACKAPP"]:
+            flux_bkg = np.hstack(
+                [
+                    np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1]))
+                    for tpf in tpfs
+                ]
+            )
+            flux += flux_bkg
+        else:
+            warnings.warn(
+                "TPFs are not background subtracted, will initialize as default."
+            )
 
     sat_mask = []
     for tpf in tpfs:
