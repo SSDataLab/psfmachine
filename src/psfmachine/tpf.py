@@ -1085,6 +1085,11 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     )
     if renormalize_tpf_bkg:
         # we check if TPF data is bkg subtracted
+        if tpfs[0].mission == "K2":
+            warnings.warn(
+                "`kbackground` currently does not support K2 data. We recommend setting"
+                " `renormalize_tpf_bkg=False` and use the pipeline background model."
+            )
         if fits.getheader(tpfs[0].path, ext=1)["BACKAPP"]:
             flux_bkg = np.hstack(
                 [
