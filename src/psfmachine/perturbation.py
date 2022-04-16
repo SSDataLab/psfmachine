@@ -43,7 +43,7 @@ class PerturbationMatrix(object):
         segments: bool = True,
         resolution: int = 10,
         bin_method: str = "bin",
-        focus_exptime=50,
+        focus_exptime=2,
     ):
 
         self.time = time
@@ -77,7 +77,7 @@ class PerturbationMatrix(object):
             self.vectors = self._vectors.copy()
         if self.segments:
             self.vectors = self._cut_segments(self.vectors)
-        self._clean_vectors()
+        # self._clean_vectors()
         self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
     def __repr__(self):
@@ -133,25 +133,25 @@ class PerturbationMatrix(object):
         self._vectors = np.hstack([self._vectors, np.nansum(focus, axis=0)[:, None]])
         return
 
-    def _clean_vectors(self):
-        """Remove time polynomial from other vectors"""
-        nvec = self.poly_order + 1
-        if self.focus:
-            nvec += 1
-        if self.segments:
-            s = nvec * (len(self.breaks) + 1)
-        else:
-            s = nvec
-
-        if s != self.vectors.shape[1]:
-            X = self.vectors[:, :s]
-            w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
-            self.vectors[:, s:] -= X.dot(w)
-            # Each segment has mean zero
-            self.vectors[:, s:] -= np.asarray(
-                [v[v != 0].mean() * (v != 0) for v in self.vectors[:, s:].T]
-            ).T
-        return
+    # def _clean_vectors(self):
+    #     """Remove time polynomial from other vectors"""
+    #     nvec = self.poly_order + 1
+    #     if self.focus:
+    #         nvec += 1
+    #     if self.segments:
+    #         s = nvec * (len(self.breaks) + 1)
+    #     else:
+    #         s = nvec
+    #
+    #     if s != self.vectors.shape[1]:
+    #         X = self.vectors[:, :s]
+    #         w = np.linalg.solve(X.T.dot(X), X.T.dot(self.vectors[:, s:]))
+    #         self.vectors[:, s:] -= X.dot(w)
+    #         # Each segment has mean zero
+    #         self.vectors[:, s:] -= np.asarray(
+    #             [v[v != 0].mean() * (v != 0) for v in self.vectors[:, s:].T]
+    #         ).T
+    #     return
 
     def plot(self):
         fig, ax = plt.subplots()
@@ -211,6 +211,14 @@ class PerturbationMatrix(object):
     @property
     def shape(self):
         return self.vectors.shape
+
+    @property
+    def nvec(self):
+        return self.vectors.shape[1]
+
+    @property
+    def ntime(self):
+        return self.time.shape[0]
 
     def bin_func(self, var, **kwargs):
         """
@@ -287,7 +295,7 @@ class PerturbationMatrix(object):
 
         return func
 
-    def pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
+    def pca(self, y, ncomponents=5, smooth_time_scale=0):
         """Adds the principal components of `y` to the design matrix
 
         Will add two time scales of principal components, definied by `long_time_scale`
@@ -308,13 +316,10 @@ class PerturbationMatrix(object):
             or shorter than `med_time_scale`, will be removed before building components
         """
         return self._pca(
-            y,
-            ncomponents=ncomponents,
-            long_time_scale=long_time_scale,
-            med_time_scale=med_time_scale,
+            y, ncomponents=ncomponents, smooth_time_scale=smooth_time_scale
         )
 
-    def _pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
+    def _pca(self, y, ncomponents=3, smooth_time_scale=0):
         """This hidden method allows us to update the pca method for other classes"""
         if not y.ndim == 2:
             raise ValueError("Must pass a 2D `y`")
@@ -324,72 +329,42 @@ class PerturbationMatrix(object):
         # Clean out any time series have significant contribution from one component
         k = np.nansum(y, axis=0) != 0
 
-        X = sparse.hstack(
-            [
-                spline1d(
-                    self.time,
-                    np.linspace(
-                        self.time[m].min(),
-                        self.time[m].max(),
-                        int(
-                            np.ceil(
-                                (self.time[m].max() - self.time[m].min())
-                                / long_time_scale
-                            )
+        if smooth_time_scale != 0:
+            X = sparse.hstack(
+                [
+                    spline1d(
+                        self.time,
+                        np.linspace(
+                            self.time[m].min(),
+                            self.time[m].max(),
+                            int(
+                                np.ceil(
+                                    (self.time[m].max() - self.time[m].min())
+                                    / smooth_time_scale
+                                )
+                            ),
                         ),
-                    ),
-                    degree=3,
-                )[:, 1:]
-                for m in self.segment_masks.astype(bool).T
-            ]
-        )
-        X = sparse.hstack([X, sparse.csr_matrix(np.ones(X.shape[0])).T]).tocsr()
-        X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
-        long_y = X.dot(
-            np.linalg.solve(
-                X.T.dot(X).toarray() + np.diag(1 / (np.ones(X.shape[1]) * 1e10)),
-                X.T.dot(y),
+                        degree=3,
+                    )[:, 1:]
+                    for m in self.segment_masks.astype(bool).T
+                ]
             )
-        )
-
-        X = sparse.hstack(
-            [
-                spline1d(
-                    self.time,
-                    np.linspace(
-                        self.time[m].min(),
-                        self.time[m].max(),
-                        int(
-                            np.ceil(
-                                (self.time[m].max() - self.time[m].min())
-                                / med_time_scale
-                            )
-                        ),
-                    ),
-                    degree=3,
-                )[:, 1:]
-                for m in self.segment_masks.astype(bool).T
-            ]
-        )
-        X = sparse.hstack([X, sparse.csr_matrix(np.ones(X.shape[0])).T]).tocsr()
-        X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
-
-        med_y = X.dot(
-            np.linalg.solve(
-                X.T.dot(X).toarray() + np.diag(1 / (np.ones(X.shape[1]) * 1e10)),
-                X.T.dot(y - long_y),
+            X = sparse.hstack([X, sparse.csr_matrix(np.ones(X.shape[0])).T]).tocsr()
+            X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
+            smoothed_y = X.dot(
+                np.linalg.solve(
+                    X.T.dot(X).toarray() + np.diag(1 / (np.ones(X.shape[1]) * 1e10)),
+                    X.T.dot(y),
+                )
             )
-        )
+        else:
+            smoothed_y = np.copy(y)
 
         for count in range(3):
-            U1, s, V = pca(np.nan_to_num(long_y)[:, k], ncomponents, n_iter=30)
+            self._pca_components, s, V = pca(
+                np.nan_to_num(smoothed_y)[:, k], ncomponents, n_iter=30
+            )
             k[k] &= (np.abs(V) < 0.5).all(axis=0)
-
-        for count in range(3):
-            U2, s, V = pca(np.nan_to_num(med_y)[:, k], ncomponents, n_iter=30)
-            k[k] &= (np.abs(V) < 0.5).all(axis=0)
-
-        self._pca_components = np.hstack([U1, U2])
 
         if self.other_vectors is not None:
             self.vectors = np.hstack(
@@ -399,7 +374,7 @@ class PerturbationMatrix(object):
             self.vectors = np.hstack([self._vectors, self._pca_components])
         if self.segments:
             self.vectors = self._cut_segments(self.vectors)
-        self._clean_vectors()
+        # self._clean_vectors()
         self.matrix = sparse.csr_matrix(self.bin_func(self.vectors))
 
 
@@ -439,24 +414,29 @@ class PerturbationMatrix3D(PerturbationMatrix):
         dy: npt.ArrayLike,
         other_vectors: Optional[list] = None,
         poly_order: int = 3,
-        nknots: int = 10,
+        nknots: int = 7,
         radius: float = 8,
         focus: bool = False,
         segments: bool = True,
-        resolution: int = 10,
+        resolution: int = 30,
         bin_method: str = "downsample",
-        focus_exptime: float = 50,
+        focus_exptime: float = 2,
+        degree: int = 2,
+        knot_spacing_type: str = "linear",
     ):
         self.dx = dx
         self.dy = dy
         self.nknots = nknots
         self.radius = radius
+        self.degree = degree
+        self.knot_spacing_type = knot_spacing_type
         self.cartesian_matrix = _make_A_cartesian(
             self.dx,
             self.dy,
             n_knots=self.nknots,
             radius=self.radius,
-            knot_spacing_type="linear",
+            knot_spacing_type=self.knot_spacing_type,
+            degree=self.degree,
         )
         super().__init__(
             time=time,
@@ -563,19 +543,23 @@ class PerturbationMatrix3D(PerturbationMatrix):
             ]
         )
 
-    def pca(self, y, ncomponents=5, long_time_scale=3, med_time_scale=0.5):
+    def pca(self, y, ncomponents=3, smooth_time_scale=0):
         """Adds the principal components of `y` to the design matrix
 
         Parameters
         ----------
         y: np.ndarray
             Input flux array to take PCA of.
+        n_components: int
+            Number of components to take
+        smooth_time_scale: float
+            Amount to smooth the components, using a spline in time.
+             If 0, the components will not be smoothed.
         """
         self._pca(
             y,
             ncomponents=ncomponents,
-            long_time_scale=long_time_scale,
-            med_time_scale=med_time_scale,
+            smooth_time_scale=smooth_time_scale,
         )
         self._get_cartesian_stacked()
 

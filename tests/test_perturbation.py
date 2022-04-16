@@ -68,14 +68,14 @@ def test_perturbation_matrix():
     p = PerturbationMatrix(time=time, focus=False)
     assert p.matrix.shape == (20, 8)
     p.pca(flux, ncomponents=2)
-    assert p.matrix.shape == (20, 16)
-    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    assert p.matrix.shape == (20, 12)
+    # assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
     p.fit(y, ye)
     p = PerturbationMatrix(time=time, focus=False, segments=False)
     assert p.matrix.shape == (20, 4)
     p.pca(flux, ncomponents=2)
-    assert p.matrix.shape == (20, 8)
-    assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
+    assert p.matrix.shape == (20, 6)
+    # assert np.allclose((p.vectors.sum(axis=0) / (p.vectors != 0).sum(axis=0))[8:], 0)
     p.fit(y, ye)
 
 
@@ -95,13 +95,19 @@ def test_perturbation_matrix3d():
     p3 = PerturbationMatrix3D(
         time=time, dx=dx, dy=dy, nknots=4, radius=5, resolution=5, poly_order=1
     )
-    assert p3.cartesian_matrix.shape == (169, 81)
+    assert p3.cartesian_matrix.shape == (169, 64)
     assert p3.vectors.shape == (10, 2)
-    assert p3.shape == (1690, 81 * 2)
-    assert p3.matrix.shape == (169 * 3, 81 * 2)
+    assert p3.shape == (
+        p3.cartesian_matrix.shape[0] * p3.ntime,
+        p3.cartesian_matrix.shape[1] * p3.nvec,
+    )
+    assert p3.matrix.shape == (
+        p3.cartesian_matrix.shape[0] * p3.nbins,
+        p3.cartesian_matrix.shape[1] * p3.nvec,
+    )
     p3.fit(flux, flux_err)
     w = p3.weights
-    assert w.shape[0] == 81 * 2
+    assert w.shape[0] == p3.cartesian_matrix.shape[1] * p3.nvec
     model = p3.model()
     assert model.shape == flux.shape
 
