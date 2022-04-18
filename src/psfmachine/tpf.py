@@ -54,7 +54,7 @@ class TPFMachine(Machine):
         tpf_meta=None,
         time_corrector="pos_corr",
         cartesian_knot_spacing="sqrt",
-        bkg_substracted=True,
+        bkg_subtracted=True,
     ):
         super().__init__(
             time=time,
@@ -95,7 +95,7 @@ class TPFMachine(Machine):
         self.tpf_meta = tpf_meta
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
-        self.bkg_substracted = bkg_substracted
+        self.bkg_subtracted = bkg_subtracted
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
@@ -179,7 +179,7 @@ class TPFMachine(Machine):
         )
 
         # remove background when necessary, this is done just once
-        if not self.bkg_substracted:
+        if not self.bkg_subtracted:
             bkg_mask = ~np.asarray(
                 (self.source_mask.todense()).sum(axis=0).astype(bool)
             ).ravel()
@@ -188,7 +188,7 @@ class TPFMachine(Machine):
             self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
             self.flux -= np.median(self.flux[:, bkg_mask])
             # set bkg subs flag so this step happens only one time
-            self.bkg_substracted = True
+            self.bkg_subtracted = True
 
         if plot:
             self.bkg_estimator.plot()
@@ -1001,7 +1001,7 @@ class TPFMachine(Machine):
             pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
             time_mask=time_mask,
-            bkg_substracted=not renormalize_tpf_bkg,
+            bkg_subtracted=not renormalize_tpf_bkg,
             **kwargs,
         )
 
