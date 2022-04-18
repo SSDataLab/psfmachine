@@ -887,7 +887,7 @@ class Machine(object):
             dy,
             n_knots=self.n_time_knots,
             radius=self.time_radius,
-            spacing=self.cartesian_knot_spacing,
+            knot_spacing_type=self.cartesian_knot_spacing,
         )
         A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
         # Cartesian spline with time dependence
@@ -1049,7 +1049,7 @@ class Machine(object):
             dy,
             n_knots=self.n_time_knots,
             radius=self.time_radius,
-            spacing=self.cartesian_knot_spacing,
+            knot_spacing_type=self.cartesian_knot_spacing,
         )
         # if self.seg_splits.shape[0] == 2 and segment == 0:
         #     seg_mask = np.ones(time_binned.shape[0], dtype=bool)
@@ -1576,7 +1576,7 @@ class Machine(object):
                 dy,
                 n_knots=self.n_time_knots,
                 radius=self.time_radius,
-                spacing=self.cartesian_knot_spacing,
+                knot_spacing_type=self.cartesian_knot_spacing,
             )
             A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
 
