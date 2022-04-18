@@ -617,6 +617,7 @@ class Machine(object):
         focus=False,
         focus_exptime=50,
         pca_ncomponents=0,
+        pca_smooth_time_scale=0,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -671,6 +672,7 @@ class Machine(object):
                 [mpc1, mpc2],
                 x=self.time,
                 do_segments=segments,
+                n_knots=50,
             )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
@@ -736,7 +738,11 @@ class Machine(object):
         if pca_ncomponents > 0:
             # select only bright pixels
             k &= (flux_binned_raw > 300).all(axis=0)
-            P.pca(flux_norm[:, k], ncomponents=pca_ncomponents)
+            P.pca(
+                flux_norm[:, k],
+                ncomponents=pca_ncomponents,
+                smooth_time_scale=pca_smooth_time_scale,
+            )
 
         # iterate to remvoe outliers
         for count in [0, 1, 2]:
