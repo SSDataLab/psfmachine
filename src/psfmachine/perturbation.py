@@ -298,22 +298,16 @@ class PerturbationMatrix(object):
     def pca(self, y, ncomponents=5, smooth_time_scale=0):
         """Adds the principal components of `y` to the design matrix
 
-        Will add two time scales of principal components, definied by `long_time_scale`
-        and `med_time_scale`.
-
         Parameters
         ----------
         y: np.ndarray
             Input flux array to take PCA of.
         ncomponents: int
             Number of principal components to use
-        long_time_scale: float
-            The time scale where variability is considered "long" term. Should be
-            in the same units as `self.time`.
-        med_time_scale: float
-            The time scale where variability is considered "medium" term. Should be
-            in the same units as `self.time`. Variability longer than `long_time_scale`,
-            or shorter than `med_time_scale`, will be removed before building components
+        smooth_time_scale: float
+            The time scale up to which variability should be smoothed. Should be
+            in the same units as `self.time`. If set to zero, no smoothing will
+            be applied.
         """
         return self._pca(
             y, ncomponents=ncomponents, smooth_time_scale=smooth_time_scale
