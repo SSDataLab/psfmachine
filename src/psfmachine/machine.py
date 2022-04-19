@@ -49,7 +49,7 @@ class Machine(object):
         time_mask=None,
         n_r_knots=10,
         n_phi_knots=15,
-        n_time_knots=10,
+        time_nknots=10,
         time_resolution=200,
         time_radius=8,
         rmin=1,
@@ -156,7 +156,7 @@ class Machine(object):
         self.limit_flux = 1e4
         self.n_r_knots = n_r_knots
         self.n_phi_knots = n_phi_knots
-        self.n_time_knots = n_time_knots
+        self.time_nknots = time_nknots
         self.time_resolution = time_resolution
         self.time_radius = time_radius
         self.rmin = rmin
@@ -691,10 +691,13 @@ class Machine(object):
             dy=dy,
             segments=segments,
             focus=focus,
-            resolution=self.time_resolution,
             other_vectors=other_vectors,
             bin_method=bin_method,
             focus_exptime=focus_exptime,
+            resolution=self.time_resolution,
+            radius=self.time_radius,
+            nknots=self.time_nknots,
+            knot_spacing_type=self.cartesian_knot_spacing,
         )
 
         # get uncontaminated pixel norm-flux
