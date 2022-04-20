@@ -132,7 +132,7 @@ class Machine(object):
             Mean PSF model values per pixel used for PSF photometry
         time_corrector: string
             The type of time corrector that will be used to build the time model,
-            default is a "polynomial" for a polynomial in time, it can also be "pos_corr"
+            default is a "polynomial" for a polynomial in time, it can also be "poscorr"
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
@@ -163,7 +163,6 @@ class Machine(object):
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
-        self.time_corrector = "polynomial"
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
@@ -618,12 +617,13 @@ class Machine(object):
         focus_exptime=50,
         pca_ncomponents=0,
         pca_smooth_time_scale=0,
+        positions=False,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
         due to velocity aberration. It has two methods to choose from using the
         attribute `self.time_corrector`, if `"polynomial"` (default) will use a
-        polynomial in time, if `"pos_corr"` will use the pos_corr vectos that can be found
+        polynomial in time, if `"poscorr"` will use the pos_corr vectos that can be found
         in the TPFs. The time polynomial gives a more flexible model vs the pos_corr
         option, but can lead to light curves with "weird" long-term trends. Using
         pos_corr is recomended for Kepler data.
@@ -656,16 +656,17 @@ class Machine(object):
         uncontaminated_pixels = uncontaminated_pixels.data
 
         # add other vectors if asked, centroids or poscorrs
-        if self.time_corrector == "polynomial":
-            other_vectors = None
-        else:
-            if self.time_corrector == "pos_corr" and hasattr(self, "pos_corr1"):
+        if positions:
+            if positions == "poscorr" and hasattr(self, "pos_corr1"):
                 mpc1 = np.nanmedian(self.pos_corr1, axis=0)
                 mpc2 = np.nanmedian(self.pos_corr2, axis=0)
-                # other_vectors =
-            elif self.time_corrector == "centroid" and hasattr(self, "ra_centroid"):
+            elif positions == "centroid" and hasattr(self, "ra_centroid"):
                 mpc1 = self.ra_centroid.to("arcsec").value / 4
                 mpc2 = self.dec_centroid.to("arcsec").value / 4
+            else:
+                raise ValueError(
+                    "`position` not valid, use one of {None, 'poscorr', 'centroid'}"
+                )
 
             # smooth the vectors
             mpc1_smooth, mpc2_smooth = bspline_smooth(
@@ -683,6 +684,8 @@ class Machine(object):
             )
             # combine them as the first order
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
+        else:
+            other_vectors = None
 
         # create a 3D perturbation matrix
         P = PerturbationMatrix3D(
@@ -784,7 +787,7 @@ class Machine(object):
             Figure.
         """
         model_binned = self.P.matrix.dot(self.P.weights).reshape(self.flux_binned.shape)
-        fig, ax = plt.subplots(2, 2, figsize=(9, 7), facecolor="w")
+        fig1, ax = plt.subplots(2, 2, figsize=(9, 7), facecolor="w")
         # k1 = self._time_masked_pix.reshape(self.flux_binned.shape)[0].astype(bool)
         im = ax[0, 0].scatter(
             self.P.dx[self._time_masked_pix],
@@ -834,9 +837,63 @@ class Machine(object):
         ax[1, 1].set(title="Model Last Cadence", xlabel=r"$\delta x$")
         plt.subplots_adjust(hspace=0.3)
 
-        cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+        cbar = fig1.colorbar(im, ax=ax, shrink=0.7)
         cbar.set_label("Normalized Flux")
-        return fig
+
+        flux = np.array(
+            [self.source_mask.multiply(self.flux[idx]).data for idx in range(self.nt)]
+        )
+        flux_sort = np.argsort(np.nanmean(flux[:, self._time_masked_pix], axis=0))
+        data_binned_clean = self.flux_binned[:, self._time_masked_pix]
+        model_binned_clean = model_binned[:, self._time_masked_pix]
+
+        fig2, ax = plt.subplots(1, 3, figsize=(18, 5))
+        im = ax[0].imshow(
+            data_binned_clean.T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.9,
+            vmax=1.1,
+        )
+        ax[0].set(
+            xlabel="Binned Time Index", ylabel="Flux-Sorted Clean Pixels", title="Data"
+        )
+
+        im = ax[1].imshow(
+            model_binned_clean.T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.9,
+            vmax=1.1,
+        )
+        ax[1].set(xlabel="Binned Time Index", title="Perturbed Mode")
+
+        cbar = fig2.colorbar(
+            im, ax=ax[:2], shrink=0.7, orientation="horizontal", location="bottom"
+        )
+        cbar.set_label("Normalized Flux")
+
+        im = ax[2].imshow(
+            (model_binned_clean / data_binned_clean).T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.97,
+            vmax=1.03,
+        )
+        ax[2].set(xlabel="Binned Time Index", title="Perturbed Model / Data")
+
+        cbar = fig2.colorbar(
+            im, ax=ax[2], shrink=0.7, orientation="horizontal", location="bottom"
+        )
+        cbar.set_label("")
+
+        return fig1, fig2
 
     def build_shape_model(
         self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
