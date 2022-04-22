@@ -1,7 +1,6 @@
 """Subclass of `Machine` that Specifically work with TPFs"""
 import os
 import logging
-import warnings
 import numpy as np
 import lightkurve as lk
 from astropy.coordinates import SkyCoord, match_coordinates_sky
@@ -128,8 +127,8 @@ class TPFMachine(Machine):
             keys; "column", "row", and "flux".
         """
         if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
-            log.info(
-                "Warning: Background fitting is a Kepler only tool, "
+            log.warning(
+                "Background fitting is a Kepler only tool, "
                 "then no background model will be fitted."
             )
             return
@@ -1086,7 +1085,7 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     if renormalize_tpf_bkg:
         # we check if TPF data is bkg subtracted
         if tpfs[0].mission == "K2":
-            warnings.warn(
+            log.warning(
                 "`kbackground` currently does not support K2 data. We recommend setting"
                 " `renormalize_tpf_bkg=False` and use the pipeline background model."
             )
@@ -1099,7 +1098,7 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
             )
             flux += flux_bkg
         else:
-            warnings.warn(
+            log.warning(
                 "TPFs are not background subtracted, will initialize as default."
             )
 
