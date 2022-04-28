@@ -122,10 +122,9 @@ def test_poscorr_smooth():
     machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     machine.build_shape_model(plot=False)
     # no segments
-    machine.time_corrector = "pos_corr"
     machine.poscorr_filter_size = 1
     machine.build_time_model(
-        split_time_segments=False, bin_method="bin", focus_component=False
+        segments=False, bin_method="bin", focus=False, positions="poscorr"
     )
 
     median_pc1 = np.nanmedian(machine.pos_corr1, axis=0)
@@ -137,8 +136,8 @@ def test_poscorr_smooth():
         median_pc2.max() - median_pc2.mean()
     )
 
-    assert np.isclose(machine.P3.other_vectors[:, 0], median_pc1, atol=0.5).all()
-    assert np.isclose(machine.P3.other_vectors[:, 1], median_pc2, atol=0.5).all()
+    assert np.isclose(machine.P.other_vectors[:, 0], median_pc1, atol=0.5).all()
+    assert np.isclose(machine.P.other_vectors[:, 1], median_pc2, atol=0.5).all()
 
 
 @pytest.mark.remote_data
@@ -146,20 +145,16 @@ def test_segment_time_model():
     # testing segment with the current test dataset we have that only has 10 cadences
     # isn't the best, but we can still do some sanity checks.
     machine = TPFMachine.from_TPFs(
-        tpfs, apply_focus_mask=False, n_time_points=3, time_corrector="polynomial"
+        tpfs, apply_focus_mask=False, time_resolution=3, time_corrector="polynomial"
     )
     machine.build_shape_model(plot=False)
     # no segments
-    machine.build_time_model(
-        split_time_segments=False, bin_method="bin", focus_component=False
-    )
-    assert machine.P3.vectors.shape == (10, 4)
+    machine.build_time_model(segments=False, bin_method="bin", focus=False)
+    assert machine.P.vectors.shape == (10, 4)
 
     # fake 2 time breaks
     machine.time[4:] += 0.5
     machine.time[7:] += 0.41
     # user defined segments
-    machine.build_time_model(
-        split_time_segments=True, bin_method="bin", focus_component=False
-    )
-    assert machine.P3.vectors.shape == (10, 4 * 3)
+    machine.build_time_model(segments=True, bin_method="bin", focus=False)
+    assert machine.P.vectors.shape == (10, 4 * 3)
