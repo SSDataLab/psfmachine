@@ -54,7 +54,7 @@ class TPFMachine(Machine):
         tpf_meta=None,
         time_corrector="pos_corr",
         cartesian_knot_spacing="sqrt",
-        bkg_substracted=True,
+        bkg_subtracted=True,
     ):
         super().__init__(
             time=time,
@@ -95,7 +95,7 @@ class TPFMachine(Machine):
         self.tpf_meta = tpf_meta
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
-        self.bkg_substracted = bkg_substracted
+        self.bkg_subtracted = bkg_subtracted
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
@@ -128,8 +128,8 @@ class TPFMachine(Machine):
             keys; "column", "row", and "flux".
         """
         if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
-            log.info(
-                "Warning: Background fitting is a Kepler only tool, "
+            log.warning(
+                "Background fitting is a Kepler only tool, "
                 "then no background model will be fitted."
             )
             return
@@ -194,7 +194,7 @@ class TPFMachine(Machine):
         )
 
         # remove background when necessary, this is done just once
-        if not self.bkg_substracted:
+        if not self.bkg_subtracted:
             bkg_mask = ~np.asarray(
                 (self.source_mask.todense()).sum(axis=0).astype(bool)
             ).ravel()
@@ -203,7 +203,7 @@ class TPFMachine(Machine):
             self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
             self.flux -= np.median(self.flux[:, bkg_mask])
             # set bkg subs flag so this step happens only one time
-            self.bkg_substracted = True
+            self.bkg_subtracted = True
 
         if plot:
             self.bkg_estimator.plot()
@@ -1016,7 +1016,7 @@ class TPFMachine(Machine):
             pos_corr2=pos_corr2,
             tpf_meta=tpf_meta,
             time_mask=time_mask,
-            bkg_substracted=not renormalize_tpf_bkg,
+            bkg_subtracted=not renormalize_tpf_bkg,
             **kwargs,
         )
 
@@ -1049,7 +1049,10 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
         qual_mask = lk.utils.KeplerQualityFlags.create_quality_mask(
             tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 16384 | 65536 | 1048576
         )
-        qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
+        if not np.isnan(tpfs[0].pos_corr1).all():
+            qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (
+                np.abs(tpfs[0].pos_corr2) < 5
+            )
         # Cut out 1.5 days after every data gap
         dt = np.hstack([10, np.diff(time)])
         focus_mask = ~np.in1d(
@@ -1096,10 +1099,24 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
         [np.hstack(tpf.flux_err[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
     )
     if renormalize_tpf_bkg:
-        flux_bkg = np.hstack(
-            [np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1])) for tpf in tpfs]
-        )
-        flux += flux_bkg
+        # we check if TPF data is bkg subtracted
+        if tpfs[0].mission == "K2":
+            log.warning(
+                "`kbackground` currently does not support K2 data. We recommend setting"
+                " `renormalize_tpf_bkg=False` and use the pipeline background model."
+            )
+        if fits.getheader(tpfs[0].path, ext=1)["BACKAPP"]:
+            flux_bkg = np.hstack(
+                [
+                    np.hstack(tpf.flux_bkg[qual_mask].transpose([2, 0, 1]))
+                    for tpf in tpfs
+                ]
+            )
+            flux += flux_bkg
+        else:
+            log.warning(
+                "TPFs are not background subtracted, will initialize as default."
+            )
 
     sat_mask = []
     for tpf in tpfs:
