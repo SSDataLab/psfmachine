@@ -36,7 +36,7 @@ photutils = "^1.1.0"
 diskcache = "^5.3.0"
 imageio = "^2.9.0"
 imageio-ffmpeg = "^0.4.5"
-kbackground = "0.1.7"
+kbackground = "^0.1.7"
 fbpca = "^1.0"
 
 [tool.poetry.dev-dependencies]
