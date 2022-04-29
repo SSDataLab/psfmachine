@@ -130,9 +130,6 @@ class Machine(object):
             build the PSF model
         mean_model: scipy.sparce.csr_matrix
             Mean PSF model values per pixel used for PSF photometry
-        time_corrector: string
-            The type of time corrector that will be used to build the time model,
-            default is a "polynomial" for a polynomial in time, it can also be "poscorr"
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
@@ -640,6 +637,17 @@ class Machine(object):
             time series as one segment.
         focus: boolean
             Add a component that models th focus change at the begining of a segment.
+        focus_exptime : int
+            Characteristic decay for focus component modeled as exponential decay when
+            `focus` is True. In the same units as `PerturbationMatrix3D.time`.
+        pca_ncomponents : int
+            Number of PCA components used in `PerturbationMatrix3D`. The components are
+            derived from pixel light lighrcurves.
+        pca_smooth_time_scale : float
+            Smooth time sacel for PCA components.
+        positions : boolean or string
+            If one of strings `"poscorr", "centroid"` then the perturbation matrix will
+            add other vectors accounting for position shift.
         """
         # create the time and space basis
         _whitened_time = (self.time - self.time.mean()) / (
@@ -718,47 +726,47 @@ class Machine(object):
         flux_norm = flux / np.nanmean(flux, axis=0)
         flux_err_norm = flux_err / np.nanmean(flux, axis=0)
 
-        # bindown flux arrays
-        flux_binned_raw = P.bin_func(flux)
-        flux_binned = P.bin_func(flux_norm)
-        flux_err_binned = P.bin_func(flux_err_norm, quad=True)
-
+        # create pixel mask for model fitting
         # No saturated pixels, 1e5 is a hardcoded value for Kepler.
-        k = (flux_binned_raw < 1e5).all(axis=0)[None, :] * np.ones(
-            flux_binned_raw.shape, bool
-        )
+        k = (flux < 1e5).all(axis=0)[None, :] * np.ones(flux.shape, bool)
         # No faint pixels, 100 is a hardcoded value for Kepler.
-        k &= (flux_binned_raw > 100).all(axis=0)[None, :] * np.ones(
-            flux_binned_raw.shape, bool
-        )
+        k &= (flux > 100).all(axis=0)[None, :] * np.ones(flux.shape, bool)
         # No huge variability
-        k &= (np.abs(flux_binned - 1) < 1).all(axis=0)[None, :] * np.ones(
-            flux_binned.shape, bool
-        )
+        _per_pix = np.percentile(flux_norm, [3, 97], axis=1)
+        k &= (
+            (
+                (flux_norm < _per_pix[0][:, None]) | (flux_norm > _per_pix[1][:, None])
+            ).sum(axis=0)
+            < flux_norm.shape[0] * 0.95
+        )[None, :] * np.ones(flux_norm.shape, bool)
         # No nans
-        k &= np.isfinite(flux_binned) & np.isfinite(flux_err_binned)
+        k &= np.isfinite(flux_norm) & np.isfinite(flux_err_norm)
         k = np.all(k, axis=0)
         # combine good-behaved pixels with uncontaminated pixels
         k &= uncontaminated_pixels
 
+        # adding PCA components to pertrubation matrix
         if pca_ncomponents > 0:
             # select only bright pixels
-            k &= (flux_binned_raw > 300).all(axis=0)
+            k &= (flux > 300).all(axis=0)
             P.pca(
                 flux_norm[:, k],
                 ncomponents=pca_ncomponents,
                 smooth_time_scale=pca_smooth_time_scale,
             )
 
+        # bindown flux arrays
+        flux_binned = P.bin_func(flux_norm)
+        flux_err_binned = P.bin_func(flux_err_norm, quad=True)
+
         # iterate to remvoe outliers
         for count in [0, 1, 2]:
             # need to add pixel_mask=k
             P.fit(flux_norm, flux_err=flux_err_norm, pixel_mask=k)
             res = flux_binned - P.matrix.dot(P.weights).reshape(flux_binned.shape)
-            # res = np.ma.masked_array(res, (~k).reshape(flux_binned.shape))
-            res = np.ma.masked_array(res, ~np.tile(k, flux_binned.shape[0]).T)
-            bad_targets = sigma_clip(res, sigma=5).mask
-            bad_targets = bad_targets.any(axis=0)
+            chi2 = np.sum((res) ** 2 / (flux_err_binned ** 2), axis=0) / P.nbins
+            bad_targets = sigma_clip(chi2, sigma=5).mask
+            bad_targets = bad_targets.all(axis=0)
             k &= ~bad_targets
 
         # bookkeeping
