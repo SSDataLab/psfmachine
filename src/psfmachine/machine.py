@@ -86,6 +86,8 @@ class Machine(object):
             Number of radial knots in the spline model.
         n_phi_knots: int
             Number of azimuthal knots in the spline model.
+        time_nknots: int
+            Number og knots for cartesian DM in time model.
         time_resolution: int
             Number of time points to bin by when fitting for velocity aberration.
         time_radius: float
@@ -462,8 +464,7 @@ class Machine(object):
                 l[idx] = test_r[loc[0]]
         ok = np.isfinite(l)
         source_radius_limit = np.polyval(
-            np.polyfit(test_f[ok], l[ok], 1),
-            np.log10(self.source_flux_estimates),
+            np.polyfit(test_f[ok], l[ok], 1), np.log10(self.source_flux_estimates)
         )
         source_radius_limit[
             source_radius_limit > upper_radius_limit
@@ -634,7 +635,8 @@ class Machine(object):
         segments : boolean
             If `True` will split the light curve into segments to fit different time
             models with a common pixel normalization. If `False` will fit the full
-            time series as one segment.
+            time series as one segment. Segments breaks are infered from time
+            discontinuities.
         focus: boolean
             Add a component that models th focus change at the begining of a segment.
         focus_exptime : int
@@ -761,7 +763,6 @@ class Machine(object):
 
         # iterate to remvoe outliers
         for count in [0, 1, 2]:
-            # need to add pixel_mask=k
             P.fit(flux_norm, flux_err=flux_err_norm, pixel_mask=k)
             res = flux_binned - P.matrix.dot(P.weights).reshape(flux_binned.shape)
             chi2 = np.sum((res) ** 2 / (flux_err_binned ** 2), axis=0) / P.nbins
@@ -769,7 +770,7 @@ class Machine(object):
             bad_targets = bad_targets.all(axis=0)
             k &= ~bad_targets
 
-        # bookkeeping
+        # book keeping
         self.flux_binned = flux_binned
         self._time_masked_pix = k
         self.P = P

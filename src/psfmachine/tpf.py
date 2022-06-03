@@ -150,10 +150,11 @@ class TPFMachine(Machine):
 
         f = bkg_flux - med_flux
         f -= np.median(f)
-        # Mask out pixels that are particularly bright.
+        # Mask out pixels that are particularly bright, 500 its a good number for Kepler
         _mask = (f - time_corr).std(axis=0) < 500
         if not _mask.any():
             raise ValueError("All the input pixels are brighter than 500 counts.")
+        # non variable pixels
         _mask &= (f - time_corr).std(axis=0) < 30
         _mask &= ~sigma_clip(med_flux[0]).mask
         _mask &= ~sigma_clip(np.std(f - time_corr, axis=0)).mask

@@ -675,21 +675,16 @@ def bspline_smooth(y, x=None, degree=3, do_segments=False, breaks=None, n_knots=
     else:
         splits = [0, y.shape[-1]]
 
-    def spline(v):
-        knots = np.linspace(v.min(), v.max(), n_knots)
-        DM = np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=2, include_intercept=True)",
-                {"x": list(v), "knots": knots},
-            )
-        )
-        x = np.array_split(np.arange(len(v)), splits)
-        masks = np.asarray([np.in1d(np.arange(len(v)), x1).astype(float) for x1 in x]).T
-        DM = np.hstack([DM[:, idx][:, None] * masks for idx in range(DM.shape[1])])
-        return DM
-
     y_smooth = []
-    DM = spline(np.arange(y.shape[-1]))
+    v = np.arange(y.shape[-1])
+    DM = spline1d(v, np.linspace(v.min(), v.max(), n_knots)).toarray()
+    # do segments
+    arr_splits = np.array_split(np.arange(len(v)), splits)
+    masks = np.asarray(
+        [np.in1d(np.arange(len(v)), x1).astype(float) for x1 in arr_splits]
+    ).T
+    DM = np.hstack([DM[:, idx][:, None] * masks for idx in range(DM.shape[1])])
+
     prior_mu = np.zeros(DM.shape[1])
     prior_sigma = np.ones(DM.shape[1]) * 1e5
     # iterate over vectors in y
