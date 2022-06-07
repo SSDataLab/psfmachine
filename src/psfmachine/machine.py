@@ -8,6 +8,8 @@ import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
+from astropy.io import fits
+from glob import glob
 
 from .utils import (
     _make_A_polar,
@@ -616,6 +618,7 @@ class Machine(object):
         pca_ncomponents=0,
         pca_smooth_time_scale=0,
         positions=False,
+        cbv=False,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -694,6 +697,33 @@ class Machine(object):
             )
             # combine them as the first order
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
+        elif cbv:
+            hdul = fits.open(
+                glob(
+                    "/Users/jorgemarpa/Work/BAERI/ADAP/data/kepler/cbv/"
+                    f"kplr*-q{self.tpf_meta['quarter'][0]:02}-d25_lcbv.fits"
+                )[0]
+            )
+            ext = f"MODOUT_{self.tpfs[0].module}_{self.tpfs[0].output}"
+            cbv_mjd = hdul[ext].data["TIME_MJD"]
+            cbv_cdn = hdul[ext].data["CADENCENO"]
+            cbv_vec = np.vstack([hdul[ext].data[f"VECTOR_{i}"] for i in range(1, 5)])
+
+            # align cadences
+            mask = np.isin(cbv_cdn, self.cadenceno)
+
+            cbv_mjd = cbv_mjd[mask]
+            cbv_cdn = cbv_cdn[mask]
+            cbv_vec = cbv_vec[:, mask]
+            cbv_vec = bspline_smooth(
+                cbv_vec,
+                x=self.time,
+                do_segments=segments,
+                n_knots=50,
+            )
+            other_vectors = (cbv_vec - cbv_vec.mean()) / (
+                cbv_vec.max() - cbv_vec.mean()
+            )
         else:
             other_vectors = None
 
