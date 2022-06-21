@@ -306,10 +306,8 @@ class PerturbationMatrix(object):
         return func
 
     def pca(self, y, ncomponents=5, smooth_time_scale=0):
-        """Adds the principal components of `y` to the design matrix
-
-        Will add two time scales of principal components, definied by `long_time_scale`
-        and `med_time_scale`.
+        """Adds the first `ncomponents` principal components of `y` to the design
+        matrix. `y` is smoothen with a spline function and scale `smooth_time_scale`.
 
         Parameters
         ----------
@@ -558,7 +556,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         )
 
     def pca(self, y, ncomponents=3, smooth_time_scale=0):
-        """Adds the principal components of `y` to the design matrix
+        """Adds the first `ncomponents` principal components of `y` to the design
+        matrix. `y` is smoothen with a spline function and scale `smooth_time_scale`.
 
         Parameters
         ----------
