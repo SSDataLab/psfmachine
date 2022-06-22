@@ -536,14 +536,6 @@ class TPFMachine(Machine):
                         ls="-",
                         label="SAP",
                     )
-                if hasattr(lc, "psf_flux_NVA"):
-                    lc.plot(
-                        column="psf_flux_NVA",
-                        ax=ax,
-                        c="tab:gray",
-                        ls="-",
-                        label="PSF-NOVA",
-                    )
                 kdx += 1
                 ax = plt.subplot2grid((1, 4), (0, 3))
                 lk.utils.plot_image(mod, extent=img_extent, ax=ax)

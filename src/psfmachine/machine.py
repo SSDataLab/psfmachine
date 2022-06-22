@@ -8,8 +8,6 @@ import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
-from astropy.io import fits
-from glob import glob
 
 from .utils import (
     _make_A_polar,
