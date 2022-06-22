@@ -612,13 +612,14 @@ class Machine(object):
         self,
         plot=False,
         bin_method="bin",
+        poly_order=3,
         segments=False,
         focus=False,
         focus_exptime=50,
         pca_ncomponents=0,
         pca_smooth_time_scale=0,
         positions=False,
-        cbv=False,
+        other_vectors=None,
     ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
@@ -635,6 +636,8 @@ class Machine(object):
             Plot a diagnostic figure.
         bin_method: string
             Type of bin method, options are "bin" and "downsample".
+        poly_order: int
+            Degree of the time polynomial used for the time model. Default is 3.
         segments : boolean
             If `True` will split the light curve into segments to fit different time
             models with a common pixel normalization. If `False` will fit the full
@@ -653,6 +656,11 @@ class Machine(object):
         positions : boolean or string
             If one of strings `"poscorr", "centroid"` then the perturbation matrix will
             add other vectors accounting for position shift.
+        other_vectors : list or numpy.ndarray
+            Set of other components used to include  in the perturbed model.
+            See `psfmachine.perturbation.PerturbationMatrix` object for details.
+            Posible use case are using Kepler CBVs or engeneering data. Shape has to be
+            (ncomponents, ntimes). Default is `None`.
         """
         # create the time and space basis
         _whitened_time = (self.time - self.time.mean()) / (
@@ -670,6 +678,8 @@ class Machine(object):
 
         # add other vectors if asked, centroids or poscorrs
         if positions:
+            if other_vectors is not None:
+                raise ValueError("When using `positions` do not provide `other_vector`")
             if positions == "poscorr" and hasattr(self, "pos_corr1"):
                 mpc1 = np.nanmedian(self.pos_corr1, axis=0)
                 mpc2 = np.nanmedian(self.pos_corr2, axis=0)
@@ -685,7 +695,7 @@ class Machine(object):
             mpc1_smooth, mpc2_smooth = bspline_smooth(
                 [mpc1, mpc2],
                 x=self.time,
-                do_segments=segments,
+                do_segments=True,
                 n_knots=50,
             )
             # normalize components
@@ -697,41 +707,16 @@ class Machine(object):
             )
             # combine them as the first order
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
-        elif cbv:
-            hdul = fits.open(
-                glob(
-                    "/Users/jorgemarpa/Work/BAERI/ADAP/data/kepler/cbv/"
-                    f"kplr*-q{self.tpf_meta['quarter'][0]:02}-d25_lcbv.fits"
-                )[0]
-            )
-            ext = f"MODOUT_{self.tpfs[0].module}_{self.tpfs[0].output}"
-            cbv_mjd = hdul[ext].data["TIME_MJD"]
-            cbv_cdn = hdul[ext].data["CADENCENO"]
-            cbv_vec = np.vstack([hdul[ext].data[f"VECTOR_{i}"] for i in range(1, 5)])
-
-            # align cadences
-            mask = np.isin(cbv_cdn, self.cadenceno)
-
-            cbv_mjd = cbv_mjd[mask]
-            cbv_cdn = cbv_cdn[mask]
-            cbv_vec = cbv_vec[:, mask]
-            cbv_vec = bspline_smooth(
-                cbv_vec,
-                x=self.time,
-                do_segments=segments,
-                n_knots=50,
-            )
-            other_vectors = (cbv_vec - cbv_vec.mean()) / (
-                cbv_vec.max() - cbv_vec.mean()
-            )
-        else:
-            other_vectors = None
+        if other_vectors is not None:
+            if not isinstance(other_vector, (list, np.ndarray)):
+                raise ValueError("`other vector` is not a list of arrays or a ndarray")
 
         # create a 3D perturbation matrix
         P = PerturbationMatrix3D(
             time=_whitened_time,
             dx=dx,
             dy=dy,
+            poly_order=poly_order,
             segments=segments,
             focus=focus,
             other_vectors=other_vectors,
