@@ -708,7 +708,7 @@ class Machine(object):
             # combine them as the first order
             other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
         if other_vectors is not None:
-            if not isinstance(other_vector, (list, np.ndarray)):
+            if not isinstance(other_vectors, (list, np.ndarray)):
                 raise ValueError("`other vector` is not a list of arrays or a ndarray")
 
         # create a 3D perturbation matrix
