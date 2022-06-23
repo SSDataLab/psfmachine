@@ -33,6 +33,8 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         shape nsources
     magnitude_limit : int
         Limiting magnitued for query
+    dr : int or string
+        Gaia Data Release version, if Early DR 3 (aka EDR3) is wanted use `"edr3"`.
 
     Returns
     -------
@@ -45,7 +47,7 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         decs = [decs]
     if not hasattr(rads, "__iter__"):
         rads = [rads]
-    if not dr in [1, 2, 3, "edr3"]:
+    if dr not in [1, 2, 3, "edr3"]:
         raise ValueError("Please pass a valid data release")
     if isinstance(dr, int):
         dr = f"dr{dr}"
