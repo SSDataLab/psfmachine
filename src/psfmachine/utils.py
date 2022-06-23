@@ -45,6 +45,11 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         decs = [decs]
     if not hasattr(rads, "__iter__"):
         rads = [rads]
+    if not dr in [1, 2, 3, "edr3"]:
+        raise ValueError("Please pass a valid data release")
+    if isinstance(dr, int):
+        dr = f"dr{dr}"
+    print(dr)
     wheres = [
         f"""1=CONTAINS(
                   POINT('ICRS',{ra},{dec}),
@@ -53,44 +58,24 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
     ]
 
     where = """\n\tOR """.join(wheres)
-    if dr == 2:
-        # CH: We don't need a lot of these columns we could greatly reduce it
-        gd = pyia.GaiaData.from_query(
-            f"""SELECT designation,
-            coord1(prop) AS ra, coord2(prop) AS dec, parallax,
-            parallax_error, pmra, pmdec,
-            phot_g_mean_flux,
-            phot_g_mean_mag,
-            phot_bp_mean_mag,
-            phot_rp_mean_mag FROM (
-     SELECT *,
-     EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, {epoch}) AS prop
-     FROM gaiadr2.gaia_source
-     WHERE {where}
-    )  AS subquery
-    WHERE phot_g_mean_mag<={magnitude_limit}
 
-    """
-        )
-    elif dr == 3:
-        gd = pyia.GaiaData.from_query(
-            f"""SELECT designation,
-            coord1(prop) AS ra, coord2(prop) AS dec, parallax,
-            parallax_error, pmra, pmdec,
-            phot_g_mean_flux,
-            phot_g_mean_mag,
-            phot_bp_mean_mag,
-            phot_rp_mean_mag FROM (
-             SELECT *,
-             EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, {epoch}) AS prop
-             FROM gaiaedr3.gaia_source
-             WHERE {where}
-            )  AS subquery
-            WHERE phot_g_mean_mag<={magnitude_limit}
-            """
-        )
-    else:
-        raise ValueError("Please pass a valid data release")
+    gd = pyia.GaiaData.from_query(
+        f"""SELECT designation,
+        coord1(prop) AS ra, coord2(prop) AS dec, parallax,
+        parallax_error, pmra, pmdec,
+        phot_g_mean_flux,
+        phot_g_mean_mag,
+        phot_bp_mean_mag,
+        phot_rp_mean_mag FROM (
+         SELECT *,
+         EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, {epoch}) AS prop
+         FROM gaia{dr}.gaia_source
+         WHERE {where}
+        )  AS subquery
+        WHERE phot_g_mean_mag<={magnitude_limit}
+        """
+    )
+
     return gd.data.to_pandas()
 
 
