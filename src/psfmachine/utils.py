@@ -51,7 +51,6 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         raise ValueError("Please pass a valid data release")
     if isinstance(dr, int):
         dr = f"dr{dr}"
-    print(dr)
     wheres = [
         f"""1=CONTAINS(
                   POINT('ICRS',{ra},{dec}),
