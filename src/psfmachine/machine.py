@@ -1152,6 +1152,10 @@ class Machine(object):
             (1) integration problem, the pixel resolution is not enough
             (2) difference between bandpass used for prior (Gaia) vs data (Kepler)
 
+        It creates high resolution shape models for each source to find the scale factor
+        for the original mean models. Additionally creates a new attribute with the
+        estimate of PSF flux contained in the data.
+
         Parameters
         ----------
         resolution : int
