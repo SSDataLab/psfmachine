@@ -4,7 +4,6 @@ Defines the main Machine object that fit a mean PRF model to sources
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from scipy.ndimage import gaussian_filter1d
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -12,14 +11,13 @@ from astropy.stats import sigma_clip
 
 from .utils import (
     _make_A_polar,
-    _make_A_cartesian,
     solve_linear_model,
     sparse_lessthan,
-    _combine_A,
     threshold_bin,
-    get_breaks,
+    bspline_smooth,
 )
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
+from .perturbation import PerturbationMatrix3D
 
 __all__ = ["Machine"]
 
@@ -51,8 +49,8 @@ class Machine(object):
         time_mask=None,
         n_r_knots=10,
         n_phi_knots=15,
-        n_time_knots=10,
-        n_time_points=200,
+        time_nknots=10,
+        time_resolution=200,
         time_radius=8,
         rmin=1,
         rmax=16,
@@ -88,7 +86,9 @@ class Machine(object):
             Number of radial knots in the spline model.
         n_phi_knots: int
             Number of azimuthal knots in the spline model.
-        n_time_points: int
+        time_nknots: int
+            Number og knots for cartesian DM in time model.
+        time_resolution: int
             Number of time points to bin by when fitting for velocity aberration.
         time_radius: float
             The radius around sources, out to which the velocity aberration model
@@ -132,11 +132,6 @@ class Machine(object):
             build the PSF model
         mean_model: scipy.sparce.csr_matrix
             Mean PSF model values per pixel used for PSF photometry
-        time_corrector: string
-            The type of time corrector that will be used to build the time model,
-            default is a "polynomial" for a polynomial in time, it can also be "pos_corr"
-        poscorr_filter_size: int
-            Standard deviation for Gaussian kernel to be used to smooth the pos_corrs
         cartesian_knot_spacing: string
             Defines the type of spacing between knots in cartessian space to generate
             the design matrix, options are "linear" or "sqrt".
@@ -160,18 +155,13 @@ class Machine(object):
         self.limit_flux = 1e4
         self.n_r_knots = n_r_knots
         self.n_phi_knots = n_phi_knots
-        self.n_time_knots = n_time_knots
-        self.n_time_points = n_time_points
+        self.time_nknots = time_nknots
+        self.time_resolution = time_resolution
         self.time_radius = time_radius
         self.rmin = rmin
         self.rmax = rmax
         self.cut_r = cut_r
         self.sparse_dist_lim = sparse_dist_lim * u.arcsecond
-        self.time_corrector = "polynomial"
-        # if pos_corr, then we can smooth the vector with a Gaussian kernel of size
-        # poscorr_filter_size, if this is < 0.5 -> no smoothing, default is 12
-        # beacause of 6hr-CDPP
-        self.poscorr_filter_size = 12
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
@@ -616,219 +606,22 @@ class Machine(object):
 
         return
 
-    def _time_bin(self, npoints=200, downsample=False):
-        """Bin the flux data down in time. If using `pos_corr`s as corrector, it will
-        return also the binned and smooth versions of the pos_coors vectors.
-
-        Parameters
-        ----------
-        npoints: int
-            How many points should be in each time bin
-        downsample: bool
-            If True, the arrays will be downsampled instead of bin-averaged
-
-        Returns
-        -------
-        time_original: np.ndarray
-            The time array of the data, whitened
-        time_binned: np.ndarray
-            The binned time array
-        flux_binned_raw: np.ndarray
-            The binned flux, raw
-        flux_binned: np.ndarray
-            The binned flux, whitened by the mean of the flux in time
-        flux_err_binned:: np.ndarray
-            The binned flux error, whitened by the mean of the flux
-        pc1_smooth and pc2_smooth: np.ndarray
-            Smooth version of the median poscorr vectors 1 and 2 used for time correction.
-        pc1_bin and pc2_bin: np.ndarray
-            Binned version of poscorrs vectors 1 and 2 used for setting knots.
-        """
-
-        # Where there are break points in the time array
-        splits = get_breaks(self.time)
-        # if using poscorr, find and add discontinuity in poscorr data
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            if self.time_corrector == "pos_corr":
-                # take the scene-median poscorr
-                mpc1 = np.nanmedian(self.pos_corr1, axis=0)
-                mpc2 = np.nanmedian(self.pos_corr2, axis=0)
-            else:
-                # if usig centroids need to convert to pixels
-                mpc1 = self.ra_centroid.to("arcsec").value / 4
-                mpc2 = self.dec_centroid.to("arcsec").value / 4
-
-            # find poscorr discontinuity in each axis
-            grads1 = np.gradient(mpc1, self.time)
-            grads2 = np.gradient(mpc2, self.time)
-            # the 7-sigma here is hardcoded and found to work ok
-            splits1 = np.where(grads1 > 7 * grads1.std())[0]
-            splits2 = np.where(grads2 > 7 * grads2.std())[0]
-            # merging breaks
-            splits = np.unique(np.concatenate([splits, splits1[1::2], splits2[1::2]]))
-            del grads1, grads2, splits1, splits2
-
-        # the adition is to set the first knot after breaks @ 1% of the sequence lenght
-        splits_a = splits[:-1] + int(self.nt * 0.01)
-        splits_b = splits[1:]
-        dsplits = (splits_b - splits_a) // npoints
-        # this isteration is to avoid knots right at poscorr/time discontinuity by
-        # iterating over segments between splits and creating evenly spaced knots
-        # within them
-        breaks = []
-        for spdx in range(len(splits_a)):
-            if not downsample:
-                breaks.append(splits_a[spdx] + np.arange(0, dsplits[spdx]) * npoints)
-            else:
-                # if downsample, the knots are spaced by npoints untill the end of the
-                # segment
-                breaks.append(
-                    np.linspace(
-                        splits_a[spdx],
-                        splits_b[spdx] - int(self.nt * 0.01),
-                        dsplits[spdx],
-                        dtype=int,
-                    )
-                )
-        breaks = np.unique(np.hstack(breaks))
-
-        if not downsample:
-            # time averaged between breaks
-            tm = np.vstack(
-                [t1.mean(axis=0) for t1 in np.array_split(self.time, breaks)]
-            ).ravel()
-            # whiten the time array
-            ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
-            # find the time index for each segments between breaks to then average flux
-            ms = [
-                np.in1d(np.arange(self.nt), i)
-                for i in np.array_split(np.arange(self.nt), breaks)
-            ]
-            # Average Pixel flux values
-            fm = np.asarray(
-                [
-                    (
-                        sparse.csr_matrix(self.uncontaminated_source_mask)
-                        .multiply(self.flux[ms[tdx]].mean(axis=0))
-                        .data
-                    )
-                    for tdx in range(len(ms))
-                ]
-            )
-            # average flux err values at knots
-            fem = np.asarray(
-                [
-                    (
-                        sparse.csr_matrix(self.uncontaminated_source_mask)
-                        .multiply((self.flux_err ** 2)[ms[tdx]].sum(axis=0) ** 0.5)
-                        .data
-                        / ms[tdx].sum()
-                    )
-                    for tdx in range(len(ms))
-                ]
-            )
-        else:
-            # use breaks as downsample points
-            # when working with short light curves, need to make sure the last break
-            # point isn't the lenght of the time.
-            if breaks[-1] == self.nt:
-                breaks[-1] -= 1
-            tm = self.time[breaks]
-            ta = (self.time - tm.mean()) / (tm.max() - tm.mean())
-            fm = np.asarray(
-                [
-                    self.uncontaminated_source_mask.multiply(self.flux[idx]).data
-                    for idx in breaks
-                ]
-            )
-            fem = np.asarray(
-                [
-                    self.uncontaminated_source_mask.multiply(self.flux_err[idx]).data
-                    for idx in breaks
-                ]
-            )
-
-        fm_raw = fm.copy()
-        fem /= np.nanmean(fm, axis=0)
-        fm /= np.nanmean(fm, axis=0)
-
-        tm = ((tm - tm.mean()) / (tm.max() - tm.mean()))[:, None] * np.ones(fm.shape)
-
-        # poscor
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            # we smooth the poscorr with a Gaussian kernel and 12 cadence window
-            # (6hr-CDPP) to not introduce too much noise, the smoothing is aware
-            # of focus-change breaks
-            pc1_smooth = []
-            pc2_smooth = []
-            # if poscorr_filter_size == 0 then the smoothing will fail. we take care of
-            # it by setting every value < .5 to 0.1 which leads to no smoothing
-            # (residuals < 1e-4)
-            self.poscorr_filter_size = (
-                0.1 if self.poscorr_filter_size < 0.5 else self.poscorr_filter_size
-            )
-            for i in range(1, len(splits)):
-                pc1_smooth.extend(
-                    gaussian_filter1d(
-                        mpc1[splits[i - 1] : splits[i]],
-                        self.poscorr_filter_size,
-                        mode="mirror",
-                    )
-                )
-                pc2_smooth.extend(
-                    gaussian_filter1d(
-                        mpc2[splits[i - 1] : splits[i]],
-                        self.poscorr_filter_size,
-                        mode="mirror",
-                    )
-                )
-            pc1_smooth = np.array(pc1_smooth)
-            pc2_smooth = np.array(pc2_smooth)
-            pc1_smooth = (pc1_smooth - pc1_smooth.mean()) / (
-                pc1_smooth.max() - pc1_smooth.mean()
-            )
-            pc2_smooth = (pc2_smooth - pc2_smooth.mean()) / (
-                pc2_smooth.max() - pc2_smooth.mean()
-            )
-
-            # do poscorr binning
-            if not downsample:
-                pc1_bin = np.vstack(
-                    [np.median(t1, axis=0) for t1 in np.array_split(pc1_smooth, breaks)]
-                ).ravel()[:, None] * np.ones(fm.shape)
-                pc2_bin = np.vstack(
-                    [np.median(t1, axis=0) for t1 in np.array_split(pc2_smooth, breaks)]
-                ).ravel()[:, None] * np.ones(fm.shape)
-            else:
-                pc1_bin = pc1_smooth[breaks][:, None] * np.ones(fm.shape)
-                pc2_bin = pc2_smooth[breaks][:, None] * np.ones(fm.shape)
-
-            return (
-                ta,
-                tm,
-                fm_raw,
-                fm,
-                fem,
-                pc1_smooth,
-                pc2_smooth,
-                pc1_bin,
-                pc2_bin,
-            )
-
-        return ta, tm, fm_raw, fm, fem
-
-    def build_time_model(self, plot=False, downsample=False, split_time_model=False):
+    def build_time_model(
+        self,
+        plot=False,
+        bin_method="bin",
+        segments=False,
+        focus=False,
+        focus_exptime=50,
+        pca_ncomponents=0,
+        pca_smooth_time_scale=0,
+        positions=False,
+    ):
         """
         Builds a time model that moves the PRF model to account for the scene movement
         due to velocity aberration. It has two methods to choose from using the
         attribute `self.time_corrector`, if `"polynomial"` (default) will use a
-        polynomial in time, if `"pos_corr"` will use the pos_corr vectos that can be found
+        polynomial in time, if `"poscorr"` will use the pos_corr vectos that can be found
         in the TPFs. The time polynomial gives a more flexible model vs the pos_corr
         option, but can lead to light curves with "weird" long-term trends. Using
         pos_corr is recomended for Kepler data.
@@ -837,259 +630,178 @@ class Machine(object):
         ----------
         plot: boolean
             Plot a diagnostic figure.
-        downsample: boolean
-            If True the `time` and `pos_corr` arrays will be downsampled instead of
-            binned.
-        split_time_model : boolean, list/array of ints
+        bin_method: string
+            Type of bin method, options are "bin" and "downsample".
+        segments : boolean
             If `True` will split the light curve into segments to fit different time
-            models with a commong pixel normalization. If `False` will fit the full
-            time series as one segment. If list or numpy array of ints, will use the
-            index values as segment breaks.
+            models with a common pixel normalization. If `False` will fit the full
+            time series as one segment. Segments breaks are infered from time
+            discontinuities.
+        focus: boolean
+            Add a component that models th focus change at the begining of a segment.
+        focus_exptime : int
+            Characteristic decay for focus component modeled as exponential decay when
+            `focus` is True. In the same units as `PerturbationMatrix3D.time`.
+        pca_ncomponents : int
+            Number of PCA components used in `PerturbationMatrix3D`. The components are
+            derived from pixel light lighrcurves.
+        pca_smooth_time_scale : float
+            Smooth time sacel for PCA components.
+        positions : boolean or string
+            If one of strings `"poscorr", "centroid"` then the perturbation matrix will
+            add other vectors accounting for position shift.
         """
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            (
-                time_original,
-                time_binned,
-                flux_binned_raw,
-                flux_binned,
-                flux_err_binned,
-                poscorr1_smooth,
-                poscorr2_smooth,
-                poscorr1_binned,
-                poscorr2_binned,
-            ) = self._time_bin(npoints=self.n_time_points, downsample=downsample)
-            self.pos_corr1_smooth = poscorr1_smooth
-            self.pos_corr2_smooth = poscorr2_smooth
-        else:
-            (
-                time_original,
-                time_binned,
-                flux_binned_raw,
-                flux_binned,
-                flux_err_binned,
-            ) = self._time_bin(npoints=self.n_time_points, downsample=downsample)
-
-        self._whitened_time = time_original
-        self.downsample_time_knots = downsample
-        # not necessary to take value from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra),
-            self.uncontaminated_source_mask.multiply(self.ddec),
+        # create the time and space basis
+        _whitened_time = (self.time - self.time.mean()) / (
+            self.time.max() - self.time.mean()
+        )
+        dx, dy, uncontaminated_pixels = (
+            self.source_mask.multiply(self.dra),
+            self.source_mask.multiply(self.ddec),
+            self.source_mask.multiply(self.uncontaminated_source_mask.todense()),
         )
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
+        # uncontaminated pixels mask
+        uncontaminated_pixels = uncontaminated_pixels.data
 
-        A_c = _make_A_cartesian(
-            dx,
-            dy,
-            n_knots=self.n_time_knots,
+        # add other vectors if asked, centroids or poscorrs
+        if positions:
+            if positions == "poscorr" and hasattr(self, "pos_corr1"):
+                mpc1 = np.nanmedian(self.pos_corr1, axis=0)
+                mpc2 = np.nanmedian(self.pos_corr2, axis=0)
+            elif positions == "centroid" and hasattr(self, "ra_centroid"):
+                mpc1 = self.ra_centroid.to("arcsec").value / 4
+                mpc2 = self.dec_centroid.to("arcsec").value / 4
+            else:
+                raise ValueError(
+                    "`position` not valid, use one of {None, 'poscorr', 'centroid'}"
+                )
+
+            # smooth the vectors
+            mpc1_smooth, mpc2_smooth = bspline_smooth(
+                [mpc1, mpc2],
+                x=self.time,
+                do_segments=segments,
+                n_knots=50,
+            )
+            # normalize components
+            mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
+                mpc1_smooth.max() - mpc1_smooth.mean()
+            )
+            mpc2_smooth = (mpc2_smooth - mpc2_smooth.mean()) / (
+                mpc2_smooth.max() - mpc2_smooth.mean()
+            )
+            # combine them as the first order
+            other_vectors = [mpc1_smooth, mpc2_smooth, mpc1_smooth * mpc2_smooth]
+        else:
+            other_vectors = None
+
+        # create a 3D perturbation matrix
+        P = PerturbationMatrix3D(
+            time=_whitened_time,
+            dx=dx,
+            dy=dy,
+            segments=segments,
+            focus=focus,
+            other_vectors=other_vectors,
+            bin_method=bin_method,
+            focus_exptime=focus_exptime,
+            resolution=self.time_resolution,
             radius=self.time_radius,
+            nknots=self.time_nknots,
             knot_spacing_type=self.cartesian_knot_spacing,
         )
-        A2 = sparse.vstack([A_c] * time_binned.shape[0], format="csr")
-        # Cartesian spline with time dependence
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            # Cartesian spline with poscor dependence
-            A3 = _combine_A(A2, poscorr=[poscorr1_binned, poscorr2_binned])
-        else:
-            # Cartesian spline with time dependence
-            A3 = _combine_A(A2, time=time_binned)
 
-        prior_sigma = np.ones(A3.shape[1]) * 10
-        prior_mu = np.zeros(A3.shape[1])
-
-        # fit the time model for each segment
-        # use user input
-        if isinstance(split_time_model, (np.ndarray, list)):
-            # we make sure first and last index are included and sorted
-            splits = np.unique(np.append(split_time_model, [0, len(self.time)]))
-        elif isinstance(split_time_model, bool):
-            # we find the splits in data
-            if split_time_model:
-                splits = get_breaks(self.time)
-            else:
-                splits = np.array([0, len(self.time)])
-
-        seg_time_model_w, pix_mask_k = [], []
-        # we iterate over segements
-        for bk in range(len(splits) - 1):
-            # find the right mask that select the binned times andd flux to fit the
-            # time model
-            seg_mask = (time_binned[:, 0] >= time_original[splits[bk]]) & (
-                time_binned[:, 0] < time_original[splits[bk + 1] - 1]
-            )
-            # need to rebuild the A3 DM to use the rigth times/poscorrs
-            A2 = sparse.vstack([A_c] * time_binned[seg_mask].shape[0], format="csr")
-            if hasattr(self, "pos_corr1") and self.time_corrector in [
-                "pos_corr",
-                "centroid",
-            ]:
-                A3 = _combine_A(
-                    A2, poscorr=[poscorr1_binned[seg_mask], poscorr2_binned[seg_mask]]
+        # get uncontaminated pixel norm-flux
+        flux, flux_err = np.array(
+            [
+                np.array(
+                    [
+                        self.source_mask.multiply(self.flux[idx]).data,
+                        self.source_mask.multiply(self.flux_err[idx]).data,
+                    ]
                 )
-            else:
-                A3 = _combine_A(A2, time=time_binned[seg_mask])
+                for idx in range(self.nt)
+            ]
+        ).transpose((1, 0, 2))
+        flux_norm = flux / np.nanmean(flux, axis=0)
+        flux_err_norm = flux_err / np.nanmean(flux, axis=0)
 
-            # No saturated pixels, 1e5 is a hardcoded value for Kepler.
-            k = (
-                (flux_binned_raw < 1e5).all(axis=0)[None, :]
-                * np.ones(flux_binned_raw[seg_mask].shape, bool)
-            ).ravel()
-            # No faint pixels, 100 is a hardcoded value for Kepler.
-            k &= (
-                (flux_binned_raw[seg_mask] > 100).all(axis=0)[None, :]
-                * np.ones(flux_binned_raw[seg_mask].shape, bool)
-            ).ravel()
-            # No huge variability
-            k &= (
-                (np.abs(flux_binned[seg_mask] - 1) < 1).all(axis=0)[None, :]
-                * np.ones(flux_binned[seg_mask].shape, bool)
-            ).ravel()
-            # No nans
-            k &= np.isfinite(flux_binned[seg_mask].ravel()) & np.isfinite(
-                flux_err_binned[seg_mask].ravel()
+        # create pixel mask for model fitting
+        # No saturated pixels, 1e5 is a hardcoded value for Kepler.
+        k = (flux < 1e5).all(axis=0)[None, :] * np.ones(flux.shape, bool)
+        # No faint pixels, 100 is a hardcoded value for Kepler.
+        k &= (flux > 100).all(axis=0)[None, :] * np.ones(flux.shape, bool)
+        # No huge variability
+        _per_pix = np.percentile(flux_norm, [3, 97], axis=1)
+        k &= (
+            (
+                (flux_norm < _per_pix[0][:, None]) | (flux_norm > _per_pix[1][:, None])
+            ).sum(axis=0)
+            < flux_norm.shape[0] * 0.95
+        )[None, :] * np.ones(flux_norm.shape, bool)
+        # No nans
+        k &= np.isfinite(flux_norm) & np.isfinite(flux_err_norm)
+        k = np.all(k, axis=0)
+        # combine good-behaved pixels with uncontaminated pixels
+        k &= uncontaminated_pixels
+
+        # adding PCA components to pertrubation matrix
+        if pca_ncomponents > 0:
+            # select only bright pixels
+            k &= (flux > 300).all(axis=0)
+            P.pca(
+                flux_norm[:, k],
+                ncomponents=pca_ncomponents,
+                smooth_time_scale=pca_smooth_time_scale,
             )
 
-            # we solve the segment by using `seg_mask` on all `*_binned` variables
-            for count in [0, 1, 2]:
-                sigma_w_inv = A3[k].T.dot(
-                    (
-                        A3.multiply(1 / flux_err_binned[seg_mask].ravel()[:, None] ** 2)
-                    ).tocsr()[k]
-                )
-                sigma_w_inv += np.diag(1 / prior_sigma ** 2)
-                # Fit the flux - 1
-                B = A3[k].T.dot(
-                    (
-                        (flux_binned[seg_mask].ravel() - 1)
-                        / flux_err_binned[seg_mask].ravel() ** 2
-                    )[k]
-                )
-                B += prior_mu / (prior_sigma ** 2)
-                time_model_w = np.linalg.solve(sigma_w_inv, B)
-                res = flux_binned[seg_mask] - A3.dot(time_model_w).reshape(
-                    flux_binned[seg_mask].shape
-                )
-                res = np.ma.masked_array(res, (~k).reshape(flux_binned[seg_mask].shape))
-                bad_targets = sigma_clip(res, sigma=5).mask
-                bad_targets = (
-                    np.ones(flux_binned[seg_mask].shape, bool) & bad_targets.any(axis=0)
-                ).ravel()
-                # k &= ~sigma_clip(flux_binned.ravel() - A3.dot(time_model_w)).mask
-                k &= ~bad_targets
-            #  we save the weights and pixel mask of each segement for later use
-            seg_time_model_w.append(time_model_w)
-            pix_mask_k.append(k)
+        # bindown flux arrays
+        flux_binned = P.bin_func(flux_norm)
+        flux_err_binned = P.bin_func(flux_err_norm, quad=True)
 
-        self.seg_splits = splits
-        self.time_model_w = np.asarray(seg_time_model_w)
-        self._time_masked = np.asarray(pix_mask_k, dtype=object)
+        # iterate to remvoe outliers
+        for count in [0, 1, 2]:
+            P.fit(flux_norm, flux_err=flux_err_norm, pixel_mask=k)
+            res = flux_binned - P.matrix.dot(P.weights).reshape(flux_binned.shape)
+            chi2 = np.sum((res) ** 2 / (flux_err_binned ** 2), axis=0) / P.nbins
+            bad_targets = sigma_clip(chi2, sigma=5).mask
+            bad_targets = bad_targets.all(axis=0)
+            k &= ~bad_targets
+
+        # book keeping
+        self.flux_binned = flux_binned
+        self._time_masked_pix = k
+        self.P = P
         if plot:
             return self.plot_time_model()
         return
 
-    def plot_time_model(self, segment=0):
+    def perturbed_model(self, time_index):
+        """
+        Computes the perturbed model at a given time
+        """
+        X = self.mean_model.copy()
+        X.data *= self.P.model(time_indices=time_index).ravel()
+        return X
+
+    def plot_time_model(self):
         """
         Diagnostic plot of time model.
-
-        Parameters
-        ----------
-        segment : int
-            Which light curve segment will be plotted, default is first one.
 
         Returns
         -------
         fig : matplotlib.Figure
             Figure.
         """
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            (
-                time_original,
-                time_binned,
-                flux_binned_raw,
-                flux_binned,
-                flux_err_binned,
-                poscorr1_smooth,
-                poscorr2_smooth,
-                poscorr1_binned,
-                poscorr2_binned,
-            ) = self._time_bin(
-                npoints=self.n_time_points, downsample=self.downsample_time_knots
-            )
-        else:
-            (
-                time_original,
-                time_binned,
-                flux_binned_raw,
-                flux_binned,
-                flux_err_binned,
-            ) = self._time_bin(
-                npoints=self.n_time_points, downsample=self.downsample_time_knots
-            )
-
-        # not necessary to take value from Quantity to do .multiply()
-        dx, dy = (
-            self.uncontaminated_source_mask.multiply(self.dra),
-            self.uncontaminated_source_mask.multiply(self.ddec),
-        )
-        dx = dx.data * u.deg.to(u.arcsecond)
-        dy = dy.data * u.deg.to(u.arcsecond)
-
-        A_c = _make_A_cartesian(
-            dx,
-            dy,
-            n_knots=self.n_time_knots,
-            radius=self.time_radius,
-            knot_spacing_type=self.cartesian_knot_spacing,
-        )
-        # if self.seg_splits.shape[0] == 2 and segment == 0:
-        #     seg_mask = np.ones(time_binned.shape[0], dtype=bool)
-        # else:
-        seg_mask = (time_binned[:, 0] >= time_original[self.seg_splits[segment]]) & (
-            time_binned[:, 0] < time_original[self.seg_splits[segment + 1] - 1]
-        )
-        # find the right mask that select the binned times andd flux
-        A2 = sparse.vstack([A_c] * time_binned[seg_mask].shape[0], format="csr")
-
-        if hasattr(self, "pos_corr1") and self.time_corrector in [
-            "pos_corr",
-            "centroid",
-        ]:
-            # Cartesian spline with poscor dependence
-            A3 = _combine_A(
-                A2, poscorr=[poscorr1_binned[seg_mask], poscorr2_binned[seg_mask]]
-            )
-        else:
-            # Cartesian spline with time dependence
-            A3 = _combine_A(A2, time=time_binned[seg_mask])
-
-        model = (
-            A3.dot(self.time_model_w[segment]).reshape(flux_binned[seg_mask].shape) + 1
-        )
-        fig, ax = plt.subplots(2, 2, figsize=(7, 6), facecolor="w")
-        k1 = (
-            self._time_masked[segment]
-            .reshape(flux_binned[seg_mask].shape)[0]
-            .astype(bool)
-        )
-        k2 = (
-            self._time_masked[segment]
-            .reshape(flux_binned[seg_mask].shape)[-1]
-            .astype(bool)
-        )
+        model_binned = self.P.matrix.dot(self.P.weights).reshape(self.flux_binned.shape)
+        fig1, ax = plt.subplots(2, 2, figsize=(9, 7), facecolor="w")
+        # k1 = self._time_masked_pix.reshape(self.flux_binned.shape)[0].astype(bool)
         im = ax[0, 0].scatter(
-            dx[k1],
-            dy[k1],
-            c=flux_binned[seg_mask][0][k1],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
+            c=self.flux_binned[0, self._time_masked_pix],
             s=3,
             vmin=0.5,
             vmax=1.5,
@@ -1097,9 +809,9 @@ class Machine(object):
             rasterized=True,
         )
         ax[0, 1].scatter(
-            dx[k2],
-            dy[k2],
-            c=flux_binned[seg_mask][-1][k2],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
+            c=self.flux_binned[-1, self._time_masked_pix],
             s=3,
             vmin=0.5,
             vmax=1.5,
@@ -1107,9 +819,9 @@ class Machine(object):
             rasterized=True,
         )
         ax[1, 0].scatter(
-            dx[k1],
-            dy[k1],
-            c=model[0][k1],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
+            c=model_binned[0, self._time_masked_pix],
             s=3,
             vmin=0.5,
             vmax=1.5,
@@ -1117,9 +829,9 @@ class Machine(object):
             rasterized=True,
         )
         ax[1, 1].scatter(
-            dx[k2],
-            dy[k2],
-            c=model[-1][k2],
+            self.P.dx[self._time_masked_pix],
+            self.P.dy[self._time_masked_pix],
+            c=model_binned[-1, self._time_masked_pix],
             s=3,
             vmin=0.5,
             vmax=1.5,
@@ -1134,9 +846,63 @@ class Machine(object):
         ax[1, 1].set(title="Model Last Cadence", xlabel=r"$\delta x$")
         plt.subplots_adjust(hspace=0.3)
 
-        cbar = fig.colorbar(im, ax=ax, shrink=0.7)
+        cbar = fig1.colorbar(im, ax=ax, shrink=0.7)
         cbar.set_label("Normalized Flux")
-        return fig
+
+        flux = np.array(
+            [self.source_mask.multiply(self.flux[idx]).data for idx in range(self.nt)]
+        )
+        flux_sort = np.argsort(np.nanmean(flux[:, self._time_masked_pix], axis=0))
+        data_binned_clean = self.flux_binned[:, self._time_masked_pix]
+        model_binned_clean = model_binned[:, self._time_masked_pix]
+
+        fig2, ax = plt.subplots(1, 3, figsize=(18, 5))
+        im = ax[0].imshow(
+            data_binned_clean.T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.9,
+            vmax=1.1,
+        )
+        ax[0].set(
+            xlabel="Binned Time Index", ylabel="Flux-Sorted Clean Pixels", title="Data"
+        )
+
+        im = ax[1].imshow(
+            model_binned_clean.T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.9,
+            vmax=1.1,
+        )
+        ax[1].set(xlabel="Binned Time Index", title="Perturbed Mode")
+
+        cbar = fig2.colorbar(
+            im, ax=ax[:2], shrink=0.7, orientation="horizontal", location="bottom"
+        )
+        cbar.set_label("Normalized Flux")
+
+        im = ax[2].imshow(
+            (model_binned_clean / data_binned_clean).T[flux_sort],
+            origin="lower",
+            aspect="auto",
+            interpolation="nearest",
+            cmap="viridis",
+            vmin=0.97,
+            vmax=1.03,
+        )
+        ax[2].set(xlabel="Binned Time Index", title="Perturbed Model / Data")
+
+        cbar = fig2.colorbar(
+            im, ax=ax[2], shrink=0.7, orientation="horizontal", location="bottom"
+        )
+        cbar.set_label("")
+
+        return fig1, fig2
 
     def build_shape_model(
         self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
@@ -1553,88 +1319,39 @@ class Machine(object):
         )
 
         self.model_flux = np.zeros(self.flux.shape) * np.nan
-
         self.ws = np.zeros((self.nt, self.mean_model.shape[0]))
         self.werrs = np.zeros((self.nt, self.mean_model.shape[0]))
 
         if fit_va:
-            if not hasattr(self, "time_model_w"):
-                raise ValueError(
-                    "Please use `build_time_model` before fitting with velocity aberration."
-                )
-
-            # not necessary to take value from Quantity to do .multiply()
-            dx, dy = (
-                self.source_mask.multiply(self.dra),
-                self.source_mask.multiply(self.ddec),
-            )
-            dx = dx.data * u.deg.to(u.arcsecond)
-            dy = dy.data * u.deg.to(u.arcsecond)
-
-            A_cp = _make_A_cartesian(
-                dx,
-                dy,
-                n_knots=self.n_time_knots,
-                radius=self.time_radius,
-                knot_spacing_type=self.cartesian_knot_spacing,
-            )
-            A_cp3 = sparse.hstack([A_cp, A_cp, A_cp, A_cp], format="csr")
-
             self.ws_va = np.zeros((self.nt, self.mean_model.shape[0]))
             self.werrs_va = np.zeros((self.nt, self.mean_model.shape[0]))
 
-            for tdx in tqdm(
-                range(self.nt),
-                desc=f"Fitting {self.nsources} Sources (w. VA)",
-                disable=self.quiet,
-            ):
-                X = self.mean_model.copy()
-                X = X.T
+        for tdx in tqdm(
+            range(self.nt),
+            desc=f"Fitting {self.nsources} Sources (w. VA)",
+            disable=self.quiet,
+        ):
+            X = self.mean_model.copy()
+            X = X.T
 
-                sigma_w_inv = X.T.dot(
-                    X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
-                ).toarray()
-                sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
-                B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
-                B += prior_mu / (prior_sigma ** 2)
-                self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
-                self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+            sigma_w_inv = X.T.dot(
+                X.multiply(1 / self.flux_err[tdx][:, None] ** 2)
+            ).toarray()
+            sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
+            B = X.T.dot((self.flux[tdx] / self.flux_err[tdx] ** 2))
+            B += prior_mu / (prior_sigma ** 2)
+            self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
+            self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
+            self.model_flux[tdx] = X.dot(self.ws[tdx])
 
-                # Divide through by expected velocity aberration
-                X = self.mean_model.copy()
-                if hasattr(self, "pos_corr1") and self.time_corrector in [
-                    "pos_corr",
-                    "centroid",
-                ]:
-                    # use median pos_corr
-                    t_mult = np.hstack(
-                        np.array(
-                            [
-                                1,
-                                self.pos_corr1_smooth[tdx],
-                                self.pos_corr2_smooth[tdx],
-                                self.pos_corr1_smooth[tdx] * self.pos_corr2_smooth[tdx],
-                            ]
-                        )[:, None]
-                        * np.ones(A_cp3.shape[1] // 4)
+            if fit_va:
+                if not hasattr(self, "P"):
+                    raise ValueError(
+                        "Please use `build_time_model` before fitting with velocity "
+                        "aberration."
                     )
-                else:
-                    # use time
-                    t_mult = np.hstack(
-                        (self._whitened_time[tdx] ** np.arange(4))[:, None]
-                        * np.ones(A_cp3.shape[1] // 4)
-                    )
-                # we make sure to use the `time_model_w` that correspond to the segment
-                # we are computing
-                seg_num = np.where(
-                    [
-                        (tdx >= self.seg_splits[k]) & (tdx < self.seg_splits[k + 1])
-                        for k in range(len(self.seg_splits) - 1)
-                    ]
-                )[0]
-                X.data *= (
-                    A_cp3.multiply(t_mult).dot(self.time_model_w[seg_num].ravel()) + 1
-                )
+
+                X = self.perturbed_model(tdx)
                 X = X.T
 
                 sigma_w_inv = X.T.dot(
@@ -1647,37 +1364,15 @@ class Machine(object):
                 self.werrs_va[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
                 self.model_flux[tdx] = X.dot(self.ws_va[tdx])
 
-            nodata = np.asarray(self.mean_model.sum(axis=1))[:, 0] == 0
-            self.ws[:, nodata] *= np.nan
-            self.werrs[:, nodata] *= np.nan
+        # check bad estimates
+        nodata = np.asarray(self.mean_model.sum(axis=1))[:, 0] == 0
+        # These sources are poorly estimated
+        # nodata |= (self.mean_model.max(axis=1) > 1).toarray()[:, 0]
+        self.ws[:, nodata] *= np.nan
+        self.werrs[:, nodata] *= np.nan
+        if fit_va:
             self.ws_va[:, nodata] *= np.nan
             self.werrs_va[:, nodata] *= np.nan
-
-        else:
-
-            X = self.mean_model.copy()
-            X = X.T
-            f = self.flux
-            fe = self.flux_err
-
-            for tdx in tqdm(
-                range(self.nt),
-                desc=f"Fitting {self.nsources} Sources (No VA)",
-                disable=self.quiet,
-            ):
-                sigma_w_inv = X.T.dot(X.multiply(1 / fe[tdx][:, None] ** 2)).toarray()
-                sigma_w_inv += np.diag(1 / (prior_sigma ** 2))
-                B = X.T.dot((f[tdx] / fe[tdx] ** 2))
-                B += prior_mu / (prior_sigma ** 2)
-                self.ws[tdx] = np.linalg.solve(sigma_w_inv, np.nan_to_num(B))
-                self.werrs[tdx] = np.linalg.inv(sigma_w_inv).diagonal() ** 0.5
-                self.model_flux[tdx] = X.dot(self.ws[tdx])
-
-            nodata = np.asarray(self.source_mask.sum(axis=1))[:, 0] == 0
-            # These sources are poorly estimated
-            nodata |= (self.mean_model.max(axis=1) > 1).toarray()[:, 0]
-            self.ws[:, nodata] *= np.nan
-            self.werrs[:, nodata] *= np.nan
 
         return
 
