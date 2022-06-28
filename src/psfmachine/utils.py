@@ -6,6 +6,7 @@ import diskcache
 
 from scipy import sparse
 from patsy import dmatrix
+from scipy.ndimage import gaussian_filter1d
 import pyia
 
 # size_limit is 1GB
@@ -528,7 +529,7 @@ def threshold_bin(x, y, z, z_err=None, abs_thresh=10, bins=15, statistic=np.nanm
     )
 
 
-def get_breaks(time):
+def get_breaks(time, include_ext=False):
     """
     Finds discontinuity in the time array and return the break indexes.
 
@@ -543,4 +544,142 @@ def get_breaks(time):
         An array of indexes with the break positions
     """
     dts = np.diff(time)
-    return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
+    if include_ext:
+        return np.hstack([0, np.where(dts > 5 * np.median(dts))[0] + 1, len(time)])
+    else:
+        return np.where(dts > 5 * np.median(dts))[0] + 1
+
+
+def gaussian_smooth(
+    y, x=None, do_segments=False, filter_size=13, mode="mirror", breaks=None
+):
+    """
+    Applies a Gaussian smoothing to a curve.
+
+    Parameters
+    ----------
+    y : numpy.ndarray or list of numpy.ndarray
+        Arrays to be smoothen in the last axis
+    x : numpy.ndarray
+        Time array of same shape of `y` last axis used to find data discontinuity.
+    filter_size : int
+        Filter window size
+    mode : str
+        The `mode` parameter determines how the input array is extended
+        beyond its boundaries. Options are {'reflect', 'constant', 'nearest', 'mirror',
+        'wrap'}. Default is 'mirror'
+
+    Returns
+    -------
+    y_smooth : numpy.ndarray
+        Smooth array.
+    """
+    if isinstance(y, list):
+        y = np.asarray(y)
+    else:
+        y = np.atleast_2d(y)
+
+    if do_segments:
+        if breaks is None and x is None:
+            raise ValueError("Please provide `x` or `breaks` to have splits.")
+        elif breaks is None and x is not None:
+            splits = get_breaks(x, include_ext=True)
+        else:
+            splits = np.array(breaks)
+        # find discontinuity in y according to x if provided
+        if x is not None:
+            grads = np.gradient(y, x, axis=1)
+            # the 7-sigma here is hardcoded and found to work ok
+            splits = np.unique(
+                np.concatenate(
+                    [splits, np.hstack([np.where(g > 7 * g.std())[0] for g in grads])]
+                )
+            )
+    else:
+        splits = [0, y.shape[-1]]
+
+    y_smooth = []
+    for i in range(1, len(splits)):
+        y_smooth.append(
+            gaussian_filter1d(
+                y[:, splits[i - 1] : splits[i]],
+                filter_size,
+                mode=mode,
+                axis=1,
+            )
+        )
+    return np.hstack(y_smooth)
+
+
+def bspline_smooth(y, x=None, degree=3, do_segments=False, breaks=None, n_knots=100):
+    """
+    Applies a spline smoothing to a curve.
+
+    Parameters
+    ----------
+    y : numpy.ndarray or list of numpy.ndarray
+        Arrays to be smoothen in the last axis
+    x : numpy.ndarray
+        Optional. x array, as `y = f(x)`` used to find discontinuities in `f(x)`. If x
+        is given then splits will be computed, if not `breaks` argument as to be provided.
+    degree : int
+        Degree of the psline fit, default is 3.
+    do_segments : boolean
+        Do the splines per segments with splits computed from data `x` or given in `breaks`.
+    breaks : list of ints
+        List of break indexes in `y`.
+    nknots : int
+        Number of knots for the B-Spline. If `do_segments` is True, knots will be
+        distributed in each segment.
+
+    Returns
+    -------
+    y_smooth : numpy.ndarray
+        Smooth array.
+    """
+    if isinstance(y, list):
+        y = np.asarray(y)
+    else:
+        y = np.atleast_2d(y)
+
+    if do_segments:
+        if breaks is None and x is None:
+            raise ValueError("Please provide `x` or `breaks` to have splits.")
+        elif breaks is None and x is not None:
+            splits = get_breaks(x)
+        else:
+            splits = np.array(breaks)
+        # find discontinuity in y according to x if provided
+        if x is not None:
+            grads = np.gradient(y, x, axis=1)
+            # the 7-sigma here is hardcoded and found to work ok
+            splits = np.unique(
+                np.concatenate(
+                    [splits, np.hstack([np.where(g > 7 * g.std())[0] for g in grads])]
+                )
+            )
+    else:
+        splits = [0, y.shape[-1]]
+
+    y_smooth = []
+    v = np.arange(y.shape[-1])
+    DM = spline1d(v, np.linspace(v.min(), v.max(), n_knots)).toarray()
+    # do segments
+    arr_splits = np.array_split(np.arange(len(v)), splits)
+    masks = np.asarray(
+        [np.in1d(np.arange(len(v)), x1).astype(float) for x1 in arr_splits]
+    ).T
+    DM = np.hstack([DM[:, idx][:, None] * masks for idx in range(DM.shape[1])])
+
+    prior_mu = np.zeros(DM.shape[1])
+    prior_sigma = np.ones(DM.shape[1]) * 1e5
+    # iterate over vectors in y
+    for v in range(y.shape[0]):
+        weights = solve_linear_model(
+            DM,
+            y[v],
+            prior_mu=prior_mu,
+            prior_sigma=prior_sigma,
+        )
+        y_smooth.append(DM.dot(weights))
+    return np.array(y_smooth)

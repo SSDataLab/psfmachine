@@ -181,6 +181,11 @@ class PerturbationMatrix(object):
             Array of flux values. Should have shape ntimes.
         flux: npt.ArrayLike
             Optional flux errors. Should have shape ntimes.
+
+        Returns
+        -------
+        weights: npt.ArrayLike
+            Array with computed weights
         """
         if flux_err is None:
             flux_err = np.ones_like(flux)
@@ -229,6 +234,11 @@ class PerturbationMatrix(object):
         var: npt.ArrayLike
             Array of values with at least 1 dimension. The first dimension must be
             the same shape as `self.time`
+
+        Returns
+        -------
+        func: object
+            An object function according to `self.bin_method`
         """
         if self.bin_method.lower() == "downsample":
             func = self._get_downsample_func()
@@ -296,7 +306,8 @@ class PerturbationMatrix(object):
         return func
 
     def pca(self, y, ncomponents=5, smooth_time_scale=0):
-        """Adds the principal components of `y` to the design matrix
+        """Adds the first `ncomponents` principal components of `y` to the design
+        matrix. `y` is smoothen with a spline function and scale `smooth_time_scale`.
 
         Parameters
         ----------
@@ -305,9 +316,8 @@ class PerturbationMatrix(object):
         ncomponents: int
             Number of principal components to use
         smooth_time_scale: float
-            The time scale up to which variability should be smoothed. Should be
-            in the same units as `self.time`. If set to zero, no smoothing will
-            be applied.
+            Amount to smooth the components, using a spline in time.
+             If 0, the components will not be smoothed.
         """
         return self._pca(
             y, ncomponents=ncomponents, smooth_time_scale=smooth_time_scale
@@ -394,11 +404,19 @@ class PerturbationMatrix3D(PerturbationMatrix):
     focus : bool
         Whether to correct focus using a simple exponent model
     segments: bool
-        Whether to fit portions of data where there is a significant time break as separate segments
+        Whether to fit portions of data where there is a significant time break as
+        separate segments
     resolution: int
         How many cadences to bin down via `bin_method`
     bin_method: str
         How to bin the data under the hood. Default is by mean binning.
+    focus_exptime: float
+        Time for the exponent for focus change, if used
+    degree: int
+        Polynomial degree used to build the row/column cartesian design matrix
+    knot_spacing_type: str
+        Type of spacing bewtwen knots used for cartesian design matrix, options are
+        {"linear", "sqrt"}
     """
 
     def __init__(
@@ -477,8 +495,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         pixel_mask: Optional[npt.ArrayLike] = None,
     ):
         """
-        Fits flux to find the best fit model weights. Optionally will include flux errors.
-        Sets the `self.weights` attribute with best fit weights.
+        Fits flux to find the best fit model weights. Optionally will include flux
+        errors. Sets the `self.weights` attribute with best fit weights.
 
         Parameters
         ----------
@@ -487,8 +505,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         flux_err: npt.ArrayLike
             Optional flux errors. Should have shape ntimes x npixels.
         pixel_mask: npt.ArrayLike
-            Pixel mask to apply. Values that are `True` will be used in the fit. Values that are `False` will be masked.
-            Should have shape npixels.
+            Pixel mask to apply. Values that are `True` will be used in the fit.
+            Values that are `False` will be masked. Should have shape npixels.
         """
         if pixel_mask is not None:
             if not isinstance(pixel_mask, np.ndarray):
@@ -538,7 +556,8 @@ class PerturbationMatrix3D(PerturbationMatrix):
         )
 
     def pca(self, y, ncomponents=3, smooth_time_scale=0):
-        """Adds the principal components of `y` to the design matrix
+        """Adds the first `ncomponents` principal components of `y` to the design
+        matrix. `y` is smoothen with a spline function and scale `smooth_time_scale`.
 
         Parameters
         ----------
