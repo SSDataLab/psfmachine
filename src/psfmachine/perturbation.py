@@ -309,9 +309,6 @@ class PerturbationMatrix(object):
         """Adds the first `ncomponents` principal components of `y` to the design
         matrix. `y` is smoothen with a spline function and scale `smooth_time_scale`.
 
-        Will add two time scales of principal components, definied by `long_time_scale`
-        and `med_time_scale`.
-
         Parameters
         ----------
         y: np.ndarray
