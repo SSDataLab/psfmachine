@@ -893,7 +893,7 @@ class Machine(object):
             vmin=0.9,
             vmax=1.1,
         )
-        ax[1].set(xlabel="Binned Time Index", title="Perturbed Mode")
+        ax[1].set(xlabel="Binned Time Index", title="Perturbed Model")
 
         cbar = fig2.colorbar(
             im, ax=ax[:2], shrink=0.7, orientation="horizontal", location="bottom"

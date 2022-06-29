@@ -145,6 +145,10 @@ class TPFMachine(Machine):
         pixels_in_tpf = np.ones_like(self.row, dtype=bool)
 
         # enheance pixel mask
+        # creates a quick simple bkg model as fx of time to find variable pixels by
+        # taking the percentile value of pixel-flux distribution at each time
+        # the choice of percentile is irrelevant, it's to capture the global trend
+        # of the background pixels in time
         time_corr = np.nanpercentile(bkg_flux, 20, axis=1)[:, None]
         med_flux = np.median(bkg_flux - time_corr, axis=0)[None, :]
 
