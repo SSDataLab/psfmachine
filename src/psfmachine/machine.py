@@ -1041,6 +1041,7 @@ class Machine(object):
 
         self.psf_w = psf_w
         self.psf_w_err = psf_w_err
+        self.normalized_shape_model = False
 
         # We then build the same design matrix for all pixels with flux
         self._get_mean_model()
@@ -1186,7 +1187,9 @@ class Machine(object):
             axis=0,
         )
         # renormalize weights and build new shape model
-        self.psf_w *= np.log10(integral)
+        if not self.normalized_shape_model:
+            self.psf_w *= np.log10(integral)
+            self.normalized_shape_model = True
         self._get_mean_model()
 
         if plot:
