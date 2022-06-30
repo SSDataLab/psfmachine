@@ -1168,9 +1168,15 @@ class Machine(object):
         mean_model_hd[~np.isfinite(mean_model_hd)] = np.nan
         mean_model_hd = mean_model_hd.reshape(phi_hd.shape)
 
+        # mask = (mean_model_hd >= -3) & (r_hd < 14)
+        # mean_model_hd_ma = mean_model_hd.copy()
+        # mean_model_hd_ma[~mask] = -np.inf
+
         # mask out datapoint that don't contribuite to the psf
-        mask = (mean_model_hd >= -3) & (r_hd < 14)
         mean_model_hd_ma = mean_model_hd.copy()
+        mask = mean_model_hd > -3
+        mean_model_hd_ma[~mask] = -np.inf
+        mask &= ~((r_hd > 14) & (np.gradient(mean_model_hd_ma, axis=0) > 0))
         mean_model_hd_ma[~mask] = -np.inf
 
         # double integral using trapezoidal rule
@@ -1183,7 +1189,7 @@ class Machine(object):
             / 10
         )
         # renormalize weights and build new shape model
-        self.psf_w /= integral
+        self.psf_w *= integral
         self._get_mean_model()
 
         if plot:
@@ -1305,17 +1311,18 @@ class Machine(object):
             self.source_psf_fraction = np.array(self.mean_model.sum(axis=1)).ravel()
 
         # time model metrics
-        perturbed_lcs = np.vstack(
-            [
-                np.array(self.perturbed_model(time_index=k).sum(axis=1)).ravel()
-                for k in range(self.time.shape[0])
-            ]
-        )
-        self.perturbed_ratio_mean = (
-            np.nanmean(perturbed_lcs, axis=0)
-            / np.array(self.mean_model.sum(axis=1)).ravel()
-        )
-        self.perturbed_std = np.nanstd(perturbed_lcs, axis=0)
+        if hasattr(self, "P"):
+            perturbed_lcs = np.vstack(
+                [
+                    np.array(self.perturbed_model(time_index=k).sum(axis=1)).ravel()
+                    for k in range(self.time.shape[0])
+                ]
+            )
+            self.perturbed_ratio_mean = (
+                np.nanmean(perturbed_lcs, axis=0)
+                / np.array(self.mean_model.sum(axis=1)).ravel()
+            )
+            self.perturbed_std = np.nanstd(perturbed_lcs, axis=0)
 
     def plot_shape_model(self, radius=20, frame_index="mean", bin_data=False):
         """
