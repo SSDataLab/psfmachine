@@ -1121,8 +1121,8 @@ class Machine(object):
         #    (self.mean_model.max(axis=1) < 1)
         # )
 
-        # Recreate mean model!
-        self._get_mean_model()
+        # Recreate normalized mean model!
+        self._get_normalized_mean_model()
 
     def _get_mean_model(self):
         """Convenience function to make the scene model"""
@@ -1180,16 +1180,13 @@ class Machine(object):
         mean_model_hd_ma[~mask] = -np.inf
 
         # double integral using trapezoidal rule
-        integral = (
-            np.trapz(
-                np.trapz(10 ** mean_model_hd_ma, r_hd[:, 0], axis=0),
-                phi_hd[0, :],
-                axis=0,
-            )
-            / 10
+        integral = np.trapz(
+            np.trapz(10 ** mean_model_hd_ma, r_hd[:, 0], axis=0),
+            phi_hd[0, :],
+            axis=0,
         )
         # renormalize weights and build new shape model
-        self.psf_w *= integral
+        self.psf_w *= np.log10(integral)
         self._get_mean_model()
 
         if plot:
