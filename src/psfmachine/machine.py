@@ -1144,7 +1144,7 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def _renormalize_shape_model(self, npoints=300, plot=False):
+    def _get_normalized_mean_model(self, npoints=300, plot=False):
         """Renomarlize shape model to sum 1"""
 
         # create a high resolution polar grid
