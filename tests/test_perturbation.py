@@ -88,7 +88,6 @@ def test_perturbation_matrix3d():
     # ntime x npixels
     flux = np.random.normal(1, 0.01, size=(10, 169)) + dx[None, :] * dy[None, :]
     # the perturbation model assumes the perturbation is around 1
-    # flux += 1
     flux_err = np.ones((10, 169)) * 0.01
 
     p3 = PerturbationMatrix3D(
@@ -118,7 +117,6 @@ def test_perturbation_matrix3d():
     time = np.arange(0, 100, 1)
     flux = np.random.normal(1, 0.01, size=(100, 169)) + dx[None, :] * dy[None, :]
     # the perturbation model assumes the perturbation is around 1
-    # flux += 1
     flux_err = np.ones((100, 169)) * 0.01
 
     for bin_method in ["downsample", "bin"]:
