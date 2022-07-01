@@ -1,6 +1,7 @@
 """
 Defines the main Machine object that fit a mean PRF model to sources
 """
+import logging
 import numpy as np
 import pandas as pd
 from scipy import sparse
@@ -20,6 +21,7 @@ from .utils import (
 from .aperture import optimize_aperture, compute_FLFRCSAP, compute_CROWDSAP
 from .perturbation import PerturbationMatrix3D
 
+log = logging.getLogger(__name__)
 __all__ = ["Machine"]
 
 
@@ -691,6 +693,11 @@ class Machine(object):
                 )
 
             # smooth the vectors
+            if not segments:
+                log.warning(
+                    "Segments will still be used to smooth the position vectors."
+                    "See https://github.com/SSDataLab/psfmachine/pull/63 for details."
+                )
             mpc1_smooth, mpc2_smooth = bspline_smooth(
                 [mpc1, mpc2],
                 x=self.time,
