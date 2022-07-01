@@ -200,10 +200,8 @@ class TPFMachine(Machine):
             self.bkg_flux,
             mask=self.bkg_pixel_mask,
             tknotspacing=4,
-            # this should take into account the maximum space between bkg pixels in row
-            xknotspacing=np.maximum(
-                np.diff(np.unique(self.bkg_row[self.bkg_pixel_mask])).max() / 2, 6
-            ),
+            # this takes into account the maximum space between bkg pixels in row
+            xknotspacing=16,
         )
 
         # remove background when necessary, this is done just once
