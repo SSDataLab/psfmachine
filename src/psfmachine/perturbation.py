@@ -85,11 +85,11 @@ class PerturbationMatrix(object):
 
     @property
     def prior_mu(self):
-        return np.zeros(self.shape[1])
+        return np.ones(self.shape[1])
 
     @property
     def prior_sigma(self):
-        return np.ones(self.shape[1]) * 1e4
+        return np.ones(self.shape[1]) * 0.5
 
     @property
     def breaks(self):
