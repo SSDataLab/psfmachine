@@ -1051,6 +1051,8 @@ class Machine(object):
         self.normalized_shape_model = False
 
         # We then build the same design matrix for all pixels with flux
+        # this non-normalized mean model is temporary and used to re-create a better
+        # `source_mask`
         self._get_mean_model()
         # remove background pixels and recreate mean model
         self._update_source_mask_remove_bkg_pixels(
@@ -1129,7 +1131,7 @@ class Machine(object):
         #    (self.mean_model.max(axis=1) < 1)
         # )
 
-        # Recreate normalized mean model!
+        # create the final normalized mean model!
         self._get_normalized_mean_model()
 
     def _get_mean_model(self):
@@ -1176,10 +1178,6 @@ class Machine(object):
         mean_model_hd[~np.isfinite(mean_model_hd)] = np.nan
         mean_model_hd = mean_model_hd.reshape(phi_hd.shape)
 
-        # mask = (mean_model_hd >= -3) & (r_hd < 14)
-        # mean_model_hd_ma = mean_model_hd.copy()
-        # mean_model_hd_ma[~mask] = -np.inf
-
         # mask out datapoint that don't contribuite to the psf
         mean_model_hd_ma = mean_model_hd.copy()
         mask = mean_model_hd > -3
@@ -1222,7 +1220,7 @@ class Machine(object):
             fig.colorbar(im, ax=ax, location="bottom")
             plt.show()
 
-    def get_psf_metrics(self, resolution=10):
+    def get_psf_metrics(self, npoints_per_pixel=10):
         """
         Computes three metrics for the PSF model:
             source_psf_fraction: the amount of PSF in the data. Tells how much of a
@@ -1234,18 +1232,18 @@ class Machine(object):
                 source. USeful to find when the time model introduces variability in the
                 light curve.
 
-        If resolution > 0, it creates high resolution shape models for each source by
-        dividing each pixels into a grid of [resolution x resolution]. This provides
+        If npoints_per_pixel > 0, it creates high npoints_per_pixel shape models for each source by
+        dividing each pixels into a grid of [npoints_per_pixel x npoints_per_pixel]. This provides
         a better estimate of `source_psf_fraction`.
 
         Parameters
         ----------
-        resolution : int
-            Value in which each pixel axis is split to increase resolution. Default is
-            0 for no subpixel resolution.
+        npoints_per_pixel : int
+            Value in which each pixel axis is split to increase npoints_per_pixel. Default is
+            0 for no subpixel npoints_per_pixel.
 
         """
-        if resolution > 0:
+        if npoints_per_pixel > 0:
             # find from which observation (TPF) a sources comes
             obs_per_pixel = self.source_mask.multiply(self.pix2obs).tocsr()
             tpf_idx = []
@@ -1276,8 +1274,8 @@ class Machine(object):
                 colhd, rowhd = [], []
                 # pixels are divided into `resolution` - 1 subpixels
                 for c, r in zip(col_, row_):
-                    x = np.linspace(c - 0.5, c + 0.5, resolution + 1)
-                    y = np.linspace(r - 0.5, r + 0.5, resolution + 1)
+                    x = np.linspace(c - 0.5, c + 0.5, npoints_per_pixel + 1)
+                    y = np.linspace(r - 0.5, r + 0.5, npoints_per_pixel + 1)
                     x, y = np.meshgrid(x, y)
                     colhd.extend(x[:, :-1].ravel())
                     rowhd.extend(y[:-1].ravel())
@@ -1308,7 +1306,9 @@ class Machine(object):
                 # evaluate the HD model
                 modelhd = 10 ** Ap.dot(self.psf_w)
                 # compute the model sum for source, how much of the source is in data
-                mean_model_hd_sum.append(np.trapz(modelhd, dx=1 / resolution ** 2))
+                mean_model_hd_sum.append(
+                    np.trapz(modelhd, dx=1 / npoints_per_pixel ** 2)
+                )
 
             # get normalized psf fraction metric
             self.source_psf_fraction = np.array(
