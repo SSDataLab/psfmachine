@@ -100,7 +100,9 @@ class TPFMachine(Machine):
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
 
-    def remove_background_model(self, plot=False, data_augment=None):
+    def remove_background_model(
+        self, plot=False, data_augment=None, zero_centered=True
+    ):
         """
         Function to fit and remove the background signal of the TPF stack using
         `kbackground` package. This is a Kepler/K2 specific tool.
@@ -126,6 +128,9 @@ class TPFMachine(Machine):
             augment the background pixels. This argument is useful to include Kepler's
             background pixels from the mission. The dictionary has to have the following
             keys; "column", "row", and "flux".
+        zero_centered : boolean
+            If True the pixel background level will be zero centered. If False pixels
+            will be positive.
         """
         if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
             log.warning(
@@ -195,20 +200,26 @@ class TPFMachine(Machine):
             self.bkg_flux,
             mask=self.bkg_pixel_mask,
             tknotspacing=4,
-            xknotspacing=6,
+            # this takes into account the maximum space between bkg pixels in row
+            xknotspacing=16,
         )
 
         # remove background when necessary, this is done just once
         if not self.bkg_subtracted:
-            bkg_mask = ~np.asarray(
-                (self.source_mask.todense()).sum(axis=0).astype(bool)
-            ).ravel()
             # remove bkg and median value (kbackground fits the median-normalized
             # background)
             self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
-            self.flux -= np.median(self.flux[:, bkg_mask])
+            # to avoid negative fluxes
+            self.bkg_median_level = np.median(
+                self.flux[:, self.bkg_pixel_mask[self.pixels_in_tpf]]
+            )
+            self.flux -= self.bkg_median_level
             # set bkg subs flag so this step happens only one time
             self.bkg_subtracted = True
+            if not zero_centered:
+                zp = np.abs(self.flux.min())
+                self.bkg_median_level += zp
+                self.flux += zp
 
         if plot:
             self.bkg_estimator.plot()
