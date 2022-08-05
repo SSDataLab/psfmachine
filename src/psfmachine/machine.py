@@ -167,6 +167,7 @@ class Machine(object):
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
+        self.cont_mag_limit = None
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -564,20 +565,30 @@ class Machine(object):
         """
         creates a mask of shape nsources x npixels where targets are not contaminated.
         This mask is used to select pixels to build the PSF model.
+
+        Parameters
+        ----------
+        mag_limit: float
+          The magnitude value at which a sources is considered as contaminant
         """
 
-        # This could be a property, but it is a pain to calculate on the fly, perhaps with lru_cache
-        self.uncontaminated_source_mask = self.source_mask.multiply(
-            np.asarray(self.source_mask.sum(axis=0) == 1)[0]
-        ).tocsr()
+        # we flag sources fainter than mag_limit as non-contaminant
+        if isinstance(self.cont_mag_limit, (float, int)):
+            aux = self.source_mask.multiply(
+                self.sources.phot_g_mean_mag.values[:, None] < self.cont_mag_limit
+            )
+            aux.eliminate_zeros()
+            self.uncontaminated_source_mask = aux.multiply(
+                np.asarray(aux.sum(axis=0) == 1)[0]
+            ).tocsr()
+        # all sources are accounted for contamination
+        else:
+            self.uncontaminated_source_mask = self.source_mask.multiply(
+                np.asarray(self.source_mask.sum(axis=0) == 1)[0]
+            ).tocsr()
+
         # have to remove leaked zeros
         self.uncontaminated_source_mask.eliminate_zeros()
-
-        # # reduce to good pixels
-        # self.uncontaminated_pixel_mask = sparse.csr_matrix(
-        #     self.uncontaminated_source_mask.sum(axis=0) > 0
-        # )
-
         return
 
     # CH: We're not currently using this, but it might prove useful later so I will leave for now

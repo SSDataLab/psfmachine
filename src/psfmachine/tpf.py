@@ -96,6 +96,14 @@ class TPFMachine(Machine):
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
         self.bkg_subtracted = bkg_subtracted
+        # limiting mag values to consider contamination for kepler & tess
+        if self.nsources / self.npixels > 0.2:
+            if self.tpf_meta["mission"].lower() == "kepler":
+                self.cont_mag_limit = 17.5
+            elif self.tpf_meta["mission"].lower() == "tess":
+                self.cont_mag_limit = 17
+            else:
+                self.cont_mag_limit = 18
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
