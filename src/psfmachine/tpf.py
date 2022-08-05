@@ -97,6 +97,7 @@ class TPFMachine(Machine):
         self.cartesian_knot_spacing = cartesian_knot_spacing
         self.bkg_subtracted = bkg_subtracted
         # limiting mag values to consider contamination for kepler & tess
+        # hardcoded values to work with kepler
         if self.nsources / self.npixels > 0.2:
             if self.tpf_meta["mission"].lower() == "kepler":
                 self.cont_mag_limit = 17.5
