@@ -1267,7 +1267,6 @@ class Machine(object):
             ylim=(0, radius),
             yticks=np.linspace(0, radius, 5, dtype=int),
         )
-
         im = ax[1, 0].scatter(
             dx,
             dy,

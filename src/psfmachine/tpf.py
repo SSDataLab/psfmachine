@@ -99,9 +99,9 @@ class TPFMachine(Machine):
         # limiting mag values to consider contamination for kepler & tess
         # hardcoded values to work with kepler
         if self.nsources / self.npixels > 0.2:
-            if self.tpf_meta["mission"].lower() == "kepler":
+            if self.tpf_meta["mission"][0].lower() == "kepler":
                 self.cont_mag_limit = 17.5
-            elif self.tpf_meta["mission"].lower() == "tess":
+            elif self.tpf_meta["mission"][0].lower() == "tess":
                 self.cont_mag_limit = 17
             else:
                 self.cont_mag_limit = 18
@@ -219,7 +219,7 @@ class TPFMachine(Machine):
             # background)
             self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
             # to avoid negative fluxes
-            self.bkg_median_level = np.median(
+            self.bkg_median_level = np.nanmedian(
                 self.flux[:, self.bkg_pixel_mask[self.pixels_in_tpf]]
             )
             self.flux -= self.bkg_median_level
@@ -651,8 +651,10 @@ class TPFMachine(Machine):
             raise ValueError("File format not suported. Please provide a FITS file.")
 
         # create source mask and uncontaminated pixel mask
-        self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
+        if not hasattr(self, "source_mask"):
+            self._get_source_mask()
+        if not hasattr(self, "uncontaminated_source_mask"):
+            self._get_uncontaminated_pixel_mask()
 
         # open file
         hdu = fits.open(input)
