@@ -98,11 +98,12 @@ class TPFMachine(Machine):
         self.bkg_subtracted = bkg_subtracted
         # limiting mag values to consider contamination for kepler & tess
         # hardcoded values to work with kepler
+        # 0.2 seems ok for TESS
         if self.nsources / self.npixels > 0.2:
             if self.tpf_meta["mission"][0].lower() == "kepler":
                 self.contaminant_mag_limit = 17.5
             elif self.tpf_meta["mission"][0].lower() == "tess":
-                self.contaminant_mag_limit = 17
+                self.contaminant_mag_limit = 16
             else:
                 self.contaminant_mag_limit = 18
             log.warning(
