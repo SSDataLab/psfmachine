@@ -100,11 +100,15 @@ class TPFMachine(Machine):
         # hardcoded values to work with kepler
         if self.nsources / self.npixels > 0.2:
             if self.tpf_meta["mission"][0].lower() == "kepler":
-                self.cont_mag_limit = 17.5
+                self.contaminant_mag_limit = 17.5
             elif self.tpf_meta["mission"][0].lower() == "tess":
-                self.cont_mag_limit = 17
+                self.contaminant_mag_limit = 17
             else:
-                self.cont_mag_limit = 18
+                self.contaminant_mag_limit = 18
+            log.warning(
+                "Region is too crowded (nsources/npixels > 0.2), setting limiting "
+                f"magnitude to {self.contaminant_mag_limit} for contaminant sources."
+            )
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
