@@ -139,6 +139,8 @@ class Machine(object):
             the design matrix, options are "linear" or "sqrt".
         quiet: booleans
             Quiets TQDM progress bars.
+        contaminant_mag_limit: float
+          The limiting magnitude at which a sources is considered as contaminant
         """
 
         if not isinstance(sources, pd.DataFrame):
@@ -167,6 +169,7 @@ class Machine(object):
         self.cartesian_knot_spacing = "sqrt"
         # disble tqdm prgress bar when running in HPC
         self.quiet = False
+        self.contaminant_mag_limit = None
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
@@ -566,18 +569,24 @@ class Machine(object):
         This mask is used to select pixels to build the PSF model.
         """
 
-        # This could be a property, but it is a pain to calculate on the fly, perhaps with lru_cache
-        self.uncontaminated_source_mask = self.source_mask.multiply(
-            np.asarray(self.source_mask.sum(axis=0) == 1)[0]
-        ).tocsr()
+        # we flag sources fainter than mag_limit as non-contaminant
+        if isinstance(self.contaminant_mag_limit, (float, int)):
+            aux = self.source_mask.multiply(
+                self.sources.phot_g_mean_mag.values[:, None]
+                < self.contaminant_mag_limit
+            )
+            aux.eliminate_zeros()
+            self.uncontaminated_source_mask = aux.multiply(
+                np.asarray(aux.sum(axis=0) == 1)[0]
+            ).tocsr()
+        # all sources are accounted for contamination
+        else:
+            self.uncontaminated_source_mask = self.source_mask.multiply(
+                np.asarray(self.source_mask.sum(axis=0) == 1)[0]
+            ).tocsr()
+
         # have to remove leaked zeros
         self.uncontaminated_source_mask.eliminate_zeros()
-
-        # # reduce to good pixels
-        # self.uncontaminated_pixel_mask = sparse.csr_matrix(
-        #     self.uncontaminated_source_mask.sum(axis=0) > 0
-        # )
-
         return
 
     # CH: We're not currently using this, but it might prove useful later so I will leave for now
@@ -1256,7 +1265,6 @@ class Machine(object):
             ylim=(0, radius),
             yticks=np.linspace(0, radius, 5, dtype=int),
         )
-
         im = ax[1, 0].scatter(
             dx,
             dy,
