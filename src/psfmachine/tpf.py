@@ -934,7 +934,7 @@ class TPFMachine(Machine):
                 len(np.unique(tpf_meta["ccd"])) != 1
                 and len(np.unique(tpf_meta["camera"])) != 1
             ):
-                raise ValueError("TPFs span multiple channels.")
+                raise ValueError("TPFs span multiple cameras/CCDs.")
 
         # parse tpfs
         (
