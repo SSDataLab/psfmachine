@@ -928,14 +928,29 @@ class TPFMachine(Machine):
         if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
             tpf_meta["tpfmag"] = [tpf.get_header()["kepmag"] for tpf in tpfs]
         elif isinstance(tpfs[0], lk.TessTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.get_header()["tmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["tessmag"] for tpf in tpfs]
         else:
             raise ValueError("TPFs not understood")
 
-        if not np.all([isinstance(tpf, lk.KeplerTargetPixelFile) for tpf in tpfs]):
-            raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
-        if len(np.unique(tpf_meta["channel"])) != 1:
-            raise ValueError("TPFs span multiple channels.")
+        if not np.all(
+            [
+                isinstance(tpf, (lk.KeplerTargetPixelFile, lk.TessTargetPixelFile))
+                for tpf in tpfs
+            ]
+        ):
+            raise ValueError(
+                "Please only pass `lk.KeplerTargetPixelFiles` or "
+                "`lk.TessTargetPixelFile`"
+            )
+        if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
+            if len(np.unique(tpf_meta["channel"])) != 1:
+                raise ValueError("TPFs span multiple channels.")
+        if isinstance(tpfs[0], lk.TessTargetPixelFile):
+            if (
+                len(np.unique(tpf_meta["ccd"])) != 1
+                and len(np.unique(tpf_meta["camera"])) != 1
+            ):
+                raise ValueError("TPFs span multiple cameras/CCDs.")
 
         # parse tpfs
         (
