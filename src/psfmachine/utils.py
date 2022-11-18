@@ -8,6 +8,7 @@ from scipy import sparse
 from patsy import dmatrix
 from scipy.ndimage import gaussian_filter1d
 import pyia
+import fitsio
 
 # size_limit is 1GB
 cache = diskcache.Cache(directory="~/.psfmachine-cache")
@@ -685,3 +686,53 @@ def bspline_smooth(y, x=None, degree=3, do_segments=False, breaks=None, n_knots=
         )
         y_smooth.append(DM.dot(weights))
     return np.array(y_smooth)
+
+
+def _load_ffi_image(
+    telescope,
+    fname,
+    extension,
+    cutout_size=None,
+    cutout_origin=[0, 0],
+    return_coords=False,
+):
+    """Use fitsio to load an image
+    Parameters
+    ----------
+    telescope: str
+        String for the telescope
+    fname: str
+        Path to the filename
+    extension: int
+        Extension to cut out of the image
+    """
+    f = fitsio.FITS(fname)[extension]
+    if telescope.lower() == "kepler":
+        # CCD overscan for Kepler
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
+    elif telescope.lower() == "tess":
+        # CCD overscan for TESS
+        r_min = 0
+        r_max = 2048
+        c_min = 45
+        c_max = 2093
+    else:
+        raise TypeError("File is not from Kepler or TESS mission")
+    # If the image dimension is not the FFI shape, we change the r_max and c_max
+    dims = f.get_dims()
+    if dims != [r_max, c_max]:
+        r_max, c_max = np.asarray(dims)
+    r_min += cutout_origin[0]
+    c_min += cutout_origin[1]
+    if (r_min > r_max) | (c_min > c_max):
+        raise ValueError("`cutout_origin` must be within the image.")
+    if cutout_size is not None:
+        r_max = np.min([r_min + cutout_size, r_max])
+        c_max = np.min([c_min + cutout_size, c_max])
+    if return_coords:
+        row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
+        return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
+    return f[r_min:r_max, c_min:c_max]
