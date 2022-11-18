@@ -58,6 +58,7 @@ class Machine(object):
         rmax=16,
         cut_r=6,
         sparse_dist_lim=40,
+        sources_flux_column="phot_g_mean_flux",
     ):
         """
         Parameters
@@ -103,6 +104,9 @@ class Machine(object):
             Radial distance used to include pixels around sources when creating delta
             arrays (dra, ddec, r, and phi) as sparse matrices for efficiency.
             Default is 40" (recommended for kepler). (arcseconds)
+        sources_flux_column : str
+            Column name in `sources` table to be used as flux estimate. For Kepler data
+            gaia.phot_g_mean_flux is recommended, for TESS use gaia.phot_rp_mean_flux.
 
         Attributes
         ----------
@@ -171,6 +175,10 @@ class Machine(object):
         self.quiet = False
         self.contaminant_mag_limit = None
 
+        self.source_flux_estimates = np.copy(
+            np.asarray(self.sources[sources_flux_column])
+        )
+
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)
         else:
@@ -230,7 +238,7 @@ class Machine(object):
         self.r = np.hypot(self.dra, self.ddec).to("arcsec")
         self.phi = np.arctan2(self.ddec, self.dra)
 
-    def _create_delta_sparse_arrays(self, dist_lim=40, centroid_offset=[0, 0]):
+    def _create_delta_sparse_arrays(self, centroid_offset=[0, 0]):
         """
         Creates dra, ddec, r and phi arrays as sparse arrays to be used for dense data,
         e.g. Kepler FFIs or cluster fields. Assuming that there is no flux information
@@ -242,8 +250,6 @@ class Machine(object):
 
         Parameters
         ----------
-        dist_lim : float
-            Distance limit (in arcsecds) at which pixels are keep.
         centroid_offset : list
             Centroid offset for [ra, dec] to be included in dra and ddec computation.
             Default is [0, 0].
@@ -253,7 +259,7 @@ class Machine(object):
         if (centroid_offset[0] == centroid_offset[1] == 0) or (
             np.maximum(*np.abs(centroid_offset)) > 4 / 3600
         ):
-            # iterate over sources to only keep pixels within dist_lim
+            # iterate over sources to only keep pixels within self.sparse_dist_lim
             # this is inefficient, could be done in a tiled manner? only for squared data
             dra, ddec, sparse_mask = [], [], []
             for i in tqdm(
@@ -327,17 +333,21 @@ class Machine(object):
         correct_centroid_offset=True,
         plot=False,
     ):
-        """Find the pixel mask that identifies pixels with contributions from ANY NUMBER of Sources
+        """Find the pixel mask that identifies pixels with contributions from ANY
+        NUMBER of Sources
 
-        Fits a simple polynomial model to the log of the pixel flux values, in radial dimension and source flux,
-        to find the optimum circular apertures for every source.
+        Fits a simple polynomial model to the log of the pixel flux values, in radial
+        dimension and source flux, to find the optimum circular apertures for every
+        source.
 
         Parameters
         ----------
         upper_radius_limit: float
-            The radius limit at which we assume there is no flux from a source of any brightness (arcsec)
+            The radius limit at which we assume there is no flux from a source of
+            any brightness (arcsec)
         lower_radius_limit: float
-            The radius limit at which we assume there is flux from a source of any brightness (arcsec)
+            The radius limit at which we assume there is flux from a source of any
+            brightness (arcsec)
         upper_flux_limit: float
             The flux at which we assume as source is saturated
         lower_flux_limit: float
@@ -348,12 +358,6 @@ class Machine(object):
         plot: bool
             Whether to show diagnostic plot. Default is False
         """
-
-        if not hasattr(self, "source_flux_estimates"):
-            # gaia estimate flux values per pixel to be used as flux priors
-            self.source_flux_estimates = np.copy(
-                np.asarray(self.sources.phot_g_mean_flux)
-            )
         # We will use the radius a lot, this is for readibility
         # don't do if sparse array
         if isinstance(self.r, u.quantity.Quantity):
@@ -364,14 +368,15 @@ class Machine(object):
         # The average flux, which we assume is a good estimate of the whole stack of images
         max_flux = np.nanmax(self.flux[self.time_mask], axis=0)
 
-        # Mask out sources that are above the flux limit, and pixels above the radius limit
+        # Mask out sources that are above the flux limit, and pixels above the
+        # radius limit. This is a good estimation only when using phot_g_mean_flux
         source_rad = 0.5 * np.log10(self.source_flux_estimates) ** 1.5 + 3
         # temp_mask for the sparse array case should also be a sparse matrix. Then it is
         # applied to r, max_flux, and, source_flux_estimates to be used later.
         # Numpy array case:
         if not isinstance(r, sparse.csr_matrix):
             # First we make a guess that each source has exactly the gaia flux
-            source_flux_estimates = np.asarray(self.sources.phot_g_mean_flux)[
+            source_flux_estimates = np.asarray(self.source_flux_estimates)[
                 :, None
             ] * np.ones((self.nsources, self.npixels))
             temp_mask = (r < source_rad[:, None]) & (
@@ -527,7 +532,7 @@ class Machine(object):
         if plot:
             k = np.isfinite(f_temp_mask)
             # Make a nice diagnostic plot
-            fig, ax = plt.subplots(1, 2, figsize=(8, 3), facecolor="white")
+            fig, ax = plt.subplots(1, 2, figsize=(11, 3), facecolor="white")
 
             ax[0].scatter(r_temp_mask[k], f_temp_mask[k], s=0.4, c="k", label="Data")
             ax[0].scatter(r_temp_mask[k], A[k].dot(w), c="r", s=0.4, label="Model")
@@ -572,8 +577,7 @@ class Machine(object):
         # we flag sources fainter than mag_limit as non-contaminant
         if isinstance(self.contaminant_mag_limit, (float, int)):
             aux = self.source_mask.multiply(
-                self.sources.phot_g_mean_mag.values[:, None]
-                < self.contaminant_mag_limit
+                self.source_flux_estimates[:, None] < self.contaminant_mag_limit
             )
             aux.eliminate_zeros()
             self.uncontaminated_source_mask = aux.multiply(
@@ -951,9 +955,6 @@ class Machine(object):
             Keyword arguments to be passed to `_get_source_mask()`
         """
 
-        # gaia estimate flux values per pixel to be used as flux priors
-        self.source_flux_estimates = np.copy(np.asarray(self.sources.phot_g_mean_flux))
-
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
         if not hasattr(self, "source_mask"):
@@ -1159,7 +1160,7 @@ class Machine(object):
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
 
-    def plot_shape_model(self, radius=20, frame_index="mean", bin_data=False):
+    def plot_shape_model(self, frame_index="mean", bin_data=False):
         """
         Diagnostic plot of shape model.
 
@@ -1176,7 +1177,6 @@ class Machine(object):
         fig : matplotlib.Figure
             Figure.
         """
-
         if frame_index == "mean":
             mean_f = np.log10(
                 self.uncontaminated_source_mask.astype(float)
@@ -1199,6 +1199,9 @@ class Machine(object):
         dx = dx.data * u.deg.to(u.arcsecond)
         dy = dy.data * u.deg.to(u.arcsecond)
 
+        radius = np.maximum(np.abs(dx).max(), np.abs(dy).max()) * 1.1
+        vmin, vmax = np.nanpercentile(mean_f, [5, 90])
+
         if bin_data:
             nbins = 30 if mean_f.shape[0] <= 5e3 else 90
             _, dx, dy, mean_f, _ = threshold_bin(
@@ -1207,7 +1210,14 @@ class Machine(object):
 
         fig, ax = plt.subplots(3, 2, figsize=(9, 10.5), constrained_layout=True)
         im = ax[0, 0].scatter(
-            dx, dy, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
+            dx,
+            dy,
+            c=mean_f,
+            cmap="viridis",
+            vmin=vmin,
+            vmax=vmax,
+            s=3,
+            rasterized=True,
         )
         ax[0, 0].set(
             ylabel=r'$\delta y$ ["]',
@@ -1231,7 +1241,7 @@ class Machine(object):
 
         phi, r = np.arctan2(dy, dx), np.hypot(dx, dy)
         im = ax[0, 1].scatter(
-            phi, r, c=mean_f, cmap="viridis", vmin=-3, vmax=-1, s=3, rasterized=True
+            phi, r, c=mean_f, cmap="viridis", vmin=vmin, vmax=vmax, s=3, rasterized=True
         )
         ax[0, 1].set(
             ylabel='$r$ ["]',
@@ -1254,8 +1264,8 @@ class Machine(object):
             r,
             c=A.dot(self.psf_w),
             cmap="viridis",
-            vmin=-3,
-            vmax=-1,
+            vmin=vmin,
+            vmax=vmax,
             s=3,
             rasterized=True,
         )
@@ -1270,8 +1280,8 @@ class Machine(object):
             dy,
             c=A.dot(self.psf_w),
             cmap="viridis",
-            vmin=-3,
-            vmax=-1,
+            vmin=vmin,
+            vmax=vmax,
             s=3,
             rasterized=True,
         )
