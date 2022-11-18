@@ -2,20 +2,24 @@
 import os
 import logging
 import numpy as np
+from fbpca import pca
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 from astropy.io import fits
-from astropy.stats import SigmaClip
 from astropy.time import Time
 from astropy.wcs import WCS
 import astropy.units as u
 from astropy.stats import sigma_clip
-from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+from .utils import (
+    do_tiled_query,
+    _make_A_cartesian,
+    solve_linear_model,
+    _load_ffi_image,
+)
 from .tpf import _clean_source_list
 
 from .machine import Machine
@@ -52,6 +56,7 @@ class FFIMachine(Machine):
         rmax=16,
         sparse_dist_lim=40,
         bkg_subtracted=True,
+        quality_mask=None,
         meta=None,
     ):
         """
@@ -96,30 +101,29 @@ class FFIMachine(Machine):
         self.row = row
         self.ra = ra
         self.dec = dec
-        # keep 2d image for easy plotting
-        self.flux_2d = flux
+        self.wcs = wcs
+        self.meta = meta
+
+        # keep 2d image shape
         self.image_shape = flux.shape[1:]
         # reshape flux and flux_err as [ntimes, npix]
         self.flux = flux.reshape(flux.shape[0], -1)
         self.flux_err = flux_err.reshape(flux_err.shape[0], -1)
         self.sources = sources
-        self.meta = meta
 
         # remove background and mask bright/saturated pixels
         # these steps need to be done before `machine` init, so sparse delta
         # and flux arrays have the same shape
-        if not meta["BACKAPP"]:
-            self._remove_background()
-        self._mask_pixels()
-
-        # remove nan pixels
-        valid_pix = np.isfinite(self.flux).sum(axis=0).astype(bool)
-        self.flux = self.flux[:, valid_pix]
-        self.flux_err = self.flux_err[:, valid_pix]
-        self.ra = self.ra[valid_pix]
-        self.dec = self.dec[valid_pix]
-        self.row = self.row[valid_pix]
-        self.column = self.column[valid_pix]
+        thumb = np.min(self.flux, axis=0).reshape(self.image_shape)
+        gthumb = np.hypot(*np.gradient(thumb))
+        mask = (
+            ~sigma_clip(
+                np.ma.masked_array(gthumb, gthumb > 500),
+                sigma=3,
+                cenfunc=lambda x, axis: 0,
+            ).mask
+        ).ravel()
+        # self._remove_background()
 
         # init `machine` object
         super().__init__(
@@ -139,10 +143,17 @@ class FFIMachine(Machine):
             cut_r=cut_r,
             rmin=rmin,
             rmax=rmax,
-            # hardcoded to work for Kepler and TESS FFIs
             sparse_dist_lim=sparse_dist_lim,
         )
-        self.wcs = wcs
+        # self._mask_pixels()
+        if quality_mask is None:
+            self.quality_mask = np.zeros(len(time), dtype=int)
+        else:
+            self.quality_mask = quality_mask
+
+    @property
+    def flux_2d(self):
+        return self.flux.reshape((self.flux.shape[0], *self.image_shape))
 
     def __repr__(self):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
@@ -200,25 +211,19 @@ class FFIMachine(Machine):
             row,
             metadata,
             quality_mask,
-        ) = _load_file(fname, extension=extension)
-        # create cutouts if asked
-        if cutout_size is not None:
-            flux, flux_err, ra, dec, column, row = _do_image_cutout(
-                flux,
-                flux_err,
-                ra,
-                dec,
-                column,
-                row,
-                cutout_size=cutout_size,
-                cutout_origin=cutout_origin,
-            )
+        ) = _load_file(
+            fname,
+            extension=extension,
+            cutout_size=cutout_size,
+            cutout_origin=cutout_origin,
+        )
+
         # hardcoded: the grid size to do the Gaia tiled query. This is different for
         # cutouts and full channel. TESS and Kepler also need different grid sizes.
         if metadata["TELESCOP"] == "Kepler":
             ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
         else:
-            ngrid = (5, 5) if flux.shape[1] < 500 else (10, 10)
+            ngrid = (4, 4) if flux.shape[1] < 500 else (7, 7)
         # query Gaia and clean sources.
         sources = _get_sources(
             ra,
@@ -255,6 +260,7 @@ class FFIMachine(Machine):
             row.ravel(),
             wcs=wcs,
             meta=metadata,
+            quality_mask=quality_mask,
             **kwargs,
         )
 
@@ -460,37 +466,137 @@ class FFIMachine(Machine):
 
         return
 
-    def _remove_background(self, mask=None):
+    def _remove_background(self, mask=None, pixel_knot_spacing=10):
         """
         Background removal. It models the background using a median estimator, rejects
         flux values with sigma clipping. It modiffies the attributes `flux` and
         `flux_2d`. The background model are stored in the `background_model` attribute.
-
         Parameters
         ----------
         mask : numpy.ndarray of booleans
             Mask to reject pixels containing sources. Default None.
         """
-        # model background for all cadences
-        self.background_model = np.array(
-            [
-                Background2D(
-                    flux_2d,
-                    mask=mask,
-                    box_size=(64, 50),
-                    filter_size=15,
-                    exclude_percentile=20,
-                    sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
-                    bkg_estimator=MedianBackground(),
-                    interpolator=BkgZoomInterpolator(order=3),
-                ).background
-                for flux_2d in self.flux_2d
-            ]
-        )
-        # substract background
-        self.flux_2d -= self.background_model
-        # flatten flix image
-        self.flux = self.flux_2d.reshape(self.flux_2d.shape[0], -1)
+        if not self.meta["BACKAPP"]:
+            cutout_size = np.max(
+                [
+                    self.row.max() - self.row.min() + 1,
+                    self.column.max() - self.column.min() + 1,
+                ]
+            )
+            n_knots = np.min([cutout_size // pixel_knot_spacing, 1])
+            if mask is None:
+                k = np.ones(self.flux.shape[1], dtype=int)
+            else:
+                k = mask
+            X = _make_A_cartesian(
+                self.row - self.row.min() - cutout_size / 2,
+                self.column - self.column.min() - cutout_size / 2,
+                knot_spacing_type="linear",
+                radius=(cutout_size) // 2,
+                n_knots=n_knots,
+            )
+            ws = np.linalg.solve(
+                X[k].T.dot(X[k]).toarray()
+                + np.diag(1 / (np.ones(X.shape[1]) * 1000000)),
+                X[k].T.dot(self.flux[:, k].T),
+            )
+            self.bkg_model = X.dot(ws).T
+
+            self.flux -= self.bkg_model
+            self.meta["BACKAPP"] = True
+        return
+
+    def _remove_background_tess(
+        self, pca_ncomponents=10, bkg_flux_level=100, poly_deg=3, mask=None, plot=False
+    ):
+        """
+        Fits the background model using PCA components for TESS FFIs
+
+        Parameters
+        ----------
+        pca_ncomponents : int
+            Number of PCA components to be used in the background model
+        bkg_flux_level : float
+            Flux value at which background median level is
+        poly_deg : int
+            Polynomial degree for the cartesian design matrix
+        """
+        if not self.meta["BACKAPP"]:
+            # if mask is None:
+            #     mask = np.ones(self.npixels, dtype=int).reshape(self.image_shape)
+
+            # Build a Row and Column vector, we'll need this to make some polynomials
+            R, C = np.mgrid[: self.image_shape[0], : self.image_shape[1]].astype(float)
+            R -= self.row.mean()
+            C -= self.column.mean()
+
+            X = np.vstack(
+                [
+                    R.ravel() ** idx * C.ravel() ** jdx
+                    for idx in range(3)
+                    for jdx in range(3)
+                ]
+            ).T
+
+            # First take the median frame
+            med = np.median(self.flux_2d, axis=0)
+            # Identify sources. Sources are anywhere where the gradient in the image is
+            # high, or the flux is high.
+            sources = np.hypot(*np.gradient(med)) > 100
+            sources |= (med - np.median(med[~sources])) > 100
+            # sources |= mask
+
+            # Make a simple polynomial model
+            k = (~sources).ravel()
+            ws = np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(med.ravel()[k]))
+            med_model = X.dot(ws).reshape(med.shape)
+            # update it to remove outliers...
+            sources |= np.abs((med - med_model)) > 100
+            k = (~sources).ravel()
+            ws = np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(med.ravel()[k]))
+            med_model = X.dot(ws).reshape(med.shape)
+            med -= med_model
+
+            # Find the residuals between the corrected median frame and the data
+            # This should remove most of the star light...
+            resids = self.flux_2d - med
+
+            # Get the PCA components for the background data, up to 10
+            U, s, V = pca(
+                resids[:, ~sources], np.min([np.max([1, (~sources).sum() // 100]), 6])
+            )
+            # Use a polynomial model to in-fill the "V" component wherever there are
+            # sources!!
+            V_model = X.dot(np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(V.T))).T
+            # Now my PCA model can be evaluated everywhere!
+            self.bkg_model = U.dot(np.diag(s)).dot(V_model).reshape(self.flux_2d.shape)
+
+            # Correct for offsets, bc TESS scattered light is an additive background
+            self.bkg_model -= np.percentile(self.bkg_model, 1)
+            self.bkg_model += np.median(
+                (self.flux_2d - self.bkg_model - med).mean(axis=0)[~sources]
+            )
+            self.flux -= self.bkg_model.reshape(self.nt, self.npixels)
+            self.meta["BACKAPP"] = True
+
+            if plot:
+                fig, ax = plt.subplots(V.shape[0], 2, figsize=(6, 3 * V.shape[0]))
+                for vdx in range(V.shape[0]):
+                    l1, l2 = np.ones((2, *self.image_shape)) * np.nan
+                    l1[~sources] = V[vdx]
+                    l2 = V_model[vdx].reshape(self.image_shape)
+                    vmin, vmax = np.sort(np.abs(np.nanpercentile(l1, (5, 95))))
+                    ax[vdx, 0].imshow(l1, vmin=vmin, vmax=vmax)
+                    ax[vdx, 1].imshow(l2, vmin=vmin, vmax=vmax)
+                    if vdx == 0:
+                        ax[vdx, 0].set(title=f'PCA `V`')
+                        ax[vdx, 1].set(title=f'Infilled PCA `V`')
+                    ax[vdx, 0].set(
+                        ylabel=f'Component {vdx}', xticklabels=[], yticklabels=[]
+                    )
+                    ax[vdx, 1].set(xticklabels=[], yticklabels=[])
+                return fig
+
         return
 
     def _saturated_pixels_mask(self, saturation_limit=1.5e5, tolerance=3):
@@ -589,14 +695,16 @@ class FFIMachine(Machine):
         self.non_bright_source_mask = ~self._bright_sources_mask(
             magnitude_limit=magnitude_bright_limit, tolerance=tolerance
         )
-        good_pixels = self.non_sat_pixel_mask & self.non_bright_source_mask
+        self.pixel_mask = self.non_sat_pixel_mask & self.non_bright_source_mask
 
-        self.column = self.column[good_pixels]
-        self.row = self.row[good_pixels]
-        self.ra = self.ra[good_pixels]
-        self.dec = self.dec[good_pixels]
-        self.flux = self.flux[:, good_pixels]
-        self.flux_err = self.flux_err[:, good_pixels]
+        if hasattr(self, "source_mask"):
+            self.source_mask = self.source_mask.multiply(self.pixel_mask).tocsr()
+            self.source_mask.eliminate_zeros()
+        if hasattr(self, "uncontaminated_source_mask"):
+            self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
+                self.pixel_mask
+            ).tocsr()
+            self.uncontaminated_source_mask.eliminate_zeros()
 
         return
 
@@ -832,7 +940,7 @@ class FFIMachine(Machine):
         return ax
 
 
-def _load_file(fname, extension=1):
+def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
     """
     Helper function to load FFI files and parse data. It parses the FITS files to
     extract the image data and metadata. It checks that all files provided in fname
@@ -844,6 +952,10 @@ def _load_file(fname, extension=1):
         Name of the FFI files
     extension : int
         Number of HDU extension to use, for Kepler FFIs this corresponds to the channel
+    cutout_size: int
+        Size of (square) portion of FFIs to cut out
+    cutout_origin: tuple
+        Coordinates of the origin of the cut out
 
     Returns
     -------
@@ -866,7 +978,7 @@ def _load_file(fname, extension=1):
     meta : dict
         Dictionary with metadata
     """
-    if not isinstance(fname, list):
+    if not isinstance(fname, (list, np.ndarray)):
         fname = np.sort([fname])
     flux = []
     flux_err = []
@@ -876,45 +988,61 @@ def _load_file(fname, extension=1):
     quarters = []
     extensions = []
     quality_mask = []
+    cadenceno = []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
 
-        hdul = fits.open(f)
-        header = hdul[0].header
-        telescopes.append(header["TELESCOP"])
+        hdul = fits.open(f, lazy_load_hdus=None)
+        primary_header = hdul[0].header
+        hdr = hdul[extension].header
+        telescopes.append(primary_header["TELESCOP"])
         # kepler
         if f.split("/")[-1].startswith("kplr"):
-            dct_types.append(header["DCT_TYPE"])
-            quarters.append(header["QUARTER"])
-            extensions.append(hdul[extension].header["CHANNEL"])
-            hdr = hdul[extension].header
+            dct_types.append(primary_header["DCT_TYPE"])
+            quarters.append(primary_header["QUARTER"])
+            extensions.append(hdr["CHANNEL"])
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            flux.append(hdul[extension].data)
         # K2
         elif f.split("/")[-1].startswith("ktwo"):
-            dct_types.append(header["DCT_TYPE"])
-            quarters.append(header["CAMPAIGN"])
-            extensions.append(hdul[extension].header["CHANNEL"])
-            hdr = hdul[extension].header
+            dct_types.append(primary_header["DCT_TYPE"])
+            quarters.append(primary_header["CAMPAIGN"])
+            extensions.append(hdr["CHANNEL"])
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            flux.append(hdul[extension].data)
         # TESS
         elif f.split("/")[-1].startswith("tess"):
-            dct_types.append(header["CREATOR"].split(" ")[-1].upper())
+            dct_types.append(primary_header["CREATOR"].split(" ")[-1].upper())
             quarters.append(f.split("/")[-1].split("-")[1])
-            hdr = hdul[1].header
             times.append((hdr["TSTART"] + hdr["TSTOP"]) / 2)
-            flux.append(hdul[1].data)
-            flux_err.append(hdul[2].data)
             extensions.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
             quality_mask.append(hdr["DQUALITY"])
-            # raise NotImplementedError
+            cadenceno.append(primary_header["FFIINDEX"])
         else:
             raise ValueError("FFI is not from Kepler or TESS.")
 
         if i == 0:
             wcs = WCS(hdr)
+            col_2d, row_2d, f2d = _load_ffi_image(
+                telescopes[-1],
+                f,
+                extension,
+                cutout_size,
+                cutout_origin,
+                return_coords=True,
+            )
+            flux.append(f2d)
+        else:
+            flux.append(
+                _load_ffi_image(
+                    telescopes[-1], f, extension, cutout_size, cutout_origin
+                )
+            )
+        if telescopes[-1].lower() in ["tess"]:
+            flux_err.append(
+                _load_ffi_image(telescopes[-1], f, 2, cutout_size, cutout_origin)
+            )
+        else:
+            flux_err.append(flux[-1] ** 0.5)
 
     # check for integrity of files, same telescope, all FFIs and same quarter/campaign
     if len(set(telescopes)) != 1:
@@ -931,7 +1059,7 @@ def _load_file(fname, extension=1):
         "MISSION",
         "DATSETNM",
     ]
-    meta = {k: header[k] for k in attrs if k in header.keys()}
+    meta = {k: primary_header[k] for k in attrs if k in primary_header.keys()}
     attrs = [
         "RADESYS",
         "EQUINOX",
@@ -948,15 +1076,13 @@ def _load_file(fname, extension=1):
     times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
-    # sorting quality mask
+    if len(quality_mask) == 0:
+        quality_mask = np.zeros(len(times), dtype=int)
+        quality_mask = np.arange(len(times))
     quality_mask = np.array(quality_mask)[tdx]
-
-    # remove overscan of image
-    row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(flux)[tdx])
-    # kepler FFIs have uncent maps stored in different files, so we use Poison noise as
-    # flux error for now.
-    _, _, flux_err_2d = _remove_overscan(meta["TELESCOP"], np.array(flux_err)[tdx])
-    # flux_err_2d = np.sqrt(np.abs(flux_2d))
+    cadenceno = np.array(cadenceno)[tdx]
+    flux = np.asarray(flux)[tdx]
+    flux_err = np.asarray(flux_err)[tdx]
 
     # convert to RA and Dec
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
@@ -964,16 +1090,16 @@ def _load_file(fname, extension=1):
     # doesn't exist or is wrong, it could produce RA Dec values out of bound.
     if ra.min() < 0.0 or ra.max() > 360 or dec.min() < -90 or dec.max() > 90:
         raise ValueError("WCS lead to out of bound RA and Dec coordinates.")
-    ra_2d = ra.reshape(flux_2d.shape[1:])
-    dec_2d = dec.reshape(flux_2d.shape[1:])
+    ra_2d = ra.reshape(col_2d.shape)
+    dec_2d = dec.reshape(col_2d.shape)
 
-    del hdul, header, hdr, flux, ra, dec
+    del hdul, primary_header, hdr, ra, dec
 
     return (
         wcs,
         times,
-        flux_2d,
-        flux_err_2d,
+        flux,
+        flux_err,
         ra_2d,
         dec_2d,
         col_2d,
