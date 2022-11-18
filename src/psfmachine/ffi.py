@@ -50,6 +50,8 @@ class FFIMachine(Machine):
         cut_r=6,
         rmin=1,
         rmax=16,
+        sparse_dist_lim=40,
+        bkg_subtracted=True,
         meta=None,
     ):
         """
@@ -101,6 +103,7 @@ class FFIMachine(Machine):
         self.flux = flux.reshape(flux.shape[0], -1)
         self.flux_err = flux_err.reshape(flux_err.shape[0], -1)
         self.sources = sources
+        self.meta = meta
 
         # remove background and mask bright/saturated pixels
         # these steps need to be done before `machine` init, so sparse delta
@@ -137,9 +140,8 @@ class FFIMachine(Machine):
             rmin=rmin,
             rmax=rmax,
             # hardcoded to work for Kepler and TESS FFIs
-            sparse_dist_lim=40 if meta["TELESCOP"] == "Kepler" else 210,
+            sparse_dist_lim=sparse_dist_lim,
         )
-        self.meta = meta
         self.wcs = wcs
 
     def __repr__(self):
@@ -153,6 +155,8 @@ class FFIMachine(Machine):
         cutout_origin=[0, 0],
         correct_offsets=False,
         plot_offsets=False,
+        magnitude_limit=18,
+        dr=3,
         **kwargs,
     ):
         """
@@ -195,6 +199,7 @@ class FFIMachine(Machine):
             column,
             row,
             metadata,
+            quality_mask,
         ) = _load_file(fname, extension=extension)
         # create cutouts if asked
         if cutout_size is not None:
@@ -219,10 +224,10 @@ class FFIMachine(Machine):
             ra,
             dec,
             wcs,
-            magnitude_limit=18 if metadata["TELESCOP"] == "Kepler" else 15,
+            magnitude_limit=magnitude_limit,
             epoch=time.jyear.mean(),
             ngrid=ngrid,
-            dr=3,
+            dr=dr,
             img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
         )
         # correct coordinate offset if necessary.
@@ -580,8 +585,9 @@ class FFIMachine(Machine):
         self.non_sat_pixel_mask = ~self._saturated_pixels_mask(
             saturation_limit=pixel_saturation_limit
         )
+        tolerance = 5 if self.meta["MISSION"] == "TESS" else 25
         self.non_bright_source_mask = ~self._bright_sources_mask(
-            magnitude_limit=magnitude_bright_limit
+            magnitude_limit=magnitude_bright_limit, tolerance=tolerance
         )
         good_pixels = self.non_sat_pixel_mask & self.non_bright_source_mask
 
@@ -862,12 +868,14 @@ def _load_file(fname, extension=1):
     """
     if not isinstance(fname, list):
         fname = np.sort([fname])
-    imgs = []
+    flux = []
+    flux_err = []
     times = []
     telescopes = []
     dct_types = []
     quarters = []
     extensions = []
+    quality_mask = []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
@@ -882,7 +890,7 @@ def _load_file(fname, extension=1):
             extensions.append(hdul[extension].header["CHANNEL"])
             hdr = hdul[extension].header
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[extension].data)
+            flux.append(hdul[extension].data)
         # K2
         elif f.split("/")[-1].startswith("ktwo"):
             dct_types.append(header["DCT_TYPE"])
@@ -890,15 +898,17 @@ def _load_file(fname, extension=1):
             extensions.append(hdul[extension].header["CHANNEL"])
             hdr = hdul[extension].header
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[extension].data)
+            flux.append(hdul[extension].data)
         # TESS
         elif f.split("/")[-1].startswith("tess"):
             dct_types.append(header["CREATOR"].split(" ")[-1].upper())
             quarters.append(f.split("/")[-1].split("-")[1])
             hdr = hdul[1].header
             times.append((hdr["TSTART"] + hdr["TSTOP"]) / 2)
-            imgs.append(hdul[1].data)
+            flux.append(hdul[1].data)
+            flux_err.append(hdul[2].data)
             extensions.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
+            quality_mask.append(hdr["DQUALITY"])
             # raise NotImplementedError
         else:
             raise ValueError("FFI is not from Kepler or TESS.")
@@ -938,12 +948,15 @@ def _load_file(fname, extension=1):
     times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
+    # sorting quality mask
+    quality_mask = np.array(quality_mask)[tdx]
 
     # remove overscan of image
-    row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(imgs)[tdx])
+    row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(flux)[tdx])
     # kepler FFIs have uncent maps stored in different files, so we use Poison noise as
     # flux error for now.
-    flux_err_2d = np.sqrt(np.abs(flux_2d))
+    _, _, flux_err_2d = _remove_overscan(meta["TELESCOP"], np.array(flux_err)[tdx])
+    # flux_err_2d = np.sqrt(np.abs(flux_2d))
 
     # convert to RA and Dec
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
@@ -954,7 +967,7 @@ def _load_file(fname, extension=1):
     ra_2d = ra.reshape(flux_2d.shape[1:])
     dec_2d = dec.reshape(flux_2d.shape[1:])
 
-    del hdul, header, hdr, imgs, ra, dec
+    del hdul, header, hdr, flux, ra, dec
 
     return (
         wcs,
@@ -966,6 +979,7 @@ def _load_file(fname, extension=1):
         col_2d,
         row_2d,
         meta,
+        quality_mask,
     )
 
 
