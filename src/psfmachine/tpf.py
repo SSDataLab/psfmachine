@@ -148,12 +148,12 @@ class TPFMachine(Machine):
             If True the pixel background level will be zero centered. If False pixels
             will be positive.
         """
-        # if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
-        #     log.warning(
-        #         "Background fitting is a Kepler only tool, "
-        #         "then no background model will be fitted."
-        #     )
-        #     return
+        if not self.tpf_meta["mission"][0].lower() in ["kepler", "k2", "ktwo"]:
+            log.warning(
+                "Background fitting is a Kepler only tool, "
+                "then no background model will be fitted."
+            )
+            return
         # invert maks to get bkg pixels from TPFs
         if not hasattr(self, "source_mask"):
             self._get_source_mask(correct_centroid_offset=True)
@@ -1126,7 +1126,7 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
 
     elif isinstance(tpfs[0], lk.TessTargetPixelFile):
         qual_mask = lk.utils.TessQualityFlags.create_quality_mask(
-            tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 128 | 2048 | 4096
+            tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 128
         )
         qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
         focus_mask = np.ones(len(tpfs[0].time), bool)[qual_mask]
