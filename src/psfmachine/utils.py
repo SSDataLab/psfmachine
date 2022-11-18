@@ -68,7 +68,9 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         phot_g_mean_flux,
         phot_g_mean_mag,
         phot_bp_mean_mag,
-        phot_rp_mean_mag FROM (
+        phot_rp_mean_mag,
+        phot_bp_mean_flux,
+        phot_rp_mean_flux FROM (
          SELECT *,
          EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, {epoch}) AS prop
          FROM gaia{dr}.gaia_source
