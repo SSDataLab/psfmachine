@@ -721,10 +721,7 @@ def _load_ffi_image(
         c_max = 2093
     else:
         raise TypeError("File is not from Kepler or TESS mission")
-    # If the image dimension is not the FFI shape, we change the r_max and c_max
-    dims = f.get_dims()
-    if dims != [r_max, c_max]:
-        r_max, c_max = np.asarray(dims)
+
     r_min += cutout_origin[0]
     c_min += cutout_origin[1]
     if (r_min > r_max) | (c_min > c_max):
@@ -736,3 +733,76 @@ def _load_ffi_image(
         row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
         return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
     return f[r_min:r_max, c_min:c_max]
+
+
+def _do_image_cutout(
+    flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
+):
+    """
+    Creates a cutout of the full image. Return data arrays corresponding to the cutout.
+    Parameters
+    ----------
+    flux : numpy.ndarray
+        Data array with Flux values, correspond to full size image.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values, correspond to full size image.
+    ra : numpy.ndarray
+        Data array with RA values, correspond to full size image.
+    dec : numpy.ndarray
+        Data array with Dec values, correspond to full size image.
+    column : numpy.ndarray
+        Data array with pixel column values, correspond to full size image.
+    row : numpy.ndarray
+        Data array with pixel raw values, correspond to full size image.
+    cutout_size : int
+        Size in pixels of the cutout, assumedto be squared. Default is 100.
+    cutout_origin : tuple of ints
+        Origin of the cutout following matrix indexing. Default is [0 ,0].
+    Returns
+    -------
+    flux : numpy.ndarray
+        Data array with Flux values of the cutout.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values of the cutout.
+    ra : numpy.ndarray
+        Data array with RA values of the cutout.
+    dec : numpy.ndarray
+        Data array with Dec values of the cutout.
+    column : numpy.ndarray
+        Data array with pixel column values of the cutout.
+    row : numpy.ndarray
+        Data array with pixel raw values of the cutout.
+    """
+    if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
+        cutout_size + cutout_origin[1] <= flux.shape[2]
+    ):
+        column = column[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        row = row[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux = flux[
+            :,
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux_err = flux_err[
+            :,
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        ra = ra[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        dec = dec[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+    else:
+        raise ValueError("Cutout size is larger than image shape ", flux.shape)
+
+    return flux, flux_err, ra, dec, column, row
