@@ -199,15 +199,43 @@ def spline1d(x, knots, degree=3):
     return X
 
 
-def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt", degree=3):
-    if knot_spacing_type == "sqrt":
-        knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_knots)
-        knots = np.sign(knots) * knots ** 2
+def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt", degree=3):
+    # Must be odd
+    n_odd_knots = n_knots if n_knots % 2 == 1 else n_knots + 1
+    if spacing == "sqrt":
+        x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
+        x_knots = np.sign(x_knots) * x_knots ** 2
+        y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
+        y_knots = np.sign(y_knots) * y_knots ** 2
     else:
-        knots = np.linspace(-radius, radius, n_knots)
-    x_spline = spline1d(x, knots=knots, degree=degree)
-    y_spline = spline1d(y, knots=knots, degree=degree)
-
+        x_knots = np.linspace(-radius, radius, n_odd_knots)
+        y_knots = np.linspace(-radius, radius, n_odd_knots)
+    x_spline = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=degree, include_intercept=True)",
+                {
+                    "x": list(np.hstack([x_knots.min(), x, x_knots.max()])),
+                    "degree": degree,
+                    "knots": x_knots,
+                },
+            )
+        )[1:-1]
+    )
+    y_spline = sparse.csr_matrix(
+        np.asarray(
+            dmatrix(
+                "bs(x, knots=knots, degree=degree, include_intercept=True)",
+                {
+                    "x": list(np.hstack([y_knots.min(), y, y_knots.max()])),
+                    "degree": degree,
+                    "knots": y_knots,
+                },
+            )
+        )[1:-1]
+    )
+    x_spline = x_spline[:, np.asarray(x_spline.sum(axis=0))[0] != 0]
+    y_spline = y_spline[:, np.asarray(y_spline.sum(axis=0))[0] != 0]
     X = sparse.hstack(
         [x_spline.multiply(y_spline[:, idx]) for idx in range(y_spline.shape[1])],
         format="csr",
