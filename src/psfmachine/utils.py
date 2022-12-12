@@ -199,10 +199,10 @@ def spline1d(x, knots, degree=3):
     return X
 
 
-def _make_A_cartesian(x, y, n_knots=10, radius=3.0, spacing="sqrt", degree=3):
+def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt", degree=3):
     # Must be odd
     n_odd_knots = n_knots if n_knots % 2 == 1 else n_knots + 1
-    if spacing == "sqrt":
+    if knot_spacing_type == "sqrt":
         x_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
         x_knots = np.sign(x_knots) * x_knots ** 2
         y_knots = np.linspace(-np.sqrt(radius), np.sqrt(radius), n_odd_knots)
