@@ -722,6 +722,10 @@ def _load_ffi_image(
     else:
         raise TypeError("File is not from Kepler or TESS mission")
 
+    # If the image dimension is not the FFI shape, we change the r_max and c_max
+    dims = f.get_dims()
+    if dims != [r_max, c_max]:
+        r_max, c_max = np.asarray(dims)
     r_min += cutout_origin[0]
     c_min += cutout_origin[1]
     if (r_min > r_max) | (c_min > c_max):

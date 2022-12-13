@@ -10,8 +10,10 @@ import matplotlib.colors as colors
 from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs import WCS
+from astropy.stats import SigmaClip
 import astropy.units as u
 from astropy.stats import sigma_clip
+from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
 from .utils import (
@@ -55,7 +57,6 @@ class FFIMachine(Machine):
         rmin=1,
         rmax=16,
         sparse_dist_lim=40,
-        bkg_subtracted=True,
         quality_mask=None,
         meta=None,
     ):
@@ -145,7 +146,7 @@ class FFIMachine(Machine):
             rmax=rmax,
             sparse_dist_lim=sparse_dist_lim,
         )
-        # self._mask_pixels()
+        self._mask_pixels()
         if quality_mask is None:
             self.quality_mask = np.zeros(len(time), dtype=int)
         else:
@@ -218,6 +219,9 @@ class FFIMachine(Machine):
             cutout_size=cutout_size,
             cutout_origin=cutout_origin,
         )
+        print(row.shape, flux.shape)
+        print(row)
+        print(ra)
 
         # hardcoded: the grid size to do the Gaia tiled query. This is different for
         # cutouts and full channel. TESS and Kepler also need different grid sizes.
@@ -468,7 +472,7 @@ class FFIMachine(Machine):
 
         return
 
-    def _remove_background(self, mask=None, pixel_knot_spacing=10):
+    def _remove_background(self, mask=None):
         """
         Background removal. It models the background using a median estimator, rejects
         flux values with sigma clipping. It modiffies the attributes `flux` and
@@ -478,127 +482,31 @@ class FFIMachine(Machine):
         mask : numpy.ndarray of booleans
             Mask to reject pixels containing sources. Default None.
         """
+        # lets keep this one for now while JMP opens a PR in kbackground with a simpler
+        # solution
         if not self.meta["BACKAPP"]:
-            cutout_size = np.max(
+            # model background for all cadences
+            self.bkg_model = np.array(
                 [
-                    self.row.max() - self.row.min() + 1,
-                    self.column.max() - self.column.min() + 1,
+                    Background2D(
+                        flux_2d,
+                        mask=mask,
+                        box_size=(64, 50),
+                        filter_size=15,
+                        exclude_percentile=20,
+                        sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
+                        bkg_estimator=MedianBackground(),
+                        interpolator=BkgZoomInterpolator(order=3),
+                    ).background
+                    for flux_2d in self.flux_2d
                 ]
             )
-            n_knots = np.min([cutout_size // pixel_knot_spacing, 1])
-            if mask is None:
-                k = np.ones(self.flux.shape[1], dtype=int)
-            else:
-                k = mask
-            X = _make_A_cartesian(
-                self.row - self.row.min() - cutout_size / 2,
-                self.column - self.column.min() - cutout_size / 2,
-                knot_spacing_type="linear",
-                radius=(cutout_size) // 2,
-                n_knots=n_knots,
-            )
-            ws = np.linalg.solve(
-                X[k].T.dot(X[k]).toarray()
-                + np.diag(1 / (np.ones(X.shape[1]) * 1000000)),
-                X[k].T.dot(self.flux[:, k].T),
-            )
-            self.bkg_model = X.dot(ws).T
+            # substract background
+            flux_2d_corr = self.flux_2d - self.bkg_model
+            # flatten flix image
 
-            self.flux -= self.bkg_model
+            self.flux = flux_2d_corr.reshape(self.flux_2d.shape[0], -1)
             self.meta["BACKAPP"] = True
-        return
-
-    def _remove_background_tess(
-        self, pca_ncomponents=10, bkg_flux_level=100, poly_deg=3, mask=None, plot=False
-    ):
-        """
-        Fits the background model using PCA components for TESS FFIs
-
-        Parameters
-        ----------
-        pca_ncomponents : int
-            Number of PCA components to be used in the background model
-        bkg_flux_level : float
-            Flux value at which background median level is
-        poly_deg : int
-            Polynomial degree for the cartesian design matrix
-        """
-        if not self.meta["BACKAPP"]:
-            # if mask is None:
-            #     mask = np.ones(self.npixels, dtype=int).reshape(self.image_shape)
-
-            # Build a Row and Column vector, we'll need this to make some polynomials
-            R, C = np.mgrid[: self.image_shape[0], : self.image_shape[1]].astype(float)
-            R -= self.row.mean()
-            C -= self.column.mean()
-
-            X = np.vstack(
-                [
-                    R.ravel() ** idx * C.ravel() ** jdx
-                    for idx in range(3)
-                    for jdx in range(3)
-                ]
-            ).T
-
-            # First take the median frame
-            med = np.median(self.flux_2d, axis=0)
-            # Identify sources. Sources are anywhere where the gradient in the image is
-            # high, or the flux is high.
-            sources = np.hypot(*np.gradient(med)) > 100
-            sources |= (med - np.median(med[~sources])) > 100
-            # sources |= mask
-
-            # Make a simple polynomial model
-            k = (~sources).ravel()
-            ws = np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(med.ravel()[k]))
-            med_model = X.dot(ws).reshape(med.shape)
-            # update it to remove outliers...
-            sources |= np.abs((med - med_model)) > 100
-            k = (~sources).ravel()
-            ws = np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(med.ravel()[k]))
-            med_model = X.dot(ws).reshape(med.shape)
-            med -= med_model
-
-            # Find the residuals between the corrected median frame and the data
-            # This should remove most of the star light...
-            resids = self.flux_2d - med
-
-            # Get the PCA components for the background data, up to 10
-            U, s, V = pca(
-                resids[:, ~sources], np.min([np.max([1, (~sources).sum() // 100]), 6])
-            )
-            # Use a polynomial model to in-fill the "V" component wherever there are
-            # sources!!
-            V_model = X.dot(np.linalg.solve(X[k].T.dot(X[k]), X[k].T.dot(V.T))).T
-            # Now my PCA model can be evaluated everywhere!
-            self.bkg_model = U.dot(np.diag(s)).dot(V_model).reshape(self.flux_2d.shape)
-
-            # Correct for offsets, bc TESS scattered light is an additive background
-            self.bkg_model -= np.percentile(self.bkg_model, 1)
-            self.bkg_model += np.median(
-                (self.flux_2d - self.bkg_model - med).mean(axis=0)[~sources]
-            )
-            self.flux -= self.bkg_model.reshape(self.nt, self.npixels)
-            self.meta["BACKAPP"] = True
-
-            if plot:
-                fig, ax = plt.subplots(V.shape[0], 2, figsize=(6, 3 * V.shape[0]))
-                for vdx in range(V.shape[0]):
-                    l1, l2 = np.ones((2, *self.image_shape)) * np.nan
-                    l1[~sources] = V[vdx]
-                    l2 = V_model[vdx].reshape(self.image_shape)
-                    vmin, vmax = np.sort(np.abs(np.nanpercentile(l1, (5, 95))))
-                    ax[vdx, 0].imshow(l1, vmin=vmin, vmax=vmax)
-                    ax[vdx, 1].imshow(l2, vmin=vmin, vmax=vmax)
-                    if vdx == 0:
-                        ax[vdx, 0].set(title=f'PCA `V`')
-                        ax[vdx, 1].set(title=f'Infilled PCA `V`')
-                    ax[vdx, 0].set(
-                        ylabel=f'Component {vdx}', xticklabels=[], yticklabels=[]
-                    )
-                    ax[vdx, 1].set(xticklabels=[], yticklabels=[])
-                return fig
-
         return
 
     def _saturated_pixels_mask(self, saturation_limit=1.5e5, tolerance=3):
@@ -699,10 +607,11 @@ class FFIMachine(Machine):
         )
         self.pixel_mask = self.non_sat_pixel_mask & self.non_bright_source_mask
 
-        if hasattr(self, "source_mask"):
+        if not hasattr(self, "source_mask"):
+            # include saturated pixels in the source mask and uncontaminated mask
+            self._get_source_mask()
             self.source_mask = self.source_mask.multiply(self.pixel_mask).tocsr()
             self.source_mask.eliminate_zeros()
-        if hasattr(self, "uncontaminated_source_mask"):
             self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
                 self.pixel_mask
             ).tocsr()
