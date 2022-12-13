@@ -715,7 +715,7 @@ class Machine(object):
                     [mpc1, mpc2],
                     x=self.time,
                     do_segments=True,
-                    n_knots=int((self.time[-1] - self.time[0]) / 1.),
+                    n_knots=int((self.time[-1] - self.time[0]) / 1.0),
                 )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
