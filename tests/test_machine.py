@@ -6,6 +6,7 @@ from scipy import sparse
 import pytest
 import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
+import astropy.units as u
 
 from psfmachine import TPFMachine
 
@@ -49,7 +50,8 @@ def test_create_delta_sparse_arrays():
     )
 
     # create sparse arrays
-    machine._create_delta_sparse_arrays(dist_lim=dist_lim)
+    machine.sparse_dist_lim = dist_lim * u.arcsecond
+    machine._create_delta_sparse_arrays()
     sparse_arr = machine.__dict__.copy()
 
     assert sparse_arr["dra"].shape == non_sparse_arr["dra"].shape

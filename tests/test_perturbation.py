@@ -93,7 +93,7 @@ def test_perturbation_matrix3d():
     p3 = PerturbationMatrix3D(
         time=time, dx=dx, dy=dy, nknots=4, radius=5, resolution=5, poly_order=1
     )
-    assert p3.cartesian_matrix.shape == (169, 81)
+    assert p3.cartesian_matrix.shape == (169, 64)
     assert p3.vectors.shape == (10, 2)
     assert p3.shape == (
         p3.cartesian_matrix.shape[0] * p3.ntime,

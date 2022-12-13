@@ -21,13 +21,13 @@ def test_ffi_from_file():
     assert isinstance(ffi, Machine)
     # test attributes have the right shapes
     assert ffi.time.shape == (1,)
-    assert ffi.flux.shape == (1, 33812)
+    assert ffi.flux.shape == (1, 33840)
     assert ffi.flux_2d.shape == (1, 180, 188)
-    assert ffi.flux_err.shape == (1, 33812)
-    assert ffi.column.shape == (33812,)
-    assert ffi.row.shape == (33812,)
-    assert ffi.ra.shape == (33812,)
-    assert ffi.dec.shape == (33812,)
+    assert ffi.flux_err.shape == (1, 33840)
+    assert ffi.column.shape == (33840,)
+    assert ffi.row.shape == (33840,)
+    assert ffi.ra.shape == (33840,)
+    assert ffi.dec.shape == (33840,)
     assert ffi.sources.shape == (259, 13)
 
 
