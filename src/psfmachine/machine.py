@@ -1133,6 +1133,7 @@ class Machine(object):
 
         # create the final normalized mean model!
         self._get_normalized_mean_model()
+        # self._get_mean_model()
 
     def _get_mean_model(self):
         """Convenience function to make the scene model"""
@@ -1186,14 +1187,14 @@ class Machine(object):
         mean_model_hd_ma[~mask] = -np.inf
 
         # double integral using trapezoidal rule
-        integral = np.trapz(
+        self.mean_model_integral = np.trapz(
             np.trapz(10 ** mean_model_hd_ma, r_hd[:, 0], axis=0),
             phi_hd[0, :],
             axis=0,
         )
         # renormalize weights and build new shape model
         if not self.normalized_shape_model:
-            self.psf_w *= np.log10(integral)
+            self.psf_w *= np.log10(self.mean_model_integral)
             self.normalized_shape_model = True
         self._get_mean_model()
 
@@ -1206,7 +1207,7 @@ class Machine(object):
                 vmin=-3,
                 vmax=-1,
                 s=1,
-                label=r"$\int = $" + f"{integral:.4f}",
+                label=r"$\int = $" + f"{self.mean_model_integral:.4f}",
             )
             im = ax[1].scatter(
                 r_hd.ravel() * np.cos(phi_hd.ravel()),
@@ -1421,10 +1422,17 @@ class Machine(object):
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
+        # if the mean model is normalized, we revert it only for plotting to make
+        # easier the comparisson between the data and model.
+        # the normalization is a multiplicative factor
+        if self.normalized_shape_model:
+            model = A.dot(self.psf_w / np.log10(self.mean_model_integral))
+        else:
+            model = A.dot(self.psf_w)
         im = ax[1, 1].scatter(
             phi,
             r,
-            c=A.dot(self.psf_w),
+            c=model,
             cmap="viridis",
             vmin=-3,
             vmax=-1,
@@ -1441,7 +1449,7 @@ class Machine(object):
         im = ax[1, 0].scatter(
             dx,
             dy,
-            c=A.dot(self.psf_w),
+            c=model,
             cmap="viridis",
             vmin=-3,
             vmax=-1,
@@ -1459,7 +1467,7 @@ class Machine(object):
         cbar = fig.colorbar(im, ax=ax[:2, 1], shrink=0.7, location="right")
         cbar.set_label("log$_{10}$ Normalized Flux")
         mean_f = 10 ** mean_f
-        model = 10 ** A.dot(self.psf_w)
+        model = 10 ** model
 
         im = ax[2, 0].scatter(
             dx,
