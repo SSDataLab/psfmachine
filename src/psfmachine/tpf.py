@@ -1054,8 +1054,8 @@ class TPFMachine(Machine):
             sources_flux_column = "phot_rp_mean_flux"
             if np.isnan(sources[sources_flux_column].values).any():
                 log.warning(
-                    f"Some sources do not have values in gaia.{sources_flux_column}."
-                    f"Will default to 'gaia.phot_g_mean_flux' for missing values."
+                    f"Some sources do not have values in 'gaia.{sources_flux_column}''."
+                    f" Will default to 'gaia.phot_g_mean_flux' for missing values."
                 )
                 sources[sources_flux_column].fillna(
                     sources["phot_g_mean_flux"], inplace=True
