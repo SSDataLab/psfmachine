@@ -144,9 +144,7 @@ def test_poscorr_smooth():
 def test_segment_time_model():
     # testing segment with the current test dataset we have that only has 10 cadences
     # isn't the best, but we can still do some sanity checks.
-    machine = TPFMachine.from_TPFs(
-        tpfs, apply_focus_mask=False, time_resolution=3, time_corrector="polynomial"
-    )
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False, time_resolution=3)
     machine.build_shape_model(plot=False)
     # no segments
     machine.build_time_model(segments=False, bin_method="bin", focus=False)
