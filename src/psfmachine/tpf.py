@@ -880,7 +880,9 @@ class TPFMachine(Machine):
         magnitude_limit : float
             Limiting magnitude to query Gaia catalog.
         dr : int
-            Gaia data release to be use, default is 2, options are DR2 and EDR3
+            Gaia data release to be use, default is 3, options are DR2 and EDR3
+        sources : pandas.DataFrame
+            Catalog with sources to be extracted by PSFMachine
         time_mask : boolean array
             Mask to be applied to discard cadences if needed.
         apply_focus_mask : boolean

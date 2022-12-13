@@ -180,6 +180,12 @@ class FFIMachine(Machine):
             default.
         plot_offsets : boolean
             Create diagnostic plot for oordinate offset correction.
+        magnitude_limit : float
+            Limiting magnitude to query Gaia catalog.
+        dr : int
+            Gaia data release to be use, default is 3, options are DR2 and EDR3
+        sources : pandas.DataFrame
+            Catalog with sources to be extracted by PSFMachine
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `machine` class object.
             See `psfmachine.Machine` for details.
