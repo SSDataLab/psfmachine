@@ -851,7 +851,8 @@ class TPFMachine(Machine):
     def from_TPFs(
         tpfs,
         magnitude_limit=18,
-        dr=2,
+        dr=3,
+        sources=None,
         time_mask=None,
         apply_focus_mask=True,
         renormalize_tpf_bkg=False,
@@ -1005,9 +1006,10 @@ class TPFMachine(Machine):
             saturated_mask,
         )
 
-        sources = _get_coord_and_query_gaia(
-            tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
-        )
+        if sources is None:
+            sources = _get_coord_and_query_gaia(
+                tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
+            )
 
         def get_tpf2source():
             tpf2source = []
