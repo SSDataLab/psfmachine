@@ -700,18 +700,22 @@ class Machine(object):
                     "`position` not valid, use one of {None, 'poscorr', 'centroid'}"
                 )
 
-            # smooth the vectors
-            if not segments:
-                log.warning(
-                    "Segments will still be used to smooth the position vectors."
-                    "See https://github.com/SSDataLab/psfmachine/pull/63 for details."
+            # k2 centroids do not need smoothing
+            if self.tpf_meta["mission"][0] == "K2":
+                mpc1_smooth, mpc2_smooth = mpc1, mpc2
+            else:
+                # smooth the vectors
+                if not segments:
+                    log.warning(
+                        "Segments will still be used to smooth the position vectors."
+                        "See https://github.com/SSDataLab/psfmachine/pull/63 for details."
+                    )
+                mpc1_smooth, mpc2_smooth = bspline_smooth(
+                    [mpc1, mpc2],
+                    x=self.time,
+                    do_segments=True,
+                    n_knots=50,
                 )
-            mpc1_smooth, mpc2_smooth = bspline_smooth(
-                [mpc1, mpc2],
-                x=self.time,
-                do_segments=True,
-                n_knots=50,
-            )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
                 mpc1_smooth.max() - mpc1_smooth.mean()
