@@ -175,9 +175,7 @@ class Machine(object):
         self.quiet = False
         self.contaminant_mag_limit = None
 
-        self.source_flux_estimates = np.copy(
-            np.asarray(self.sources[sources_flux_column])
-        )
+        self.source_flux_estimates = np.copy(self.sources[sources_flux_column].values)
 
         if time_mask is None:
             self.time_mask = np.ones(len(time), bool)

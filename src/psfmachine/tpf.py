@@ -1049,12 +1049,19 @@ class TPFMachine(Machine):
         sources["tpf_id"] = None
         sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
 
-        # sources_flux_column = (
-        #     "phot_rp_mean_flux"
-        #     if tpf_meta["mission"][0] == "TESS"
-        #     else "phot_g_mean_flux"
-        # )
-        sources_flux_column = "phot_g_mean_flux"
+        # select flux column o be used as estimate.
+        if tpf_meta["mission"][0] == "TESS":
+            sources_flux_column = "phot_rp_mean_flux"
+            if np.isnan(sources[sources_flux_column].values).any():
+                log.warning(
+                    f"Some sources do not have values in gaia.{sources_flux_column}."
+                    f"Will default to 'gaia.phot_g_mean_flux' for missing values."
+                )
+                sources[sources_flux_column].fillna(
+                    sources["phot_g_mean_flux"], inplace=True
+                )
+        else:
+            sources_flux_column = "phot_g_mean_flux"
 
         # return a Machine object
         return TPFMachine(
