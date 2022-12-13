@@ -710,11 +710,12 @@ class Machine(object):
                         "Segments will still be used to smooth the position vectors."
                         "See https://github.com/SSDataLab/psfmachine/pull/63 for details."
                     )
+                # knot spacing every 1 day
                 mpc1_smooth, mpc2_smooth = bspline_smooth(
                     [mpc1, mpc2],
                     x=self.time,
                     do_segments=True,
-                    n_knots=50,
+                    n_knots=int((self.time[-1] - self.time[0]) / 1.),
                 )
             # normalize components
             mpc1_smooth = (mpc1_smooth - mpc1_smooth.mean()) / (
