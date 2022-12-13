@@ -2,7 +2,6 @@
 import os
 import logging
 import numpy as np
-from fbpca import pca
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
@@ -112,18 +111,7 @@ class FFIMachine(Machine):
         self.flux_err = flux_err.reshape(flux_err.shape[0], -1)
         self.sources = sources
 
-        # remove background and mask bright/saturated pixels
-        # these steps need to be done before `machine` init, so sparse delta
-        # and flux arrays have the same shape
-        thumb = np.min(self.flux, axis=0).reshape(self.image_shape)
-        gthumb = np.hypot(*np.gradient(thumb))
-        mask = (
-            ~sigma_clip(
-                np.ma.masked_array(gthumb, gthumb > 500),
-                sigma=3,
-                cenfunc=lambda x, axis: 0,
-            ).mask
-        ).ravel()
+        # remove background
         self._remove_background()
 
         # init `machine` object
@@ -219,9 +207,6 @@ class FFIMachine(Machine):
             cutout_size=cutout_size,
             cutout_origin=cutout_origin,
         )
-        print(row.shape, flux.shape)
-        print(row)
-        print(ra)
 
         # hardcoded: the grid size to do the Gaia tiled query. This is different for
         # cutouts and full channel. TESS and Kepler also need different grid sizes.
