@@ -96,6 +96,20 @@ class TPFMachine(Machine):
         self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
         self.bkg_subtracted = bkg_subtracted
+        # limiting mag values to consider contamination for kepler & tess
+        # hardcoded values to work with kepler
+        # 0.2 seems ok for TESS
+        if self.nsources / self.npixels > 0.2:
+            if self.tpf_meta["mission"][0].lower() == "kepler":
+                self.contaminant_mag_limit = 17.5
+            elif self.tpf_meta["mission"][0].lower() == "tess":
+                self.contaminant_mag_limit = 16
+            else:
+                self.contaminant_mag_limit = 18
+            log.warning(
+                "Region is too crowded (nsources/npixels > 0.2), setting limiting "
+                f"magnitude to {self.contaminant_mag_limit} for contaminant sources."
+            )
 
     def __repr__(self):
         return f"TPFMachine (N sources, N times, N pixels): {self.shape}"
@@ -210,7 +224,7 @@ class TPFMachine(Machine):
             # background)
             self.flux -= self.bkg_estimator.model[:, self.pixels_in_tpf]
             # to avoid negative fluxes
-            self.bkg_median_level = np.median(
+            self.bkg_median_level = np.nanmedian(
                 self.flux[:, self.bkg_pixel_mask[self.pixels_in_tpf]]
             )
             self.flux -= self.bkg_median_level
@@ -642,8 +656,10 @@ class TPFMachine(Machine):
             raise ValueError("File format not suported. Please provide a FITS file.")
 
         # create source mask and uncontaminated pixel mask
-        self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
+        if not hasattr(self, "source_mask"):
+            self._get_source_mask()
+        if not hasattr(self, "uncontaminated_source_mask"):
+            self._get_uncontaminated_pixel_mask()
 
         # open file
         hdu = fits.open(input)
@@ -918,14 +934,29 @@ class TPFMachine(Machine):
         if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
             tpf_meta["tpfmag"] = [tpf.get_header()["kepmag"] for tpf in tpfs]
         elif isinstance(tpfs[0], lk.TessTargetPixelFile):
-            tpf_meta["tpfmag"] = [tpf.get_header()["tmag"] for tpf in tpfs]
+            tpf_meta["tpfmag"] = [tpf.get_header()["tessmag"] for tpf in tpfs]
         else:
             raise ValueError("TPFs not understood")
 
-        if not np.all([isinstance(tpf, lk.KeplerTargetPixelFile) for tpf in tpfs]):
-            raise ValueError("Please only pass `lk.KeplerTargetPixelFiles`")
-        if len(np.unique(tpf_meta["channel"])) != 1:
-            raise ValueError("TPFs span multiple channels.")
+        if not np.all(
+            [
+                isinstance(tpf, (lk.KeplerTargetPixelFile, lk.TessTargetPixelFile))
+                for tpf in tpfs
+            ]
+        ):
+            raise ValueError(
+                "Please only pass `lk.KeplerTargetPixelFiles` or "
+                "`lk.TessTargetPixelFile`"
+            )
+        if isinstance(tpfs[0], lk.KeplerTargetPixelFile):
+            if len(np.unique(tpf_meta["channel"])) != 1:
+                raise ValueError("TPFs span multiple channels.")
+        if isinstance(tpfs[0], lk.TessTargetPixelFile):
+            if (
+                len(np.unique(tpf_meta["ccd"])) != 1
+                and len(np.unique(tpf_meta["camera"])) != 1
+            ):
+                raise ValueError("TPFs span multiple cameras/CCDs.")
 
         # parse tpfs
         (
