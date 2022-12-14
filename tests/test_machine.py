@@ -31,7 +31,7 @@ def test_create_delta_sparse_arrays():
     assert non_sparse_arr["row"].shape == (287,)
     assert non_sparse_arr["ra"].shape == (287,)
     assert non_sparse_arr["dec"].shape == (287,)
-    assert non_sparse_arr["sources"].shape == (19, 13)
+    assert non_sparse_arr["sources"].shape == (19, 15)
 
     assert non_sparse_arr["dra"].shape == (19, 287)
     assert non_sparse_arr["ddec"].shape == (19, 287)

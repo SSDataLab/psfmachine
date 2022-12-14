@@ -28,7 +28,7 @@ def test_ffi_from_file():
     assert ffi.row.shape == (33840,)
     assert ffi.ra.shape == (33840,)
     assert ffi.dec.shape == (33840,)
-    assert ffi.sources.shape == (259, 13)
+    assert ffi.sources.shape == (259, 15)
 
 
 @pytest.mark.remote_data

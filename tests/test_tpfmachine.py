@@ -104,7 +104,7 @@ def test_parse_TPFs():
 
     assert isinstance(sources, pd.DataFrame)
     assert set(["ra", "dec", "phot_g_mean_mag"]).issubset(sources.columns)
-    assert sources.shape == (21, 12)
+    assert sources.shape == (21, 14)
 
 
 @pytest.mark.remote_data
@@ -167,7 +167,7 @@ def test_do_tiled_query():
     boundary_sources = do_tiled_query(
         ra, dec, ngrid=(2, 2), magnitude_limit=16, epoch=epoch, dr=3
     )
-    assert boundary_sources.shape == (85, 11)
+    assert boundary_sources.shape == (85, 13)
     # check that no result objects are outside the boundary for ra
     assert not ((boundary_sources.ra < 359) & (boundary_sources.ra > 1)).all()
 
