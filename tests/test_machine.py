@@ -120,6 +120,35 @@ def test_compute_aperture_photometry():
 
 
 @pytest.mark.remote_data
+def test_psf_metrics():
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
+    # load FFI shape model from file
+    machine.build_shape_model(plot=False)
+
+    machine.build_time_model(segments=False, bin_method="bin", focus=False)
+
+    # finite & possitive normalization
+    assert machine.normalized_shape_model
+    assert np.isfinite(machine.mean_model_integral)
+    assert machine.mean_model_integral > 0
+
+    machine.get_psf_metrics()
+    assert np.isfinite(machine.source_psf_fraction).all()
+    assert (machine.source_psf_fraction >= 0).all()
+
+    # this ratio is nan for sources with no pixels in the source_mask then zero-division
+    assert np.isclose(
+        machine.perturbed_ratio_mean[np.isfinite(machine.perturbed_ratio_mean)],
+        1,
+        atol=1e-2,
+    ).all()
+
+    # all should be finite because std(0s) = 0
+    assert np.isfinite(machine.perturbed_std).all()
+    assert (machine.perturbed_std >= 0).all()
+
+
+@pytest.mark.remote_data
 def test_poscorr_smooth():
     machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False)
     machine.build_shape_model(plot=False)
