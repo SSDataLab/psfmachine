@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy import sparse
+from scipy import stats
 import astropy.units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -1061,8 +1062,11 @@ class Machine(object):
 
         self.psf_w = psf_w
         self.psf_w_err = psf_w_err
+        self.normalized_shape_model = False
 
         # We then build the same design matrix for all pixels with flux
+        # this non-normalized mean model is temporary and used to re-create a better
+        # `source_mask`
         self._get_mean_model()
         # remove background pixels and recreate mean model
         self._update_source_mask_remove_bkg_pixels(
@@ -1141,8 +1145,9 @@ class Machine(object):
         #    (self.mean_model.max(axis=1) < 1)
         # )
 
-        # Recreate mean model!
-        self._get_mean_model()
+        # create the final normalized mean model!
+        self._get_normalized_mean_model()
+        # self._get_mean_model()
 
     def _get_mean_model(self):
         """Convenience function to make the scene model"""
@@ -1163,6 +1168,183 @@ class Machine(object):
         mean_model[self.source_mask] = m
         mean_model.eliminate_zeros()
         self.mean_model = mean_model
+
+    def _get_normalized_mean_model(self, npoints=300, plot=False):
+        """Renomarlize shape model to sum 1"""
+
+        # create a high resolution polar grid
+        r = self.source_mask.multiply(self.r).data
+        phi_hd = np.linspace(-np.pi, np.pi, npoints)
+        r_hd = np.linspace(0, r.max(), npoints)
+        phi_hd, r_hd = np.meshgrid(phi_hd, r_hd)
+
+        # high res DM
+        Ap = _make_A_polar(
+            phi_hd.ravel(),
+            r_hd.ravel(),
+            rmin=self.rmin,
+            rmax=self.rmax,
+            cut_r=self.cut_r,
+            n_r_knots=self.n_r_knots,
+            n_phi_knots=self.n_phi_knots,
+        )
+        # evaluate the high res model
+        mean_model_hd = Ap.dot(self.psf_w)
+        mean_model_hd[~np.isfinite(mean_model_hd)] = np.nan
+        mean_model_hd = mean_model_hd.reshape(phi_hd.shape)
+
+        # mask out datapoint that don't contribuite to the psf
+        mean_model_hd_ma = mean_model_hd.copy()
+        mask = mean_model_hd > -3
+        mean_model_hd_ma[~mask] = -np.inf
+        mask &= ~((r_hd > 14) & (np.gradient(mean_model_hd_ma, axis=0) > 0))
+        mean_model_hd_ma[~mask] = -np.inf
+
+        # double integral using trapezoidal rule
+        self.mean_model_integral = np.trapz(
+            np.trapz(10 ** mean_model_hd_ma, r_hd[:, 0], axis=0),
+            phi_hd[0, :],
+            axis=0,
+        )
+        # renormalize weights and build new shape model
+        if not self.normalized_shape_model:
+            self.psf_w *= np.log10(self.mean_model_integral)
+            self.normalized_shape_model = True
+        self._get_mean_model()
+
+        if plot:
+            fig, ax = plt.subplots(1, 2, figsize=(9, 5))
+            im = ax[0].scatter(
+                phi_hd.ravel(),
+                r_hd.ravel(),
+                c=mean_model_hd_ma.ravel(),
+                vmin=-3,
+                vmax=-1,
+                s=1,
+                label=r"$\int = $" + f"{self.mean_model_integral:.4f}",
+            )
+            im = ax[1].scatter(
+                r_hd.ravel() * np.cos(phi_hd.ravel()),
+                r_hd.ravel() * np.sin(phi_hd.ravel()),
+                c=mean_model_hd_ma.ravel(),
+                vmin=-3,
+                vmax=-1,
+                s=1,
+            )
+            ax[0].legend()
+            fig.colorbar(im, ax=ax, location="bottom")
+            plt.show()
+
+    def get_psf_metrics(self, npoints_per_pixel=10):
+        """
+        Computes three metrics for the PSF model:
+            source_psf_fraction: the amount of PSF in the data. Tells how much of a
+                sources is used to estimate the PSF, values are in between [0, 1].
+            perturbed_ratio_mean: the ratio between the mean model and perturbed model
+                for each source. Usefull to find when the time model affects the
+                mean value of the light curve.
+            perturbed_std: the standard deviation of the perturbed model for each
+                source. USeful to find when the time model introduces variability in the
+                light curve.
+
+        If npoints_per_pixel > 0, it creates high npoints_per_pixel shape models for each source by
+        dividing each pixels into a grid of [npoints_per_pixel x npoints_per_pixel]. This provides
+        a better estimate of `source_psf_fraction`.
+
+        Parameters
+        ----------
+        npoints_per_pixel : int
+            Value in which each pixel axis is split to increase npoints_per_pixel. Default is
+            0 for no subpixel npoints_per_pixel.
+
+        """
+        if npoints_per_pixel > 0:
+            # find from which observation (TPF) a sources comes
+            obs_per_pixel = self.source_mask.multiply(self.pix2obs).tocsr()
+            tpf_idx = []
+            for k in range(self.source_mask.shape[0]):
+                pix = obs_per_pixel[k].data
+                mode = stats.mode(pix)[0]
+                if len(mode) > 0:
+                    tpf_idx.append(mode[0])
+                else:
+                    tpf_idx.append(
+                        [x for x, ss in enumerate(self.tpf_meta["sources"]) if k in ss][
+                            0
+                        ]
+                    )
+            tpf_idx = np.array(tpf_idx)
+
+            # get the pix coord for each source, we know how to increase resolution in
+            # the pixel space but not in WCS
+            row = self.source_mask.multiply(self.row).tocsr()
+            col = self.source_mask.multiply(self.column).tocsr()
+            mean_model_hd_sum = []
+            # iterating per sources avoids creating a new super large `source_mask`
+            # with high resolution, which a priori is hard
+            for k in range(self.nsources):
+                # find row, col combo for each source
+                row_ = row[k].data
+                col_ = col[k].data
+                colhd, rowhd = [], []
+                # pixels are divided into `resolution` - 1 subpixels
+                for c, r in zip(col_, row_):
+                    x = np.linspace(c - 0.5, c + 0.5, npoints_per_pixel + 1)
+                    y = np.linspace(r - 0.5, r + 0.5, npoints_per_pixel + 1)
+                    x, y = np.meshgrid(x, y)
+                    colhd.extend(x[:, :-1].ravel())
+                    rowhd.extend(y[:-1].ravel())
+                colhd = np.array(colhd)
+                rowhd = np.array(rowhd)
+                # convert to ra, dec beacuse machine shape model works in sky coord
+                rahd, dechd = self.tpfs[tpf_idx[k]].wcs.wcs_pix2world(
+                    colhd - self.tpfs[tpf_idx[k]].column,
+                    rowhd - self.tpfs[tpf_idx[k]].row,
+                    0,
+                )
+                drahd = rahd - self.sources["ra"][k]
+                ddechd = dechd - self.sources["dec"][k]
+                drahd = drahd * (u.deg)
+                ddechd = ddechd * (u.deg)
+                rhd = np.hypot(drahd, ddechd).to("arcsec").value
+                phihd = np.arctan2(ddechd, drahd).value
+                # create a high resolution DM
+                Ap = _make_A_polar(
+                    phihd.ravel(),
+                    rhd.ravel(),
+                    rmin=self.rmin,
+                    rmax=self.rmax,
+                    cut_r=self.cut_r,
+                    n_r_knots=self.n_r_knots,
+                    n_phi_knots=self.n_phi_knots,
+                )
+                # evaluate the HD model
+                modelhd = 10 ** Ap.dot(self.psf_w)
+                # compute the model sum for source, how much of the source is in data
+                mean_model_hd_sum.append(
+                    np.trapz(modelhd, dx=1 / npoints_per_pixel ** 2)
+                )
+
+            # get normalized psf fraction metric
+            self.source_psf_fraction = np.array(
+                mean_model_hd_sum
+            )  # / np.nanmax(mean_model_hd_sum)
+        else:
+            self.source_psf_fraction = np.array(self.mean_model.sum(axis=1)).ravel()
+
+        # time model metrics
+        if hasattr(self, "P"):
+            perturbed_lcs = np.vstack(
+                [
+                    np.array(self.perturbed_model(time_index=k).sum(axis=1)).ravel()
+                    for k in range(self.time.shape[0])
+                ]
+            )
+            self.perturbed_ratio_mean = (
+                np.nanmean(perturbed_lcs, axis=0)
+                / np.array(self.mean_model.sum(axis=1)).ravel()
+            )
+            self.perturbed_std = np.nanstd(perturbed_lcs, axis=0)
 
     def plot_shape_model(self, radius=20, frame_index="mean", bin_data=False):
         """
@@ -1254,10 +1436,17 @@ class Machine(object):
             n_r_knots=self.n_r_knots,
             n_phi_knots=self.n_phi_knots,
         )
+        # if the mean model is normalized, we revert it only for plotting to make
+        # easier the comparisson between the data and model.
+        # the normalization is a multiplicative factor
+        if self.normalized_shape_model:
+            model = A.dot(self.psf_w / np.log10(self.mean_model_integral))
+        else:
+            model = A.dot(self.psf_w)
         im = ax[1, 1].scatter(
             phi,
             r,
-            c=A.dot(self.psf_w),
+            c=model,
             cmap="viridis",
             vmin=-3,
             vmax=-1,
@@ -1273,7 +1462,7 @@ class Machine(object):
         im = ax[1, 0].scatter(
             dx,
             dy,
-            c=A.dot(self.psf_w),
+            c=model,
             cmap="viridis",
             vmin=-3,
             vmax=-1,
@@ -1291,7 +1480,7 @@ class Machine(object):
         cbar = fig.colorbar(im, ax=ax[:2, 1], shrink=0.7, location="right")
         cbar.set_label("log$_{10}$ Normalized Flux")
         mean_f = 10 ** mean_f
-        model = 10 ** A.dot(self.psf_w)
+        model = 10 ** model
 
         im = ax[2, 0].scatter(
             dx,
