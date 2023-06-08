@@ -183,8 +183,10 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
     return X1
 
 
-def spline1d(x, knots, degree=3):
+def spline1d(x, knots, degree=3, include_knots=False):
     """Make a spline in a 1D variable `x`"""
+    if include_knots:
+        x = np.hstack([knots.min(), x, knots.max()])
     X = sparse.csr_matrix(
         np.asarray(
             dmatrix(
@@ -193,6 +195,9 @@ def spline1d(x, knots, degree=3):
             )
         )
     )
+    if include_knots:
+        X = X[1:-1]
+        x = x[1:-1]
     if not X.shape[0] == x.shape[0]:
         raise ValueError("`patsy` has made the wrong matrix.")
     X = X[:, np.asarray(X.sum(axis=0) != 0)[0]]
@@ -210,30 +215,10 @@ def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt", de
     else:
         x_knots = np.linspace(-radius, radius, n_odd_knots)
         y_knots = np.linspace(-radius, radius, n_odd_knots)
-    x_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=degree, include_intercept=True)",
-                {
-                    "x": list(np.hstack([x_knots.min(), x, x_knots.max()])),
-                    "degree": degree,
-                    "knots": x_knots,
-                },
-            )
-        )[1:-1]
-    )
-    y_spline = sparse.csr_matrix(
-        np.asarray(
-            dmatrix(
-                "bs(x, knots=knots, degree=degree, include_intercept=True)",
-                {
-                    "x": list(np.hstack([y_knots.min(), y, y_knots.max()])),
-                    "degree": degree,
-                    "knots": y_knots,
-                },
-            )
-        )[1:-1]
-    )
+
+    x_spline = spline1d(x, knots=x_knots, degree=degree, include_knots=True)
+    y_spline = spline1d(y, knots=y_knots, degree=degree, include_knots=True)
+
     x_spline = x_spline[:, np.asarray(x_spline.sum(axis=0))[0] != 0]
     y_spline = y_spline[:, np.asarray(y_spline.sum(axis=0))[0] != 0]
     X = sparse.hstack(
