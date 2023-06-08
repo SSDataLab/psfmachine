@@ -60,6 +60,8 @@ class FFIMachine(Machine):
         meta=None,
     ):
         """
+        Repeated optional parameters are described in `Machine`.
+
         Parameters
         ----------
         time: numpy.ndarray
@@ -82,6 +84,8 @@ class FFIMachine(Machine):
             Data array containing the "columns" of the detector that each pixel is on.
         wcs : astropy.wcs
             World coordinates system solution for the FFI. Used for plotting.
+        quality_mask : np.ndarray or booleans
+            Boolean array of shape time indicating cadences with bad quality.
         meta : dictionary
             Meta data information related to the FFI
 
@@ -592,6 +596,7 @@ class FFIMachine(Machine):
         self.non_sat_pixel_mask = ~self._saturated_pixels_mask(
             saturation_limit=pixel_saturation_limit
         )
+        # tolerance dependens on pixel scale, TESS pixels are 5 times larger than TESS
         tolerance = 5 if self.meta["MISSION"] == "TESS" else 25
         self.non_bright_source_mask = ~self._bright_sources_mask(
             magnitude_limit=magnitude_bright_limit, tolerance=tolerance
@@ -970,7 +975,16 @@ def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
     meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
     # we use "EXTENSION" to combine channel/camera keywords and "QUARTERS" to refer to
     # Kepler quarters and TESS campaigns
-    meta.update({"EXTENSION": extensions[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
+    meta.update(
+        {
+            "EXTENSION": extensions[0],
+            "CHANNEL": extensions[0],
+            "CAMERA": extensions[0],
+            "QUARTER": quarters[0],
+            "CAMPAIGN": quarter[0],
+            "DCT_TYPE": "FFI",
+        }
+    )
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
 
