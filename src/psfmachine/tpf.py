@@ -1070,6 +1070,10 @@ class TPFMachine(Machine):
                 sources[sources_flux_column].fillna(
                     sources["phot_g_mean_flux"], inplace=True
                 )
+        # be explicit that Kepler uses G
+        elif tpf_meta["mission"][0] == "Kepler":
+            sources_flux_column = "phot_g_mean_flux"
+        # other missions/telescopes/data could be addded below
         else:
             sources_flux_column = "phot_g_mean_flux"
 

@@ -981,7 +981,7 @@ def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
             "CHANNEL": extensions[0],
             "CAMERA": extensions[0],
             "QUARTER": quarters[0],
-            "CAMPAIGN": quarter[0],
+            "CAMPAIGN": quarters[0],
             "DCT_TYPE": "FFI",
         }
     )
