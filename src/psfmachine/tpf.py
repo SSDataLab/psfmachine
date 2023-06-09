@@ -726,7 +726,7 @@ class TPFMachine(Machine):
         self.cut_r = hdu[1].header["cut_r"]
         self.psf_w = hdu[1].data["psf_w"]
         # read from header if weights come from a normalized model.
-        self.normalized_shape_model = bool(hdu[1].header.get("normalized"))
+        self.normalized_shape_model = eval(hdu[1].header.get("norm"))
         del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
@@ -786,7 +786,7 @@ class TPFMachine(Machine):
         )
         # spline degree is hardcoded in `_make_A_polar` implementation.
         table.header["spln_deg"] = (3, "Degree of the spline basis")
-        table.header["normalized"] = (
+        table.header["norm"] = (
             int(self.normalized_shape_model),
             "Normalized weights",
         )
