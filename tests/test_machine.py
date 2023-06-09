@@ -6,6 +6,7 @@ from scipy import sparse
 import pytest
 import lightkurve as lk
 from astropy.utils.data import get_pkg_data_filename
+import astropy.units as u
 
 from psfmachine import TPFMachine
 
@@ -30,7 +31,7 @@ def test_create_delta_sparse_arrays():
     assert non_sparse_arr["row"].shape == (287,)
     assert non_sparse_arr["ra"].shape == (287,)
     assert non_sparse_arr["dec"].shape == (287,)
-    assert non_sparse_arr["sources"].shape == (19, 13)
+    assert non_sparse_arr["sources"].shape == (19, 15)
 
     assert non_sparse_arr["dra"].shape == (19, 287)
     assert non_sparse_arr["ddec"].shape == (19, 287)
@@ -49,7 +50,8 @@ def test_create_delta_sparse_arrays():
     )
 
     # create sparse arrays
-    machine._create_delta_sparse_arrays(dist_lim=dist_lim)
+    machine.sparse_dist_lim = dist_lim * u.arcsecond
+    machine._create_delta_sparse_arrays()
     sparse_arr = machine.__dict__.copy()
 
     assert sparse_arr["dra"].shape == non_sparse_arr["dra"].shape
@@ -173,9 +175,7 @@ def test_poscorr_smooth():
 def test_segment_time_model():
     # testing segment with the current test dataset we have that only has 10 cadences
     # isn't the best, but we can still do some sanity checks.
-    machine = TPFMachine.from_TPFs(
-        tpfs, apply_focus_mask=False, time_resolution=3, time_corrector="polynomial"
-    )
+    machine = TPFMachine.from_TPFs(tpfs, apply_focus_mask=False, time_resolution=3)
     machine.build_shape_model(plot=False)
     # no segments
     machine.build_time_model(segments=False, bin_method="bin", focus=False)

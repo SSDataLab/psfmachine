@@ -15,7 +15,8 @@ from astropy.time import Time
 from astropy.wcs import WCS
 import astropy.units as u
 
-from .ffi import FFIMachine, _get_sources, _do_image_cutout
+from .ffi import FFIMachine, _get_sources
+from .utils import _do_image_cutout
 
 __all__ = ["SSMachine"]
 

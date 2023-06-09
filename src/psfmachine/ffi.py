@@ -7,15 +7,20 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
 from astropy.io import fits
-from astropy.stats import SigmaClip
 from astropy.time import Time
 from astropy.wcs import WCS
+from astropy.stats import SigmaClip
 import astropy.units as u
 from astropy.stats import sigma_clip
 from photutils import Background2D, MedianBackground, BkgZoomInterpolator
 
 # from . import PACKAGEDIR
-from .utils import do_tiled_query, _make_A_cartesian, solve_linear_model
+from .utils import (
+    do_tiled_query,
+    _make_A_cartesian,
+    solve_linear_model,
+    _load_ffi_image,
+)
 from .tpf import _clean_source_list
 
 from .machine import Machine
@@ -50,9 +55,13 @@ class FFIMachine(Machine):
         cut_r=6,
         rmin=1,
         rmax=16,
+        sparse_dist_lim=40,
+        quality_mask=None,
         meta=None,
     ):
         """
+        Repeated optional parameters are described in `Machine`.
+
         Parameters
         ----------
         time: numpy.ndarray
@@ -75,6 +84,8 @@ class FFIMachine(Machine):
             Data array containing the "columns" of the detector that each pixel is on.
         wcs : astropy.wcs
             World coordinates system solution for the FFI. Used for plotting.
+        quality_mask : np.ndarray or booleans
+            Boolean array of shape time indicating cadences with bad quality.
         meta : dictionary
             Meta data information related to the FFI
 
@@ -94,29 +105,18 @@ class FFIMachine(Machine):
         self.row = row
         self.ra = ra
         self.dec = dec
-        # keep 2d image for easy plotting
-        self.flux_2d = flux
+        self.wcs = wcs
+        self.meta = meta
+
+        # keep 2d image shape
         self.image_shape = flux.shape[1:]
         # reshape flux and flux_err as [ntimes, npix]
         self.flux = flux.reshape(flux.shape[0], -1)
         self.flux_err = flux_err.reshape(flux_err.shape[0], -1)
         self.sources = sources
 
-        # remove background and mask bright/saturated pixels
-        # these steps need to be done before `machine` init, so sparse delta
-        # and flux arrays have the same shape
-        if not meta["BACKAPP"]:
-            self._remove_background()
-        self._mask_pixels()
-
-        # remove nan pixels
-        valid_pix = np.isfinite(self.flux).sum(axis=0).astype(bool)
-        self.flux = self.flux[:, valid_pix]
-        self.flux_err = self.flux_err[:, valid_pix]
-        self.ra = self.ra[valid_pix]
-        self.dec = self.dec[valid_pix]
-        self.row = self.row[valid_pix]
-        self.column = self.column[valid_pix]
+        # remove background
+        self._remove_background()
 
         # init `machine` object
         super().__init__(
@@ -136,11 +136,17 @@ class FFIMachine(Machine):
             cut_r=cut_r,
             rmin=rmin,
             rmax=rmax,
-            # hardcoded to work for Kepler and TESS FFIs
-            sparse_dist_lim=40 if meta["TELESCOP"] == "Kepler" else 210,
+            sparse_dist_lim=sparse_dist_lim,
         )
-        self.meta = meta
-        self.wcs = wcs
+        self._mask_pixels()
+        if quality_mask is None:
+            self.quality_mask = np.zeros(len(time), dtype=int)
+        else:
+            self.quality_mask = quality_mask
+
+    @property
+    def flux_2d(self):
+        return self.flux.reshape((self.flux.shape[0], *self.image_shape))
 
     def __repr__(self):
         return f"FFIMachine (N sources, N times, N pixels): {self.shape}"
@@ -153,6 +159,9 @@ class FFIMachine(Machine):
         cutout_origin=[0, 0],
         correct_offsets=False,
         plot_offsets=False,
+        magnitude_limit=18,
+        dr=3,
+        sources=None,
         **kwargs,
     ):
         """
@@ -175,6 +184,12 @@ class FFIMachine(Machine):
             default.
         plot_offsets : boolean
             Create diagnostic plot for oordinate offset correction.
+        magnitude_limit : float
+            Limiting magnitude to query Gaia catalog.
+        dr : int
+            Gaia data release to be use, default is 3, options are DR2 and EDR3
+        sources : pandas.DataFrame
+            Catalog with sources to be extracted by PSFMachine
         **kwargs : dictionary
             Keyword arguments that defines shape model in a `machine` class object.
             See `psfmachine.Machine` for details.
@@ -195,36 +210,32 @@ class FFIMachine(Machine):
             column,
             row,
             metadata,
-        ) = _load_file(fname, extension=extension)
-        # create cutouts if asked
-        if cutout_size is not None:
-            flux, flux_err, ra, dec, column, row = _do_image_cutout(
-                flux,
-                flux_err,
-                ra,
-                dec,
-                column,
-                row,
-                cutout_size=cutout_size,
-                cutout_origin=cutout_origin,
-            )
+            quality_mask,
+        ) = _load_file(
+            fname,
+            extension=extension,
+            cutout_size=cutout_size,
+            cutout_origin=cutout_origin,
+        )
+
         # hardcoded: the grid size to do the Gaia tiled query. This is different for
         # cutouts and full channel. TESS and Kepler also need different grid sizes.
         if metadata["TELESCOP"] == "Kepler":
             ngrid = (2, 2) if flux.shape[1] <= 500 else (4, 4)
         else:
-            ngrid = (5, 5) if flux.shape[1] < 500 else (10, 10)
+            ngrid = (4, 4) if flux.shape[1] < 500 else (7, 7)
         # query Gaia and clean sources.
-        sources = _get_sources(
-            ra,
-            dec,
-            wcs,
-            magnitude_limit=18 if metadata["TELESCOP"] == "Kepler" else 15,
-            epoch=time.jyear.mean(),
-            ngrid=ngrid,
-            dr=3,
-            img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
-        )
+        if sources is None:
+            sources = _get_sources(
+                ra,
+                dec,
+                wcs,
+                magnitude_limit=magnitude_limit,
+                epoch=time.jyear.mean(),
+                ngrid=ngrid,
+                dr=dr,
+                img_limits=[[row.min(), row.max()], [column.min(), column.max()]],
+            )
         # correct coordinate offset if necessary.
         if correct_offsets:
             ra, dec, sources = _check_coordinate_offsets(
@@ -250,6 +261,7 @@ class FFIMachine(Machine):
             row.ravel(),
             wcs=wcs,
             meta=metadata,
+            quality_mask=quality_mask,
             **kwargs,
         )
 
@@ -273,7 +285,13 @@ class FFIMachine(Machine):
 
         # create data structure (DataFrame) to save the model params
         table = fits.BinTableHDU.from_columns(
-            [fits.Column(name="psf_w", array=self.psf_w, format="D")]
+            [
+                fits.Column(
+                    name="psf_w",
+                    array=self.psf_w / np.log10(self.mean_model_integral),
+                    format="D",
+                )
+            ]
         )
         # include metadata and descriptions
         table.header["object"] = ("PRF shape", "PRF shape parameters")
@@ -304,6 +322,7 @@ class FFIMachine(Machine):
         )
         # spline degree is hardcoded in `_make_A_polar` implementation.
         table.header["spln_deg"] = (3, "Degree of the spline basis")
+        table.header["norm"] = (str(False), "Normalized model")
 
         table.writeto(output, checksum=True, overwrite=True)
 
@@ -328,10 +347,6 @@ class FFIMachine(Machine):
         if not input.endswith(".fits"):
             # should use a custom exception for wrong file format
             raise ValueError("File format not suported. Please provide a FITS file.")
-
-        # create source mask and uncontaminated pixel mask
-        self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
 
         # open file
         hdu = fits.open(input)
@@ -361,6 +376,8 @@ class FFIMachine(Machine):
         self.rmax = hdu[1].header["rmax"]
         self.cut_r = hdu[1].header["cut_r"]
         self.psf_w = hdu[1].data["psf_w"]
+        # read from header if weights come from a normalized model.
+        self.normalized_shape_model = eval(hdu[1].header.get("norm"))
         del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
@@ -460,32 +477,36 @@ class FFIMachine(Machine):
         Background removal. It models the background using a median estimator, rejects
         flux values with sigma clipping. It modiffies the attributes `flux` and
         `flux_2d`. The background model are stored in the `background_model` attribute.
-
         Parameters
         ----------
         mask : numpy.ndarray of booleans
             Mask to reject pixels containing sources. Default None.
         """
-        # model background for all cadences
-        self.background_model = np.array(
-            [
-                Background2D(
-                    flux_2d,
-                    mask=mask,
-                    box_size=(64, 50),
-                    filter_size=15,
-                    exclude_percentile=20,
-                    sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
-                    bkg_estimator=MedianBackground(),
-                    interpolator=BkgZoomInterpolator(order=3),
-                ).background
-                for flux_2d in self.flux_2d
-            ]
-        )
-        # substract background
-        self.flux_2d -= self.background_model
-        # flatten flix image
-        self.flux = self.flux_2d.reshape(self.flux_2d.shape[0], -1)
+        # lets keep this one for now while JMP opens a PR in kbackground with a simpler
+        # solution
+        if not self.meta["BACKAPP"]:
+            # model background for all cadences
+            self.bkg_model = np.array(
+                [
+                    Background2D(
+                        flux_2d,
+                        mask=mask,
+                        box_size=(64, 50),
+                        filter_size=15,
+                        exclude_percentile=20,
+                        sigma_clip=SigmaClip(sigma=3.0, maxiters=5),
+                        bkg_estimator=MedianBackground(),
+                        interpolator=BkgZoomInterpolator(order=3),
+                    ).background
+                    for flux_2d in self.flux_2d
+                ]
+            )
+            # substract background
+            flux_2d_corr = self.flux_2d - self.bkg_model
+            # flatten flix image
+
+            self.flux = flux_2d_corr.reshape(self.flux_2d.shape[0], -1)
+            self.meta["BACKAPP"] = True
         return
 
     def _saturated_pixels_mask(self, saturation_limit=1.5e5, tolerance=3):
@@ -564,6 +585,18 @@ class FFIMachine(Machine):
 
         return mask
 
+    def _remove_bad_pixels_from_source_mask(self):
+        """
+        Combines source_mask and uncontaminated_pixel_mask with saturated and bright
+        pixel mask.
+        """
+        self.source_mask = self.source_mask.multiply(self.pixel_mask).tocsr()
+        self.source_mask.eliminate_zeros()
+        self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
+            self.pixel_mask
+        ).tocsr()
+        self.uncontaminated_source_mask.eliminate_zeros()
+
     def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=8):
         """
         Mask saturated pixels and halo/difraction pattern from bright sources.
@@ -580,19 +613,62 @@ class FFIMachine(Machine):
         self.non_sat_pixel_mask = ~self._saturated_pixels_mask(
             saturation_limit=pixel_saturation_limit
         )
+        # tolerance dependens on pixel scale, TESS pixels are 5 times larger than TESS
+        tolerance = 5 if self.meta["MISSION"] == "TESS" else 25
         self.non_bright_source_mask = ~self._bright_sources_mask(
-            magnitude_limit=magnitude_bright_limit
+            magnitude_limit=magnitude_bright_limit, tolerance=tolerance
         )
-        good_pixels = self.non_sat_pixel_mask & self.non_bright_source_mask
+        self.pixel_mask = self.non_sat_pixel_mask & self.non_bright_source_mask
 
-        self.column = self.column[good_pixels]
-        self.row = self.row[good_pixels]
-        self.ra = self.ra[good_pixels]
-        self.dec = self.dec[good_pixels]
-        self.flux = self.flux[:, good_pixels]
-        self.flux_err = self.flux_err[:, good_pixels]
+        if not hasattr(self, "source_mask"):
+            self._get_source_mask()
+            # include saturated pixels in the source mask and uncontaminated mask
+            self._remove_bad_pixels_from_source_mask()
 
         return
+
+    def _get_source_mask(
+        self,
+        upper_radius_limit=28.0,
+        lower_radius_limit=4.5,
+        upper_flux_limit=2e5,
+        lower_flux_limit=100,
+        correct_centroid_offset=True,
+        plot=False,
+    ):
+        """
+        Adapted version of `machine._get_source_mask()` that masks out saturated and
+        bright halo pixels in FFIs.
+        """
+        super()._get_source_mask(
+            upper_radius_limit=upper_radius_limit,
+            lower_radius_limit=lower_radius_limit,
+            upper_flux_limit=upper_flux_limit,
+            lower_flux_limit=lower_flux_limit,
+            correct_centroid_offset=correct_centroid_offset,
+            plot=plot,
+        )
+        self._remove_bad_pixels_from_source_mask()
+
+    def build_shape_model(
+        self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
+    ):
+        """
+        Adapted version of `machine.build_shape_model()` that masks out saturated and
+        bright halo pixels in FFIs.
+        """
+        # call method from super calss `machine`
+        super().build_shape_model(
+            plot=False,
+            flux_cut_off=flux_cut_off,
+            frame_index=frame_index,
+            bin_data=bin_data,
+            **kwargs,
+        )
+        # include sat/halo pixels again into source_mask
+        self._remove_bad_pixels_from_source_mask()
+        if plot:
+            return self.plot_shape_model(frame_index=frame_index, bin_data=bin_data)
 
     def residuals(self, plot=False, zoom=False, metric="residuals"):
         """
@@ -826,7 +902,7 @@ class FFIMachine(Machine):
         return ax
 
 
-def _load_file(fname, extension=1):
+def _load_file(fname, extension=1, cutout_size=256, cutout_origin=[0, 0]):
     """
     Helper function to load FFI files and parse data. It parses the FITS files to
     extract the image data and metadata. It checks that all files provided in fname
@@ -838,6 +914,10 @@ def _load_file(fname, extension=1):
         Name of the FFI files
     extension : int
         Number of HDU extension to use, for Kepler FFIs this corresponds to the channel
+    cutout_size: int
+        Size of (square) portion of FFIs to cut out
+    cutout_origin: tuple
+        Coordinates of the origin of the cut out
 
     Returns
     -------
@@ -860,51 +940,71 @@ def _load_file(fname, extension=1):
     meta : dict
         Dictionary with metadata
     """
-    if not isinstance(fname, list):
+    if not isinstance(fname, (list, np.ndarray)):
         fname = np.sort([fname])
-    imgs = []
+    flux = []
+    flux_err = []
     times = []
     telescopes = []
     dct_types = []
     quarters = []
     extensions = []
+    quality_mask = []
+    cadenceno = []
     for i, f in enumerate(fname):
         if not os.path.isfile(f):
             raise FileNotFoundError("FFI calibrated fits file does not exist: ", f)
 
-        hdul = fits.open(f)
-        header = hdul[0].header
-        telescopes.append(header["TELESCOP"])
+        hdul = fits.open(f, lazy_load_hdus=None)
+        primary_header = hdul[0].header
+        hdr = hdul[extension].header
+        telescopes.append(primary_header["TELESCOP"])
         # kepler
         if f.split("/")[-1].startswith("kplr"):
-            dct_types.append(header["DCT_TYPE"])
-            quarters.append(header["QUARTER"])
-            extensions.append(hdul[extension].header["CHANNEL"])
-            hdr = hdul[extension].header
+            dct_types.append(primary_header["DCT_TYPE"])
+            quarters.append(primary_header["QUARTER"])
+            extensions.append(hdr["CHANNEL"])
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[extension].data)
         # K2
         elif f.split("/")[-1].startswith("ktwo"):
-            dct_types.append(header["DCT_TYPE"])
-            quarters.append(header["CAMPAIGN"])
-            extensions.append(hdul[extension].header["CHANNEL"])
-            hdr = hdul[extension].header
+            dct_types.append(primary_header["DCT_TYPE"])
+            quarters.append(primary_header["CAMPAIGN"])
+            extensions.append(hdr["CHANNEL"])
             times.append((hdr["MJDEND"] + hdr["MJDSTART"]) / 2)
-            imgs.append(hdul[extension].data)
         # TESS
         elif f.split("/")[-1].startswith("tess"):
-            dct_types.append(header["CREATOR"].split(" ")[-1].upper())
+            dct_types.append(primary_header["CREATOR"].split(" ")[-1].upper())
             quarters.append(f.split("/")[-1].split("-")[1])
-            hdr = hdul[1].header
             times.append((hdr["TSTART"] + hdr["TSTOP"]) / 2)
-            imgs.append(hdul[1].data)
             extensions.append("%i.%i" % (hdr["CAMERA"], hdr["CCD"]))
-            # raise NotImplementedError
+            quality_mask.append(hdr["DQUALITY"])
+            cadenceno.append(primary_header["FFIINDEX"])
         else:
             raise ValueError("FFI is not from Kepler or TESS.")
 
         if i == 0:
             wcs = WCS(hdr)
+            col_2d, row_2d, f2d = _load_ffi_image(
+                telescopes[-1],
+                f,
+                extension,
+                cutout_size,
+                cutout_origin,
+                return_coords=True,
+            )
+            flux.append(f2d)
+        else:
+            flux.append(
+                _load_ffi_image(
+                    telescopes[-1], f, extension, cutout_size, cutout_origin
+                )
+            )
+        if telescopes[-1].lower() in ["tess"]:
+            flux_err.append(
+                _load_ffi_image(telescopes[-1], f, 2, cutout_size, cutout_origin)
+            )
+        else:
+            flux_err.append(flux[-1] ** 0.5)
 
     # check for integrity of files, same telescope, all FFIs and same quarter/campaign
     if len(set(telescopes)) != 1:
@@ -921,7 +1021,7 @@ def _load_file(fname, extension=1):
         "MISSION",
         "DATSETNM",
     ]
-    meta = {k: header[k] for k in attrs if k in header.keys()}
+    meta = {k: primary_header[k] for k in attrs if k in primary_header.keys()}
     attrs = [
         "RADESYS",
         "EQUINOX",
@@ -930,7 +1030,16 @@ def _load_file(fname, extension=1):
     meta.update({k: hdr[k] for k in attrs if k in hdr.keys()})
     # we use "EXTENSION" to combine channel/camera keywords and "QUARTERS" to refer to
     # Kepler quarters and TESS campaigns
-    meta.update({"EXTENSION": extensions[0], "QUARTER": quarters[0], "DCT_TYPE": "FFI"})
+    meta.update(
+        {
+            "EXTENSION": extensions[0],
+            "CHANNEL": extensions[0],
+            "CAMERA": extensions[0],
+            "QUARTER": quarters[0],
+            "CAMPAIGN": quarters[0],
+            "DCT_TYPE": "FFI",
+        }
+    )
     if "MISSION" not in meta.keys():
         meta["MISSION"] = meta["TELESCOP"]
 
@@ -938,12 +1047,13 @@ def _load_file(fname, extension=1):
     times = Time(times, format="mjd" if meta["TELESCOP"] == "Kepler" else "btjd")
     tdx = np.argsort(times)
     times = times[tdx]
-
-    # remove overscan of image
-    row_2d, col_2d, flux_2d = _remove_overscan(meta["TELESCOP"], np.array(imgs)[tdx])
-    # kepler FFIs have uncent maps stored in different files, so we use Poison noise as
-    # flux error for now.
-    flux_err_2d = np.sqrt(np.abs(flux_2d))
+    if len(quality_mask) == 0:
+        quality_mask = np.zeros(len(times), dtype=int)
+        cadenceno = np.arange(len(times), dtype=int)
+    quality_mask = np.array(quality_mask)[tdx]
+    cadenceno = np.array(cadenceno)[tdx]
+    flux = np.asarray(flux)[tdx]
+    flux_err = np.asarray(flux_err)[tdx]
 
     # convert to RA and Dec
     ra, dec = wcs.all_pix2world(np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0).T
@@ -951,21 +1061,22 @@ def _load_file(fname, extension=1):
     # doesn't exist or is wrong, it could produce RA Dec values out of bound.
     if ra.min() < 0.0 or ra.max() > 360 or dec.min() < -90 or dec.max() > 90:
         raise ValueError("WCS lead to out of bound RA and Dec coordinates.")
-    ra_2d = ra.reshape(flux_2d.shape[1:])
-    dec_2d = dec.reshape(flux_2d.shape[1:])
+    ra_2d = ra.reshape(col_2d.shape)
+    dec_2d = dec.reshape(col_2d.shape)
 
-    del hdul, header, hdr, imgs, ra, dec
+    del hdul, primary_header, hdr, ra, dec
 
     return (
         wcs,
         times,
-        flux_2d,
-        flux_err_2d,
+        flux,
+        flux_err,
         ra_2d,
         dec_2d,
         col_2d,
         row_2d,
         meta,
+        quality_mask,
     )
 
 
@@ -1014,125 +1125,6 @@ def _get_sources(ra, dec, wcs, img_limits=[[0, 0], [0, 0]], square=True, **kwarg
     else:
         sources, _ = _clean_source_list(sources, ra, dec, pixel_tolerance=2)
     return sources
-
-
-def _do_image_cutout(
-    flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
-):
-    """
-    Creates a cutout of the full image. Return data arrays corresponding to the cutout.
-
-    Parameters
-    ----------
-    flux : numpy.ndarray
-        Data array with Flux values, correspond to full size image.
-    flux_err : numpy.ndarray
-        Data array with Flux errors values, correspond to full size image.
-    ra : numpy.ndarray
-        Data array with RA values, correspond to full size image.
-    dec : numpy.ndarray
-        Data array with Dec values, correspond to full size image.
-    column : numpy.ndarray
-        Data array with pixel column values, correspond to full size image.
-    row : numpy.ndarray
-        Data array with pixel raw values, correspond to full size image.
-    cutout_size : int
-        Size in pixels of the cutout, assumedto be squared. Default is 100.
-    cutout_origin : tuple of ints
-        Origin of the cutout following matrix indexing. Default is [0 ,0].
-
-    Returns
-    -------
-    flux : numpy.ndarray
-        Data array with Flux values of the cutout.
-    flux_err : numpy.ndarray
-        Data array with Flux errors values of the cutout.
-    ra : numpy.ndarray
-        Data array with RA values of the cutout.
-    dec : numpy.ndarray
-        Data array with Dec values of the cutout.
-    column : numpy.ndarray
-        Data array with pixel column values of the cutout.
-    row : numpy.ndarray
-        Data array with pixel raw values of the cutout.
-    """
-    if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
-        cutout_size + cutout_origin[1] <= flux.shape[2]
-    ):
-        column = column[
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-        row = row[
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-        flux = flux[
-            :,
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-        flux_err = flux_err[
-            :,
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-        ra = ra[
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-        dec = dec[
-            cutout_origin[0] : cutout_origin[0] + cutout_size,
-            cutout_origin[1] : cutout_origin[1] + cutout_size,
-        ]
-    else:
-        raise ValueError("Cutout size is larger than image shape ", flux.shape)
-
-    return flux, flux_err, ra, dec, column, row
-
-
-def _remove_overscan(telescope, imgs):
-    """
-    Removes overscan of the CCD. Return the image data with overscan columns and rows
-    removed, also return 2D data arrays with pixel columns and row values.
-
-    Parameters
-    ----------
-    telescope : string
-        Name of the telescope.
-    imgs : numpy.ndarray
-        Array of 2D images to. Has shape of [n_times, image_height, image_width].
-
-    Returns
-    -------
-    row_2d : numpy.ndarray
-        Data array with pixel row values
-    col_2d : numpy.ndarray
-        Data array with pixel column values
-    flux_2d : numpy.ndarray
-        Data array with flux values
-    """
-    if telescope == "Kepler":
-        # CCD overscan for Kepler
-        r_min = 20
-        r_max = 1044
-        c_min = 12
-        c_max = 1112
-    elif telescope == "TESS":
-        # CCD overscan for TESS
-        r_min = 0
-        r_max = 2048
-        c_min = 45
-        c_max = 2093
-    else:
-        raise TypeError("File is not from Kepler or TESS mission")
-    # remove overscan
-    row_2d, col_2d = np.mgrid[: imgs[0].shape[0], : imgs[0].shape[1]]
-    col_2d = col_2d[r_min:r_max, c_min:c_max]
-    row_2d = row_2d[r_min:r_max, c_min:c_max]
-    flux_2d = imgs[:, r_min:r_max, c_min:c_max]
-
-    return row_2d, col_2d, flux_2d
 
 
 def _compute_coordinate_offset(ra, dec, flux, sources, plot=True):

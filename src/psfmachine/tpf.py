@@ -52,9 +52,10 @@ class TPFMachine(Machine):
         pos_corr2=None,
         focus_mask=None,
         tpf_meta=None,
-        time_corrector="pos_corr",
         cartesian_knot_spacing="sqrt",
         bkg_subtracted=True,
+        sparse_dist_lim=40,
+        sources_flux_column="phot_g_mean_flux",
     ):
         super().__init__(
             time=time,
@@ -73,6 +74,8 @@ class TPFMachine(Machine):
             time_radius=time_radius,
             rmin=rmin,
             rmax=rmax,
+            sparse_dist_lim=sparse_dist_lim,
+            sources_flux_column=sources_flux_column,
         )
         self.tpfs = tpfs
         # match cadences
@@ -93,7 +96,6 @@ class TPFMachine(Machine):
         self.pos_corr1 = pos_corr1
         self.pos_corr2 = pos_corr2
         self.tpf_meta = tpf_meta
-        self.time_corrector = time_corrector
         self.cartesian_knot_spacing = cartesian_knot_spacing
         self.bkg_subtracted = bkg_subtracted
         # limiting mag values to consider contamination for kepler & tess
@@ -153,7 +155,8 @@ class TPFMachine(Machine):
             )
             return
         # invert maks to get bkg pixels from TPFs
-        self._get_source_mask()
+        if not hasattr(self, "source_mask"):
+            self._get_source_mask(correct_centroid_offset=True)
         bkg_pixel_mask = ~np.asarray(
             (self.source_mask.todense()).sum(axis=0).astype(bool)
         ).ravel()
@@ -854,7 +857,8 @@ class TPFMachine(Machine):
     def from_TPFs(
         tpfs,
         magnitude_limit=18,
-        dr=2,
+        dr=3,
+        sources=None,
         time_mask=None,
         apply_focus_mask=True,
         renormalize_tpf_bkg=False,
@@ -882,7 +886,9 @@ class TPFMachine(Machine):
         magnitude_limit : float
             Limiting magnitude to query Gaia catalog.
         dr : int
-            Gaia data release to be use, default is 2, options are DR2 and EDR3
+            Gaia data release to be use, default is 3, options are DR2 and EDR3
+        sources : pandas.DataFrame
+            Catalog with sources to be extracted by PSFMachine
         time_mask : boolean array
             Mask to be applied to discard cadences if needed.
         apply_focus_mask : boolean
@@ -1008,9 +1014,10 @@ class TPFMachine(Machine):
             saturated_mask,
         )
 
-        sources = _get_coord_and_query_gaia(
-            tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
-        )
+        if sources is None:
+            sources = _get_coord_and_query_gaia(
+                tpfs, magnitude_limit, dr=dr, ra=query_ra, dec=query_dec, rad=query_rad
+            )
 
         def get_tpf2source():
             tpf2source = []
@@ -1052,6 +1059,20 @@ class TPFMachine(Machine):
         sources["tpf_id"] = None
         sources.loc[idx[match], "tpf_id"] = np.asarray(tpf_meta["targetid"])[match]
 
+        # select flux column o be used as estimate.
+        if tpf_meta["mission"][0] == "TESS":
+            sources_flux_column = "phot_rp_mean_flux"
+            if np.isnan(sources[sources_flux_column].values).any():
+                log.warning(
+                    f"Some sources do not have values in 'gaia.{sources_flux_column}''."
+                    f" Will default to 'gaia.phot_g_mean_flux' for missing values."
+                )
+                sources[sources_flux_column].fillna(
+                    sources["phot_g_mean_flux"], inplace=True
+                )
+        else:
+            sources_flux_column = "phot_g_mean_flux"
+
         # return a Machine object
         return TPFMachine(
             tpfs=tpfs,
@@ -1070,6 +1091,7 @@ class TPFMachine(Machine):
             tpf_meta=tpf_meta,
             time_mask=time_mask,
             bkg_subtracted=not renormalize_tpf_bkg,
+            sources_flux_column=sources_flux_column,
             **kwargs,
         )
 
@@ -1121,7 +1143,7 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
 
     elif isinstance(tpfs[0], lk.TessTargetPixelFile):
         qual_mask = lk.utils.TessQualityFlags.create_quality_mask(
-            tpfs[0].quality, lk.utils.TessQualityFlags.DEFAULT_BITMASK
+            tpfs[0].quality, 1 | 2 | 4 | 8 | 32 | 128
         )
         qual_mask &= (np.abs(tpfs[0].pos_corr1) < 5) & (np.abs(tpfs[0].pos_corr2) < 5)
         focus_mask = np.ones(len(tpfs[0].time), bool)[qual_mask]

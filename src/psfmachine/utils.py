@@ -8,6 +8,7 @@ from scipy import sparse
 from patsy import dmatrix
 from scipy.ndimage import gaussian_filter1d
 import pyia
+import fitsio
 
 # size_limit is 1GB
 cache = diskcache.Cache(directory="~/.psfmachine-cache")
@@ -68,7 +69,9 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         phot_g_mean_flux,
         phot_g_mean_mag,
         phot_bp_mean_mag,
-        phot_rp_mean_mag FROM (
+        phot_rp_mean_mag,
+        phot_bp_mean_flux,
+        phot_rp_mean_flux FROM (
          SELECT *,
          EPOCH_PROP_POS(ra, dec, parallax, pmra, pmdec, 0, ref_epoch, {epoch}) AS prop
          FROM gaia{dr}.gaia_source
@@ -696,3 +699,127 @@ def bspline_smooth(y, x=None, degree=3, do_segments=False, breaks=None, n_knots=
         )
         y_smooth.append(DM.dot(weights))
     return np.array(y_smooth)
+
+
+def _load_ffi_image(
+    telescope,
+    fname,
+    extension,
+    cutout_size=None,
+    cutout_origin=[0, 0],
+    return_coords=False,
+):
+    """Use fitsio to load an image
+    Parameters
+    ----------
+    telescope: str
+        String for the telescope
+    fname: str
+        Path to the filename
+    extension: int
+        Extension to cut out of the image
+    """
+    f = fitsio.FITS(fname)[extension]
+    if telescope.lower() == "kepler":
+        # CCD overscan for Kepler
+        r_min = 20
+        r_max = 1044
+        c_min = 12
+        c_max = 1112
+    elif telescope.lower() == "tess":
+        # CCD overscan for TESS
+        r_min = 0
+        r_max = 2048
+        c_min = 45
+        c_max = 2093
+    else:
+        raise TypeError("File is not from Kepler or TESS mission")
+
+    # If the image dimension is not the FFI shape, we change the r_max and c_max
+    dims = f.get_dims()
+    if dims != [r_max, c_max]:
+        r_max, c_max = np.asarray(dims)
+    r_min += cutout_origin[0]
+    c_min += cutout_origin[1]
+    if (r_min > r_max) | (c_min > c_max):
+        raise ValueError("`cutout_origin` must be within the image.")
+    if cutout_size is not None:
+        r_max = np.min([r_min + cutout_size, r_max])
+        c_max = np.min([c_min + cutout_size, c_max])
+    if return_coords:
+        row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
+        return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
+    return f[r_min:r_max, c_min:c_max]
+
+
+def _do_image_cutout(
+    flux, flux_err, ra, dec, column, row, cutout_size=100, cutout_origin=[0, 0]
+):
+    """
+    Creates a cutout of the full image. Return data arrays corresponding to the cutout.
+    Parameters
+    ----------
+    flux : numpy.ndarray
+        Data array with Flux values, correspond to full size image.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values, correspond to full size image.
+    ra : numpy.ndarray
+        Data array with RA values, correspond to full size image.
+    dec : numpy.ndarray
+        Data array with Dec values, correspond to full size image.
+    column : numpy.ndarray
+        Data array with pixel column values, correspond to full size image.
+    row : numpy.ndarray
+        Data array with pixel raw values, correspond to full size image.
+    cutout_size : int
+        Size in pixels of the cutout, assumedto be squared. Default is 100.
+    cutout_origin : tuple of ints
+        Origin of the cutout following matrix indexing. Default is [0 ,0].
+    Returns
+    -------
+    flux : numpy.ndarray
+        Data array with Flux values of the cutout.
+    flux_err : numpy.ndarray
+        Data array with Flux errors values of the cutout.
+    ra : numpy.ndarray
+        Data array with RA values of the cutout.
+    dec : numpy.ndarray
+        Data array with Dec values of the cutout.
+    column : numpy.ndarray
+        Data array with pixel column values of the cutout.
+    row : numpy.ndarray
+        Data array with pixel raw values of the cutout.
+    """
+    if (cutout_size + cutout_origin[0] <= flux.shape[1]) and (
+        cutout_size + cutout_origin[1] <= flux.shape[2]
+    ):
+        column = column[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        row = row[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux = flux[
+            :,
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        flux_err = flux_err[
+            :,
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        ra = ra[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+        dec = dec[
+            cutout_origin[0] : cutout_origin[0] + cutout_size,
+            cutout_origin[1] : cutout_origin[1] + cutout_size,
+        ]
+    else:
+        raise ValueError("Cutout size is larger than image shape ", flux.shape)
+
+    return flux, flux_err, ra, dec, column, row
