@@ -963,9 +963,6 @@ class Machine(object):
         # source exists
         if not hasattr(self, "source_mask"):
             self._get_source_mask(**kwargs)
-        # Mask of shape npixels (maybe by nt) where not saturated, not faint,
-        # not contaminated etc
-        self._get_uncontaminated_pixel_mask()
 
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
