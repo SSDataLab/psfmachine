@@ -285,7 +285,13 @@ class FFIMachine(Machine):
 
         # create data structure (DataFrame) to save the model params
         table = fits.BinTableHDU.from_columns(
-            [fits.Column(name="psf_w", array=self.psf_w, format="D")]
+            [
+                fits.Column(
+                    name="psf_w",
+                    array=self.psf_w / np.log10(self.mean_model_integral),
+                    format="D",
+                )
+            ]
         )
         # include metadata and descriptions
         table.header["object"] = ("PRF shape", "PRF shape parameters")
@@ -316,6 +322,7 @@ class FFIMachine(Machine):
         )
         # spline degree is hardcoded in `_make_A_polar` implementation.
         table.header["spln_deg"] = (3, "Degree of the spline basis")
+        table.header["norm"] = (str(False), "Normalized model")
 
         table.writeto(output, checksum=True, overwrite=True)
 
@@ -340,10 +347,6 @@ class FFIMachine(Machine):
         if not input.endswith(".fits"):
             # should use a custom exception for wrong file format
             raise ValueError("File format not suported. Please provide a FITS file.")
-
-        # create source mask and uncontaminated pixel mask
-        self._get_source_mask()
-        self._get_uncontaminated_pixel_mask()
 
         # open file
         hdu = fits.open(input)
@@ -373,6 +376,8 @@ class FFIMachine(Machine):
         self.rmax = hdu[1].header["rmax"]
         self.cut_r = hdu[1].header["cut_r"]
         self.psf_w = hdu[1].data["psf_w"]
+        # read from header if weights come from a normalized model.
+        self.normalized_shape_model = eval(hdu[1].header.get("norm"))
         del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
