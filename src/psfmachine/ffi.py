@@ -585,6 +585,18 @@ class FFIMachine(Machine):
 
         return mask
 
+    def _remove_bad_pixels_from_source_mask(self):
+        """
+        Combines source_mask and uncontaminated_pixel_mask with saturated and bright
+        pixel mask.
+        """
+        self.source_mask = self.source_mask.multiply(self.pixel_mask).tocsr()
+        self.source_mask.eliminate_zeros()
+        self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
+            self.pixel_mask
+        ).tocsr()
+        self.uncontaminated_source_mask.eliminate_zeros()
+
     def _mask_pixels(self, pixel_saturation_limit=1.2e5, magnitude_bright_limit=8):
         """
         Mask saturated pixels and halo/difraction pattern from bright sources.
@@ -609,16 +621,54 @@ class FFIMachine(Machine):
         self.pixel_mask = self.non_sat_pixel_mask & self.non_bright_source_mask
 
         if not hasattr(self, "source_mask"):
-            # include saturated pixels in the source mask and uncontaminated mask
             self._get_source_mask()
-            self.source_mask = self.source_mask.multiply(self.pixel_mask).tocsr()
-            self.source_mask.eliminate_zeros()
-            self.uncontaminated_source_mask = self.uncontaminated_source_mask.multiply(
-                self.pixel_mask
-            ).tocsr()
-            self.uncontaminated_source_mask.eliminate_zeros()
+            # include saturated pixels in the source mask and uncontaminated mask
+            self._remove_bad_pixels_from_source_mask()
 
         return
+
+    def _get_source_mask(
+        self,
+        upper_radius_limit=28.0,
+        lower_radius_limit=4.5,
+        upper_flux_limit=2e5,
+        lower_flux_limit=100,
+        correct_centroid_offset=True,
+        plot=False,
+    ):
+        """
+        Adapted version of `machine._get_source_mask()` that masks out saturated and
+        bright halo pixels in FFIs.
+        """
+        super()._get_source_mask(
+            upper_radius_limit=upper_radius_limit,
+            lower_radius_limit=lower_radius_limit,
+            upper_flux_limit=upper_flux_limit,
+            lower_flux_limit=lower_flux_limit,
+            correct_centroid_offset=correct_centroid_offset,
+            plot=plot,
+        )
+        self._remove_bad_pixels_from_source_mask()
+
+    def build_shape_model(
+        self, plot=False, flux_cut_off=1, frame_index="mean", bin_data=False, **kwargs
+    ):
+        """
+        Adapted version of `machine.build_shape_model()` that masks out saturated and
+        bright halo pixels in FFIs.
+        """
+        # call method from super calss `machine`
+        super().build_shape_model(
+            plot=False,
+            flux_cut_off=flux_cut_off,
+            frame_index=frame_index,
+            bin_data=bin_data,
+            **kwargs,
+        )
+        # include sat/halo pixels again into source_mask
+        self._remove_bad_pixels_from_source_mask()
+        if plot:
+            return self.plot_shape_model(frame_index=frame_index, bin_data=bin_data)
 
     def residuals(self, plot=False, zoom=False, metric="residuals"):
         """
