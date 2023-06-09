@@ -101,6 +101,9 @@ class Machine(object):
             The minimum radius for the PRF model to be fit. (arcseconds)
         rmax: float
             The maximum radius for the PRF model to be fit. (arcseconds)
+        cut_r : float
+            Radius distance whithin the shape model only depends on radius and not
+            angle.
         sparse_dist_lim : float
             Radial distance used to include pixels around sources when creating delta
             arrays (dra, ddec, r, and phi) as sparse matrices for efficiency.
@@ -818,6 +821,10 @@ class Machine(object):
     def perturbed_model(self, time_index):
         """
         Computes the perturbed model at a given time
+        Parameters
+        ----------
+        time_index : int or np.ndarray
+            Time index where to evaluate the perturbed model.
         """
         X = self.mean_model.copy()
         X.data *= self.P.model(time_indices=time_index).ravel()
@@ -950,11 +957,15 @@ class Machine(object):
 
         Parameters
         ----------
+        plot : boolean
+            Make a diagnostic plot
         flux_cut_off: float
             the flux in COUNTS at which to stop evaluating the model!
         frame_index : string or int
             The frame index used to build the shape model, if "mean" then use the
             mean value across time
+        bin_data : boolean
+            Bin flux data spatially to increase SNR before fitting the shape model
         **kwargs
             Keyword arguments to be passed to `_get_source_mask()`
         """
@@ -1166,7 +1177,16 @@ class Machine(object):
         self.mean_model = mean_model
 
     def _get_normalized_mean_model(self, npoints=300, plot=False):
-        """Renomarlize shape model to sum 1"""
+        """
+        Renomarlize shape model to sum 1
+
+        Parameters
+        ----------
+        npoints : int
+            Number of points used to build a high resolution grid in polar coordinates
+        plot : boolean
+            Create a diagnostic plot
+        """
 
         # create a high resolution polar grid
         r = self.source_mask.multiply(self.r).data
@@ -1243,15 +1263,16 @@ class Machine(object):
                 source. USeful to find when the time model introduces variability in the
                 light curve.
 
-        If npoints_per_pixel > 0, it creates high npoints_per_pixel shape models for each source by
-        dividing each pixels into a grid of [npoints_per_pixel x npoints_per_pixel]. This provides
-        a better estimate of `source_psf_fraction`.
+        If npoints_per_pixel > 0, it creates high npoints_per_pixel shape models for
+        each source by dividing each pixels into a grid of
+        [npoints_per_pixel x npoints_per_pixel]. This provides a better estimate of
+        `source_psf_fraction`.
 
         Parameters
         ----------
         npoints_per_pixel : int
-            Value in which each pixel axis is split to increase npoints_per_pixel. Default is
-            0 for no subpixel npoints_per_pixel.
+            Value in which each pixel axis is split to increase npoints_per_pixel.
+            Default is 0 for no subpixel npoints_per_pixel.
 
         """
         if npoints_per_pixel > 0:

@@ -477,6 +477,7 @@ class FFIMachine(Machine):
         Background removal. It models the background using a median estimator, rejects
         flux values with sigma clipping. It modiffies the attributes `flux` and
         `flux_2d`. The background model are stored in the `background_model` attribute.
+
         Parameters
         ----------
         mask : numpy.ndarray of booleans
@@ -638,7 +639,7 @@ class FFIMachine(Machine):
     ):
         """
         Adapted version of `machine._get_source_mask()` that masks out saturated and
-        bright halo pixels in FFIs.
+        bright halo pixels in FFIs. See parameter descriptions in `Machine`.
         """
         super()._get_source_mask(
             upper_radius_limit=upper_radius_limit,
@@ -655,7 +656,7 @@ class FFIMachine(Machine):
     ):
         """
         Adapted version of `machine.build_shape_model()` that masks out saturated and
-        bright halo pixels in FFIs.
+        bright halo pixels in FFIs. See parameter descriptions in `Machine`.
         """
         # call method from super calss `machine`
         super().build_shape_model(
@@ -801,6 +802,8 @@ class FFIMachine(Machine):
             Matlotlib axis can be provided, if not one will be created and returned.
         sources : boolean
             Whether to overplot or not the source catalog.
+        frame_index : int
+            Time index used to plot the image data.
 
         Returns
         -------
