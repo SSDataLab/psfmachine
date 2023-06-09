@@ -961,8 +961,8 @@ class Machine(object):
 
         # Mask of shape nsources x number of pixels, one where flux from a
         # source exists
-        if not hasattr(self, "source_mask"):
-            self._get_source_mask(**kwargs)
+        # if not hasattr(self, "source_mask"):
+        self._get_source_mask(**kwargs)
 
         # for iter in range(niters):
         flux_estimates = self.source_flux_estimates[:, None]
