@@ -692,10 +692,8 @@ class TPFMachine(Machine):
             raise ValueError("File format not suported. Please provide a FITS file.")
 
         # create source mask and uncontaminated pixel mask
-        if not hasattr(self, "source_mask"):
-            self._get_source_mask()
-        if not hasattr(self, "uncontaminated_source_mask"):
-            self._get_uncontaminated_pixel_mask()
+        # if not hasattr(self, "source_mask"):
+        self._get_source_mask()
 
         # open file
         hdu = fits.open(input)
@@ -726,7 +724,9 @@ class TPFMachine(Machine):
         self.cut_r = hdu[1].header["cut_r"]
         self.psf_w = hdu[1].data["psf_w"]
         # read from header if weights come from a normalized model.
-        self.normalized_shape_model = eval(hdu[1].header.get("norm"))
+        self.normalized_shape_model = (
+            True if hdu[1].header.get("norm") in ["True", "T", 1] else False
+        )
         del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
