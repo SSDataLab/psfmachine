@@ -8,7 +8,7 @@ nav:
       - Aperture Photometry : aperture.md
       - SSMachine : superstamp.md
       - PerturbationMatrix : perturbationmatrix.md
-      - PerturbationMatrix2D : perturbationmatrix2d.md
+      - PerturbationMatrix2D : perturbationmatrix3d.md
       - Utils : utils.md
     - Tutorials:
         - Basic PSFMachine: tutorials/Tutorial_10_TPFs.ipynb
