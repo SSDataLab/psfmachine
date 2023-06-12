@@ -7,6 +7,8 @@ nav:
       - FFIMachine : ffi.md
       - Aperture Photometry : aperture.md
       - SSMachine : superstamp.md
+      - PerturbationMatrix : perturbation.md
+      - Utils : utils.md
     - Tutorials:
         - Basic PSFMachine: tutorials/Tutorial_10_TPFs.ipynb
         - TPFMachine: tutorials/Tutorial_11_TPFs.ipynb
