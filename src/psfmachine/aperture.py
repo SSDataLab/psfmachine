@@ -200,6 +200,7 @@ def estimate_source_centroids_aperture(aperture_mask, flux, column, row):
         Data array containing the "columns" of the detector that each pixel is on.
     row : numpy.ndarray
         Data array containing the "rows" of the detector that each pixel is on.
+
     Returns
     -------
     centroid_col : numpy.ndarray
@@ -234,6 +235,7 @@ def compute_FLFRCSAP(psf_models, aperture_mask):
     Compute fraction of target flux enclosed in the optimal aperture to total flux
     for a given source (flux completeness).
     Follows definition by Kinemuchi at al. 2012.
+
     Parameters
     ----------
     psf_models : scipy.sparce.csr_matrix
@@ -259,6 +261,7 @@ def compute_CROWDSAP(psf_models, aperture_mask, idx=None):
     Compute the ratio of target flux relative to flux from all sources within
     the photometric aperture (i.e. 1 - Crowdeness).
     Follows definition by Kinemuchi at al. 2012.
+
     Parameters
     ----------
     psf_models : scipy.sparce.csr_matrix
@@ -305,6 +308,7 @@ def aperture_mask_to_2d(tpfs, sources, aperture_mask, column, row):
         Data array containing the "columns" of the detector that each pixel is on.
     row : numpy.ndarray
         Data array containing the "rows" of the detector that each pixel is on.
+
     Returns
     -------
     aperture_mask_2d : dictionary

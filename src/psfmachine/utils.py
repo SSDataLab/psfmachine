@@ -16,7 +16,7 @@ cache = diskcache.Cache(directory="~/.psfmachine-cache")
 
 # cache during 30 days
 @cache.memoize(expire=2.592e06)
-def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
+def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=3):
     """
     Will find gaia sources using a TAP query, accounting for proper motions.
 
@@ -35,6 +35,8 @@ def get_gaia_sources(ras, decs, rads, magnitude_limit=18, epoch=2020, dr=2):
         shape nsources
     magnitude_limit : int
         Limiting magnitued for query
+    epoch : float
+        Epoch to be used for propper motion correction during Gaia crossmatch.
     dr : int or string
         Gaia Data Release version, if Early DR 3 (aka EDR3) is wanted use `"edr3"`.
 
@@ -158,6 +160,34 @@ def do_tiled_query(ra, dec, ngrid=(5, 5), magnitude_limit=18, epoch=2020, dr=3):
 
 
 def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15):
+    """
+    Creates a design matrix (DM) in polar coordinates (r, phi). It will enforce r-only
+    dependency within `cut_r` radius. This is useful when less data points are available
+    near the center.
+
+    Parameters
+    ----------
+    phi : np.ndarray
+        Array of angle (phi) values in polar coordinates. Must have values in the
+        [-pi, pi] range.
+    r : np.ndarray
+        Array of radii values in polar coordinates.
+    cut_r : float
+        Radius (units consistent with `r`) whitin the DM only has radius dependency
+        and not angle.
+    rmin : float
+        Radius where the DM starts.
+    rmax : float
+        Radius where the DM ends.
+    n_r_knots : int
+        Number of knots used for the spline in radius.
+    n_phi_knots : int
+        Number of knots used for the spline in angle.
+    Returns
+    -------
+    X : sparse CSR matrix
+        A DM with bspline basis in polar coordinates.
+    """
     # create the spline bases for radius and angle
     phi_spline = sparse.csr_matrix(wrapped_spline(phi, order=3, nknots=n_phi_knots).T)
     r_knots = np.linspace(rmin ** 0.5, rmax ** 0.5, n_r_knots) ** 2
@@ -187,7 +217,26 @@ def _make_A_polar(phi, r, cut_r=6, rmin=1, rmax=18, n_r_knots=12, n_phi_knots=15
 
 
 def spline1d(x, knots, degree=3, include_knots=False):
-    """Make a spline in a 1D variable `x`"""
+    """
+    Make a bspline design matrix (DM) for 1D variable `x`.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Array of values to create the DM.
+    knots : np.ndarray
+        Array of knots to be used in the DM.
+    degree : int
+        Degree of the spline, default is 3.
+    include_knots : boolean
+        Include or not the knots in the `x` vector, this forces knots in case
+        out of bound values.
+
+    Returns
+    -------
+    X : sparse CSR matrix
+        A DM with bspline basis for vector `x`.
+    """
     if include_knots:
         x = np.hstack([knots.min(), x, knots.max()])
     X = sparse.csr_matrix(
@@ -208,6 +257,29 @@ def spline1d(x, knots, degree=3, include_knots=False):
 
 
 def _make_A_cartesian(x, y, n_knots=10, radius=3.0, knot_spacing_type="sqrt", degree=3):
+    """
+    Creates a design matrix (DM) in Cartersian coordinates (r, phi).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Array of x values in Cartersian coordinates.
+    y : np.ndarray
+        Array of y values in Cartersian coordinates.
+    n_knots : int
+        Number of knots used for the spline.
+    radius : float
+        Distance from 0 to the furthes knot.
+    knot_spacing_type : string
+        Type of spacing betwen knots, options are "linear" or "sqrt".
+    degree : int
+        Degree of the spline, default is 3.
+
+    Returns
+    -------
+    X : sparse CSR matrix
+        A DM with bspline basis in Cartersian coordinates.
+    """
     # Must be odd
     n_odd_knots = n_knots if n_knots % 2 == 1 else n_knots + 1
     if knot_spacing_type == "sqrt":
@@ -292,45 +364,44 @@ def solve_linear_model(
     A, y, y_err=None, prior_mu=None, prior_sigma=None, k=None, errors=False
 ):
     """
-            Solves a linear model with design matrix A and observations y:
-                Aw = y
-            return the solutions w for the system assuming Gaussian priors.
-            Alternatively the observation errors, priors, and a boolean mask for the
-            observations (row axis) can be provided.
+    Solves a linear model with design matrix A and observations y:
+        Aw = y
+    return the solutions w for the system assuming Gaussian priors.
+    Alternatively the observation errors, priors, and a boolean mask for the
+    observations (row axis) can be provided.
 
-            Adapted from Luger, Foreman-Mackey & Hogg, 2017
-            (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
+    Adapted from Luger, Foreman-Mackey & Hogg, 2017
+    (https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)
 
-            Parameters
-            ----------
-            A: numpy ndarray or scipy sparce csr matrix
-                Desging matrix with solution basis
-                shape n_observations x n_basis
-            y: numpy ndarray
-                Observations
-                shape n_observations
-            y_err: numpy ndarray, optional
-                Observation errors
-                shape n_observations
-            prior_mu: float, optional
-                Mean of Gaussian prior values for the weights (w)
-            prior_sigma: float, optional
-                Standard deviation of Gaussian prior values for the weights (w)
-            k: boolean, numpy ndarray, optional
-                Mask that sets the observations to be used to solve the system
-                shape n_observations
-            errors: boolean
-                Whether to return error estimates of the best fitting weights
+    Parameters
+    ----------
+    A: numpy ndarray or scipy sparce csr matrix
+        Desging matrix with solution basis
+        shape n_observations x n_basis
+    y: numpy ndarray
+        Observations
+        shape n_observations
+    y_err: numpy ndarray, optional
+        Observation errors
+        shape n_observations
+    prior_mu: float, optional
+        Mean of Gaussian prior values for the weights (w)
+    prior_sigma: float, optional
+        Standard deviation of Gaussian prior values for the weights (w)
+    k: boolean, numpy ndarray, optional
+        Mask that sets the observations to be used to solve the system
+        shape n_observations
+    errors: boolean
+        Whether to return error estimates of the best fitting weights
 
-            Returns
-            -------
-            w: numpy ndarray
-                Array with the estimations for the weights
-                shape n_basis
-            werrs: numpy ndarray
-                Array with the error estimations for the weights, returned if `error`
-    is True
-                shape n_basis
+    Returns
+    -------
+    w: numpy ndarray
+        Array with the estimations for the weights
+        shape n_basis
+    werrs: numpy ndarray
+        Array with the error estimations for the weights, returned if `error` is True
+        shape n_basis
     """
     if k is None:
         k = np.ones(len(y), dtype=bool)
@@ -709,7 +780,10 @@ def _load_ffi_image(
     cutout_origin=[0, 0],
     return_coords=False,
 ):
-    """Use fitsio to load an image
+    """
+    Use fitsio to load an image and return positions and flux values.
+    It can do a smal cutout of size `cutout_size` with a defined origin.
+
     Parameters
     ----------
     telescope: str
@@ -718,6 +792,22 @@ def _load_ffi_image(
         Path to the filename
     extension: int
         Extension to cut out of the image
+    cutout_size : int
+        Size of the cutout in pixels (e.g. 200)
+    cutout_origin : tuple of ints
+        Origin coordinates in pixels from where the cutout stars. Pattern is
+        [row, column].
+    return_coords : bool
+        Return or not pixel coordinates.
+
+    Return
+    ------
+    f: np.ndarray
+        Array of flux values read from the file. Shape is [row, column].
+    col_2d: np.ndarray
+        Array of column values read from the file. Shape is [row, column]. Optional.
+    row_2d: np.ndarray
+        Array of row values read from the file. Shape is [row, column]. Optional.
     """
     f = fitsio.FITS(fname)[extension]
     if telescope.lower() == "kepler":
@@ -757,6 +847,7 @@ def _do_image_cutout(
 ):
     """
     Creates a cutout of the full image. Return data arrays corresponding to the cutout.
+
     Parameters
     ----------
     flux : numpy.ndarray
@@ -775,6 +866,7 @@ def _do_image_cutout(
         Size in pixels of the cutout, assumedto be squared. Default is 100.
     cutout_origin : tuple of ints
         Origin of the cutout following matrix indexing. Default is [0 ,0].
+
     Returns
     -------
     flux : numpy.ndarray

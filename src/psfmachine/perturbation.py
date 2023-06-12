@@ -107,6 +107,11 @@ class PerturbationMatrix(object):
         Cuts the data into "segments" wherever there is a break. Breaks are defined
         as anywhere where there is a gap in data of more than 5 times the median
         time between observations.
+
+        Parameters
+        ----------
+        vectors : np.ndarray
+            Vector arrays to be break into segments.
         """
         return np.hstack(
             [
@@ -154,6 +159,7 @@ class PerturbationMatrix(object):
     #     return
 
     def plot(self):
+        """Plot basis vectors"""
         fig, ax = plt.subplots()
         ax.plot(self.time, self.vectors + np.arange(self.vectors.shape[1]) * 0.1)
         ax.set(xlabel="Time", ylabel="Vector", yticks=[], title="Vectors")
@@ -463,6 +469,10 @@ class PerturbationMatrix3D(PerturbationMatrix):
         self._get_cartesian_stacked()
 
     def _get_cartesian_stacked(self):
+        """
+        Stacks cartesian design matrix in preparation to be combined with
+        time basis vectors.
+        """
         self._cartesian_stacked = sparse.hstack(
             [self.cartesian_matrix for idx in range(self.vectors.shape[1])],
             format="csr",
@@ -577,6 +587,15 @@ class PerturbationMatrix3D(PerturbationMatrix):
         self._get_cartesian_stacked()
 
     def plot_model(self, time_index=0):
+        """
+        Plot perturbation model
+
+        Parameters
+        ----------
+        time_index : int
+            Time index to plot the perturbed model
+
+        """
         if not hasattr(self, "weights"):
             raise ValueError("Run `fit` first.")
         fig, ax = plt.subplots()

@@ -47,6 +47,7 @@ class TPFMachine(Machine):
         time_radius=8,
         rmin=1,
         rmax=16,
+        cut_r=6,
         pix2obs=None,
         pos_corr1=None,
         pos_corr2=None,
@@ -57,6 +58,31 @@ class TPFMachine(Machine):
         sparse_dist_lim=40,
         sources_flux_column="phot_g_mean_flux",
     ):
+        """
+        Parameters are similar to `Machine`. Additional arguments are:
+
+        Parameters
+        ----------
+        tpfs : lightkurve.TargetPixelFileCollection
+            Collection of TPFs from the `lightkurve` package.
+        pix2obs : np.ndarray
+            Array of values indicating the TPF of origin for each pixel.
+            Has shape [npixels].
+        pos_corr1 : np.ndarray
+            Array with position corrector vectors for axis 1 from the TPF
+        pos_corr2 : np.ndarray
+            Array with position corrector vectors for axis 2 from the TPF
+        focus_mask : np.ndarray boolean
+            Array of boolean indicating masked cadences due to focus change. This is
+            useful to mask out cadences when building shape or time model.
+        tpf_meta : dictionary
+            Dictionary containing metadata information related to the data.
+        cartesian_knot_spacing : string
+            Type of spacing "linear" or "sqrt" between knots when creating a cartesian
+            design matrix.
+        bkg_subtracted : bool
+            Data is background subtracted or not.
+        """
         super().__init__(
             time=time,
             flux=flux,
@@ -74,6 +100,7 @@ class TPFMachine(Machine):
             time_radius=time_radius,
             rmin=rmin,
             rmax=rmax,
+            cut_r=cut_r,
             sparse_dist_lim=sparse_dist_lim,
             sources_flux_column=sources_flux_column,
         )
@@ -425,6 +452,12 @@ class TPFMachine(Machine):
             Row entry of the source in the source catalog.
         sap : boolean
             Add or not Simple Aperture Photometry metadata
+
+        Returns
+        -------
+        meta : dictionary
+            A dictionary containing extraction metrics and source related information
+            to be used for `lightkurve.LightCurve` creation.
         """
         ldx = np.where([idx in s for s in self.tpf_meta["sources"]])[0][0]
         mission = self.tpf_meta["mission"][ldx].lower()
@@ -659,10 +692,8 @@ class TPFMachine(Machine):
             raise ValueError("File format not suported. Please provide a FITS file.")
 
         # create source mask and uncontaminated pixel mask
-        if not hasattr(self, "source_mask"):
-            self._get_source_mask()
-        if not hasattr(self, "uncontaminated_source_mask"):
-            self._get_uncontaminated_pixel_mask()
+        # if not hasattr(self, "source_mask"):
+        self._get_source_mask()
 
         # open file
         hdu = fits.open(input)
@@ -693,7 +724,9 @@ class TPFMachine(Machine):
         self.cut_r = hdu[1].header["cut_r"]
         self.psf_w = hdu[1].data["psf_w"]
         # read from header if weights come from a normalized model.
-        self.normalized_shape_model = bool(hdu[1].header.get("normalized"))
+        self.normalized_shape_model = (
+            True if hdu[1].header.get("norm") in ["True", "T", 1] else False
+        )
         del hdu
 
         # create mean model, but PRF shapes from FFI are in pixels! and TPFMachine
@@ -753,7 +786,7 @@ class TPFMachine(Machine):
         )
         # spline degree is hardcoded in `_make_A_polar` implementation.
         table.header["spln_deg"] = (3, "Degree of the spline basis")
-        table.header["normalized"] = (
+        table.header["norm"] = (
             int(self.normalized_shape_model),
             "Normalized weights",
         )
@@ -893,6 +926,8 @@ class TPFMachine(Machine):
             Mask to be applied to discard cadences if needed.
         apply_focus_mask : boolean
             Mask or not cadances near observation gaps to remove focus change.
+        renormalize_tpf_bkg : boolean
+            Add or not background to the flux array.
         query_ra : numpy.array
             Array of RA to query Gaia catalog. Default is `None` and will use the
             coordinate centers of each TPF.
@@ -1105,6 +1140,8 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
     ----------
     tpfs: lightkurve TargetPixelFileCollection
         Collection of Target Pixel files
+    renormalize_tpf_bkg : boolean
+        Add or not background to the flux array.
 
     Returns
     -------
@@ -1114,8 +1151,22 @@ def _parse_TPFs(tpfs, renormalize_tpf_bkg=True, **kwargs):
         Array with flux values per pixel
     flux_err: numpy.ndarray
         Array with flux errors per pixel
+    pos_corr1 : np.ndarray
+        Array with postion correction values from the TPF for axis 1
+    pos_corr2 : np.ndarray
+        Array with postion correction values from the TPF for axis 2
+    column : np.ndarray
+        Array with pixel column values.
+    row : np.ndarray
+        Array with pixel row values.
     unw: numpy.ndarray
         Array with TPF index for each pixel
+    focus_mask : boolean np.ndaraay
+        Array of boolean with focus mask after data downlink
+    qual_mask : boolean np.ndaraay
+        Array of boolean with quality mask from the TPF
+    sat_mask : boolean np.ndaraay
+        Array of boolean with saturated pixels
     """
 
     time = tpfs[0].time.value
@@ -1312,7 +1363,7 @@ def _wcs_from_tpfs(tpfs):
 
     Parameters
     ----------
-    tpfs: lightkurve TargetPixelFileCollection
+    tpfs: lightkurve.TargetPixelFileCollection
         Collection of Target Pixel files
 
     Returns
@@ -1352,8 +1403,10 @@ def _get_coord_and_query_gaia(
 
     Parameters
     ----------
-    tpfs:
-    magnitude_limit:
+    tpfs : lightkurve.TargetPixelFileCollection
+        Colelction of TPFs.
+    magnitude_limit: float
+        Magnitude limit to be used for Gaia query
     dr: int
         Which gaia data release to use, default is DR2
     ra : float or list of floats
@@ -1429,6 +1482,8 @@ def _clean_source_list(sources, ra, dec, pixel_tolerance=4):
     dec: numpy ndarray
         Dec pixel position averaged in time
         shape npixel
+    pixel_tolerance : int
+        Amount of pixels away from the TPF edge to accept sources.
 
     Returns
     -------

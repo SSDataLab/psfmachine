@@ -82,3 +82,6 @@ site/
 
 # shape models from FFI
 src/psfmachine/data
+
+# Jupyter
+docs/tutorials/.virtual_documents
