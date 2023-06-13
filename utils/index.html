@@ -1,0 +1,1595 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.2.3, mkdocs-material-7.3.0">
+    
+    
+      
+        <title>Utils - PSFMachine</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.8b42a75e.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.3f5d1f46.min.css">
+        
+      
+    
+    
+    
+      
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700%7CRoboto+Mono&display=fallback">
+        <style>:root{--md-text-font-family:"Roboto";--md-code-font-family:"Roboto Mono"}</style>
+      
+    
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    
+      
+
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="" data-md-color-primary="none" data-md-color-accent="none">
+  
+    
+    <script>function __prefix(e){return new URL("..",location).pathname+"."+e}function __get(e,t=localStorage){return JSON.parse(t.getItem(__prefix(e)))}</script>
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#documentation-for-utils" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="PSFMachine" class="md-header__button md-logo" aria-label="PSFMachine" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m5.8 21 1.6-7L2 9.2l7.2-.6L12 2l2.8 6.6 7.2.6-3.2 2.8H18c-3.1 0-5.6 2.3-6 5.3L5.8 21M17 14v3h-3v2h3v3h2v-3h3v-2h-3v-3h-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PSFMachine
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Utils
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+      </label>
+      
+<div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" aria-label="Clear" tabindex="-1">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        
+<a href="https://github.com/SSDataLab/psfmachine/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PSFMachine" class="md-nav__button md-logo" aria-label="PSFMachine" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m5.8 21 1.6-7L2 9.2l7.2-.6L12 2l2.8 6.6 7.2.6-3.2 2.8H18c-3.1 0-5.6 2.3-6 5.3L5.8 21M17 14v3h-3v2h3v3h2v-3h3v-2h-3v-3h-2z"/></svg>
+
+    </a>
+    PSFMachine
+  </label>
+  
+    <div class="md-nav__source">
+      
+<a href="https://github.com/SSDataLab/psfmachine/" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+      
+
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        Home
+      </a>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+    
+  
+  
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_2" type="checkbox" id="__nav_2" checked>
+      
+      
+      
+      
+        <label class="md-nav__link" for="__nav_2">
+          API
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <nav class="md-nav" aria-label="API" data-md-level="1">
+        <label class="md-nav__title" for="__nav_2">
+          <span class="md-nav__icon md-icon"></span>
+          API
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../machine/" class="md-nav__link">
+        Machine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tpf/" class="md-nav__link">
+        TPFMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ffi/" class="md-nav__link">
+        FFIMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aperture/" class="md-nav__link">
+        Aperture Photometry
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../superstamp/" class="md-nav__link">
+        SSMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix/" class="md-nav__link">
+        PerturbationMatrix
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix3d/" class="md-nav__link">
+        PerturbationMatrix2D
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+    
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" data-md-toggle="toc" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          Utils
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        Utils
+      </a>
+      
+        
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils" class="md-nav__link">
+    psfmachine.utils
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.bspline_smooth" class="md-nav__link">
+    bspline_smooth()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.do_tiled_query" class="md-nav__link">
+    do_tiled_query()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.gaussian_smooth" class="md-nav__link">
+    gaussian_smooth()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.get_breaks" class="md-nav__link">
+    get_breaks()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.get_gaia_sources" class="md-nav__link">
+    get_gaia_sources()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.solve_linear_model" class="md-nav__link">
+    solve_linear_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.sparse_lessthan" class="md-nav__link">
+    sparse_lessthan()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.spline1d" class="md-nav__link">
+    spline1d()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.threshold_bin" class="md-nav__link">
+    threshold_bin()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.wrapped_spline" class="md-nav__link">
+    wrapped_spline()
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+            
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+      
+      
+      
+
+  
+  
+  
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+      
+        <input class="md-nav__toggle md-toggle" data-md-toggle="__nav_3" type="checkbox" id="__nav_3" >
+      
+      
+      
+      
+        <label class="md-nav__link" for="__nav_3">
+          Tutorials
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <nav class="md-nav" aria-label="Tutorials" data-md-level="1">
+        <label class="md-nav__title" for="__nav_3">
+          <span class="md-nav__icon md-icon"></span>
+          Tutorials
+        </label>
+        <ul class="md-nav__list" data-md-scrollfix>
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/Tutorial_10_TPFs/" class="md-nav__link">
+        Intro to PSFMachine Tutorial 1.0
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/Tutorial_11_TPFs/" class="md-nav__link">
+        TPFMachine Tutorial 1.1
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/Tutorial_20_FFI/" class="md-nav__link">
+        FFIMachine Tutorial 2.0
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/Tutorial_30_k2ss/" class="md-nav__link">
+        SSMachine Tutorial 3.0
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/Tutorial_31_k2ss/" class="md-nav__link">
+        SSMachine Tutorial 3.1
+      </a>
+    </li>
+  
+
+            
+          
+        </ul>
+      </nav>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils" class="md-nav__link">
+    psfmachine.utils
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.bspline_smooth" class="md-nav__link">
+    bspline_smooth()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.do_tiled_query" class="md-nav__link">
+    do_tiled_query()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.gaussian_smooth" class="md-nav__link">
+    gaussian_smooth()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.get_breaks" class="md-nav__link">
+    get_breaks()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.get_gaia_sources" class="md-nav__link">
+    get_gaia_sources()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.solve_linear_model" class="md-nav__link">
+    solve_linear_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.sparse_lessthan" class="md-nav__link">
+    sparse_lessthan()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.spline1d" class="md-nav__link">
+    spline1d()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.threshold_bin" class="md-nav__link">
+    threshold_bin()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.utils.wrapped_spline" class="md-nav__link">
+    wrapped_spline()
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          <div class="md-content" data-md-component="content">
+            <article class="md-content__inner md-typeset">
+              
+                
+                  <a href="https://github.com/SSDataLab/psfmachine/edit/master/docs/utils.md" title="Edit this page" class="md-content__button md-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20.71 7.04c.39-.39.39-1.04 0-1.41l-2.34-2.34c-.37-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25z"/></svg>
+                  </a>
+                
+                
+                <h1 id="documentation-for-utils">Documentation for <code>Utils</code></h1>
+
+
+  <div class="doc doc-object doc-module">
+
+<a id="psfmachine.utils"></a>
+    <div class="doc doc-contents first">
+
+      <p>Collection of utility functions</p>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.bspline_smooth" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">bspline_smooth</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">degree</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">do_segments</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">breaks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_knots</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Applies a spline smoothing to a curve.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>y</code></td>
+        <td><code>numpy.ndarray or list of numpy.ndarray</code></td>
+        <td><p>Arrays to be smoothen in the last axis</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>x</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Optional. x array, as <code>y = f(x)`` used to find discontinuities in</code>f(x)<code>. If x
+is given then splits will be computed, if not</code>breaks` argument as to be provided.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>degree</code></td>
+        <td><code>int</code></td>
+        <td><p>Degree of the psline fit, default is 3.</p></td>
+        <td><code>3</code></td>
+      </tr>
+      <tr>
+        <td><code>do_segments</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Do the splines per segments with splits computed from data <code>x</code> or given in <code>breaks</code>.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>breaks</code></td>
+        <td><code>list of ints</code></td>
+        <td><p>List of break indexes in <code>y</code>.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>nknots</code></td>
+        <td><code>int</code></td>
+        <td><p>Number of knots for the B-Spline. If <code>do_segments</code> is True, knots will be
+distributed in each segment.</p></td>
+        <td><em>required</em></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy.ndarray</code></td>
+      <td><p>Smooth array.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.do_tiled_query" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">do_tiled_query</span><span class="p">(</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">ngrid</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="mi">2020</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Find the centers and radius of tiled queries when the sky area is large.</p>
+<p>This function divides the data into <code>ngrid</code> tiles and compute the ra, dec
+coordinates for each tile as well as its radius.
+This is meant to be used with dense data, e.g. FFI or cluster fields, and it is not
+optimized for sparse data, e.g. TPF stacks. For the latter use
+<code>psfmachine.tpf._get_coord_and_query_gaia()</code>.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>ra</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Data array with values of Right Ascension. Array can be 2D image or flatten.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>dec</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Data array with values of Declination. Array can be 2D image or flatten.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>ngrid</code></td>
+        <td><code>tuple</code></td>
+        <td><p>Tuple with number of bins in each axis. Default is (5, 5).</p></td>
+        <td><code>(5, 5)</code></td>
+      </tr>
+      <tr>
+        <td><code>magnitude_limit</code></td>
+        <td><code>int</code></td>
+        <td><p>Limiting magnitude for query</p></td>
+        <td><code>18</code></td>
+      </tr>
+      <tr>
+        <td><code>epoch</code></td>
+        <td><code>float</code></td>
+        <td><p>Year of the observation (Julian year) used for proper motion correction.</p></td>
+        <td><code>2020</code></td>
+      </tr>
+      <tr>
+        <td><code>dr</code></td>
+        <td><code>int</code></td>
+        <td><p>Gaia Data Release to be used, DR2 or EDR3. Default is EDR3.</p></td>
+        <td><code>3</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>pandas.DatFrame</code></td>
+      <td><p>Pandas DatFrame with number of result sources (rows) and Gaia columns</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.gaussian_smooth" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">gaussian_smooth</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">do_segments</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">filter_size</span><span class="o">=</span><span class="mi">13</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;mirror&#39;</span><span class="p">,</span> <span class="n">breaks</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Applies a Gaussian smoothing to a curve.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>y</code></td>
+        <td><code>numpy.ndarray or list of numpy.ndarray</code></td>
+        <td><p>Arrays to be smoothen in the last axis</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>x</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Time array of same shape of <code>y</code> last axis used to find data discontinuity.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>filter_size</code></td>
+        <td><code>int</code></td>
+        <td><p>Filter window size</p></td>
+        <td><code>13</code></td>
+      </tr>
+      <tr>
+        <td><code>mode</code></td>
+        <td><code>str</code></td>
+        <td><p>The <code>mode</code> parameter determines how the input array is extended
+beyond its boundaries. Options are {'reflect', 'constant', 'nearest', 'mirror',
+'wrap'}. Default is 'mirror'</p></td>
+        <td><code>&#39;mirror&#39;</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy.ndarray</code></td>
+      <td><p>Smooth array.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.get_breaks" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">get_breaks</span><span class="p">(</span><span class="n">time</span><span class="p">,</span> <span class="n">include_ext</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Finds discontinuity in the time array and return the break indexes.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>time</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Array with time values</p></td>
+        <td><em>required</em></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy.ndarray</code></td>
+      <td><p>An array of indexes with the break positions</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.get_gaia_sources" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">get_gaia_sources</span><span class="p">(</span><span class="n">ras</span><span class="p">,</span> <span class="n">decs</span><span class="p">,</span> <span class="n">rads</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="mi">2020</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Will find gaia sources using a TAP query, accounting for proper motions.</p>
+<p>Inputs have be hashable, e.g. tuples</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>ras</code></td>
+        <td><code>tuple</code></td>
+        <td><p>Tuple with right ascension coordinates to be queried
+shape nsources</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>decs</code></td>
+        <td><code>tuple</code></td>
+        <td><p>Tuple with declination coordinates to be queried
+shape nsources</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>rads</code></td>
+        <td><code>tuple</code></td>
+        <td><p>Tuple with radius query
+shape nsources</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>magnitude_limit</code></td>
+        <td><code>int</code></td>
+        <td><p>Limiting magnitued for query</p></td>
+        <td><code>18</code></td>
+      </tr>
+      <tr>
+        <td><code>epoch</code></td>
+        <td><code>float</code></td>
+        <td><p>Epoch to be used for propper motion correction during Gaia crossmatch.</p></td>
+        <td><code>2020</code></td>
+      </tr>
+      <tr>
+        <td><code>dr</code></td>
+        <td><code>int or string</code></td>
+        <td><p>Gaia Data Release version, if Early DR 3 (aka EDR3) is wanted use <code>"edr3"</code>.</p></td>
+        <td><code>3</code></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.solve_linear_model" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">solve_linear_model</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">y_err</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">prior_mu</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">prior_sigma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Solves a linear model with design matrix A and observations y:</p>
+<p>Aw = y
+return the solutions w for the system assuming Gaussian priors.
+Alternatively the observation errors, priors, and a boolean mask for the
+observations (row axis) can be provided.</p>
+<p>Adapted from Luger, Foreman-Mackey &amp; Hogg, 2017
+(https://ui.adsabs.harvard.edu/abs/2017RNAAS...1....7L/abstract)</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>A</code></td>
+        <td><code>numpy ndarray or scipy sparce csr matrix</code></td>
+        <td><p>Desging matrix with solution basis
+shape n_observations x n_basis</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>y</code></td>
+        <td><code>numpy ndarray</code></td>
+        <td><p>Observations
+shape n_observations</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>y_err</code></td>
+        <td><code>numpy ndarray</code></td>
+        <td><p>Observation errors
+shape n_observations</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>prior_mu</code></td>
+        <td><code>float</code></td>
+        <td><p>Mean of Gaussian prior values for the weights (w)</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>prior_sigma</code></td>
+        <td><code>float</code></td>
+        <td><p>Standard deviation of Gaussian prior values for the weights (w)</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>k</code></td>
+        <td><code>boolean, numpy ndarray</code></td>
+        <td><p>Mask that sets the observations to be used to solve the system
+shape n_observations</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>errors</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Whether to return error estimates of the best fitting weights</p></td>
+        <td><code>False</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy ndarray</code></td>
+      <td><p>Array with the estimations for the weights
+shape n_basis</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.sparse_lessthan" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">sparse_lessthan</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Compute less than operation on sparse array by evaluating only non-zero values</p>
+<p>and reconstructing the sparse array. This function return a sparse array, which is
+crutial to keep operating large matrices.</p>
+<p>Notes: when doing <code>x &lt; a</code> for a sparse array <code>x</code> and <code>a &gt; 0</code> it effectively compares
+all zero and non-zero values. Then we get a dense boolean array with <code>True</code> where
+the condition is met but also <code>True</code> where the sparse array was zero.
+To avoid this we evaluate the condition only for non-zero values in the sparse
+array and later reconstruct the sparse array with the right shape and content.
+When <code>x</code> is a [N * M] matrix and <code>a</code> is [N] array, and we want to evaluate the
+condition per row, we need to iterate over rows to perform the evaluation and then
+reconstruct the masked sparse array.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>arr</code></td>
+        <td><code>scipy.sparse</code></td>
+        <td><p>Sparse array to be masked, is a 2D matrix.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>limit</code></td>
+        <td><code>float, numpy.array</code></td>
+        <td><p>Upper limit to evaluate less than. If float will do <code>arr &lt; limit</code>. If array,
+shape has to match first dimension of <code>arr</code> to do `arr &lt; limi[:, None]`` and
+evaluate the condition per row.</p></td>
+        <td><em>required</em></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>scipy.sparse.csr_matrix</code></td>
+      <td><p>Sparse array after less than evaluation.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.spline1d" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">spline1d</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">knots</span><span class="p">,</span> <span class="n">degree</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">include_knots</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Make a bspline design matrix (DM) for 1D variable <code>x</code>.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>x</code></td>
+        <td><code>np.ndarray</code></td>
+        <td><p>Array of values to create the DM.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>knots</code></td>
+        <td><code>np.ndarray</code></td>
+        <td><p>Array of knots to be used in the DM.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>degree</code></td>
+        <td><code>int</code></td>
+        <td><p>Degree of the spline, default is 3.</p></td>
+        <td><code>3</code></td>
+      </tr>
+      <tr>
+        <td><code>include_knots</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Include or not the knots in the <code>x</code> vector, this forces knots in case
+out of bound values.</p></td>
+        <td><code>False</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>sparse CSR matrix</code></td>
+      <td><p>A DM with bspline basis for vector <code>x</code>.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.threshold_bin" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">threshold_bin</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">z_err</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">abs_thresh</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">statistic</span><span class="o">=&lt;</span><span class="n">function</span> <span class="n">nanmedian</span> <span class="n">at</span> <span class="mh">0x1110db790</span><span class="o">&gt;</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Function to bin 2D data and compute array statistic based on density.</p>
+<p>This function inputs 2D coordinates, e.g. <code>X</code> and <code>Y</code> locations, and a number value
+<code>Z</code> for each point in the 2D space. It bins the 2D spatial data to then compute
+a <code>statistic</code>, e.g. median, on the Z value based on bin members. The <code>statistic</code>
+is computed only for bins with more than <code>abs_thresh</code> members. It preserves data
+when the number of bin memebers is lower than <code>abs_thresh</code>.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>x</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Data array with spatial coordinate 1.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>y</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Data array with spatial coordinate 2.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>z</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Data array with the number values for each (X, Y) point.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>z_err</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Array with errors values for z.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>abs_thresh</code></td>
+        <td><code>int</code></td>
+        <td><p>Absolute threshold is the number of bib members to compute the statistic,
+otherwise data will be preserved.</p></td>
+        <td><code>10</code></td>
+      </tr>
+      <tr>
+        <td><code>bins</code></td>
+        <td><code>int or list of ints</code></td>
+        <td><p>Number of bins. If int, both axis will have same number of bins. If list, number
+of bins for first (x) and second (y) dimension.</p></td>
+        <td><code>15</code></td>
+      </tr>
+      <tr>
+        <td><code>statistic</code></td>
+        <td><code>callable()</code></td>
+        <td><p>The statistic as a callable function that will be use in each bin.
+Default is <code>numpy.nanmedian</code>.</p></td>
+        <td><code>&lt;function nanmedian at 0x1110db790&gt;</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy.ndarray</code></td>
+      <td><p>2D histogram values</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-function">
+
+
+
+<h2 id="psfmachine.utils.wrapped_spline" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">wrapped_spline</span><span class="p">(</span><span class="n">input_vector</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">nknots</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Creates a vector of folded-spline basis according to the input data. This is meant</p>
+<p>to be used to build the basis vectors for periodic data, like the angle in polar
+coordinates.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>input_vector</code></td>
+        <td><code>numpy.ndarray</code></td>
+        <td><p>Input data to create basis, angle values MUST BE BETWEEN -PI and PI.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>order</code></td>
+        <td><code>int</code></td>
+        <td><p>Order of the spline basis</p></td>
+        <td><code>2</code></td>
+      </tr>
+      <tr>
+        <td><code>nknots</code></td>
+        <td><code>int</code></td>
+        <td><p>Number of knots for the splines</p></td>
+        <td><code>10</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>numpy.ndarray</code></td>
+      <td><p>Array of folded-spline basis</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+  </div>
+                
+              
+              
+                
+
+
+              
+            </article>
+          </div>
+        </div>
+        
+      </main>
+      
+        
+<footer class="md-footer">
+  
+    <nav class="md-footer__inner md-grid" aria-label="Footer">
+      
+        
+        <a href="../perturbationmatrix3d/" class="md-footer__link md-footer__link--prev" aria-label="Previous: PerturbationMatrix2D" rel="prev">
+          <div class="md-footer__button md-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>
+          </div>
+          <div class="md-footer__title">
+            <div class="md-ellipsis">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              PerturbationMatrix2D
+            </div>
+          </div>
+        </a>
+      
+      
+        
+        <a href="../tutorials/Tutorial_10_TPFs/" class="md-footer__link md-footer__link--next" aria-label="Next: Intro to PSFMachine Tutorial 1.0" rel="next">
+          <div class="md-footer__title">
+            <div class="md-ellipsis">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              Intro to PSFMachine Tutorial 1.0
+            </div>
+          </div>
+          <div class="md-footer__button md-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11H4z"/></svg>
+          </div>
+        </a>
+      
+    </nav>
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-footer-copyright">
+        
+        
+          Made with
+          <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+            Material for MkDocs
+          </a>
+        
+        
+      </div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    <script id="__config" type="application/json">{"base": "..", "features": [], "translations": {"clipboard.copy": "Copy to clipboard", "clipboard.copied": "Copied to clipboard", "search.config.lang": "en", "search.config.pipeline": "trimmer, stopWordFilter", "search.config.separator": "[\\s\\-]+", "search.placeholder": "Search", "search.result.placeholder": "Type to start searching", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.term.missing": "Missing", "select.version.title": "Select version"}, "search": "../assets/javascripts/workers/search.f8263e09.min.js", "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.4fc53ad4.min.js"></script>
+      
+    
+  </body>
+</html>

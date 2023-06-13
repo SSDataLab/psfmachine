@@ -333,6 +333,20 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.machine.Machine.get_psf_metrics" class="md-nav__link">
+    get_psf_metrics()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.machine.Machine.perturbed_model" class="md-nav__link">
+    perturbed_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.machine.Machine.plot_shape_model" class="md-nav__link">
     plot_shape_model()
   </a>
@@ -405,6 +419,48 @@
     <li class="md-nav__item">
       <a href="../superstamp/" class="md-nav__link">
         SSMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix/" class="md-nav__link">
+        PerturbationMatrix
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix3d/" class="md-nav__link">
+        PerturbationMatrix2D
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/" class="md-nav__link">
+        Utils
       </a>
     </li>
   
@@ -596,6 +652,20 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.machine.Machine.get_psf_metrics" class="md-nav__link">
+    get_psf_metrics()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.machine.Machine.perturbed_model" class="md-nav__link">
+    perturbed_model()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.machine.Machine.plot_shape_model" class="md-nav__link">
     plot_shape_model()
   </a>
@@ -660,7 +730,7 @@ each linear components as explained by
 
 
 <h2 id="psfmachine.machine.Machine.__init__" class="doc doc-heading">
-<code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">flux_err</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">limit_radius</span><span class="o">=</span><span class="mf">24.0</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_r_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_phi_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">n_time_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_time_points</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">time_radius</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">rmin</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">rmax</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">cut_r</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">sparse_dist_lim</span><span class="o">=</span><span class="mi">40</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">flux_err</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">limit_radius</span><span class="o">=</span><span class="mf">24.0</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_r_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_phi_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">time_nknots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">time_resolution</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">time_radius</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">rmin</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">rmax</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">cut_r</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">sparse_dist_lim</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">sources_flux_column</span><span class="o">=</span><span class="s1">&#39;phot_g_mean_flux&#39;</span><span class="p">)</span></code>
 
   <span class="doc doc-properties">
       <small class="doc doc-property doc-property-special"><code>special</code></small>
@@ -757,7 +827,13 @@ Use this to e.g. select frames with low VA, or no focus change</p></td>
         <td><code>15</code></td>
       </tr>
       <tr>
-        <td><code>n_time_points</code></td>
+        <td><code>time_nknots</code></td>
+        <td><code>int</code></td>
+        <td><p>Number og knots for cartesian DM in time model.</p></td>
+        <td><code>10</code></td>
+      </tr>
+      <tr>
+        <td><code>time_resolution</code></td>
         <td><code>int</code></td>
         <td><p>Number of time points to bin by when fitting for velocity aberration.</p></td>
         <td><code>200</code></td>
@@ -782,12 +858,26 @@ will be fit. (arcseconds)</p></td>
         <td><code>16</code></td>
       </tr>
       <tr>
+        <td><code>cut_r</code></td>
+        <td><code>float</code></td>
+        <td><p>Radius distance whithin the shape model only depends on radius and not
+angle.</p></td>
+        <td><code>6</code></td>
+      </tr>
+      <tr>
         <td><code>sparse_dist_lim</code></td>
         <td><code>float</code></td>
         <td><p>Radial distance used to include pixels around sources when creating delta
 arrays (dra, ddec, r, and phi) as sparse matrices for efficiency.
 Default is 40" (recommended for kepler). (arcseconds)</p></td>
         <td><code>40</code></td>
+      </tr>
+      <tr>
+        <td><code>sources_flux_column</code></td>
+        <td><code>str</code></td>
+        <td><p>Column name in <code>sources</code> table to be used as flux estimate. For Kepler data
+gaia.phot_g_mean_flux is recommended, for TESS use gaia.phot_rp_mean_flux.</p></td>
+        <td><code>&#39;phot_g_mean_flux&#39;</code></td>
       </tr>
   </tbody>
 </table>
@@ -863,17 +953,6 @@ build the PSF model</p></td>
         <td><p>Mean PSF model values per pixel used for PSF photometry</p></td>
       </tr>
       <tr>
-        <td><code>time_corrector</code></td>
-        <td><code>string</code></td>
-        <td><p>The type of time corrector that will be used to build the time model,
-default is a "polynomial" for a polynomial in time, it can also be "pos_corr"</p></td>
-      </tr>
-      <tr>
-        <td><code>poscorr_filter_size</code></td>
-        <td><code>int</code></td>
-        <td><p>Standard deviation for Gaussian kernel to be used to smooth the pos_corrs</p></td>
-      </tr>
-      <tr>
         <td><code>cartesian_knot_spacing</code></td>
         <td><code>string</code></td>
         <td><p>Defines the type of spacing between knots in cartessian space to generate
@@ -883,6 +962,11 @@ the design matrix, options are "linear" or "sqrt".</p></td>
         <td><code>quiet</code></td>
         <td><code>booleans</code></td>
         <td><p>Quiets TQDM progress bars.</p></td>
+      </tr>
+      <tr>
+        <td><code>contaminant_mag_limit</code></td>
+        <td><code>float</code></td>
+        <td><p>The limiting magnitude at which a sources is considered as contaminant</p></td>
       </tr>
   </tbody>
 </table>
@@ -919,6 +1003,12 @@ the design matrix, options are "linear" or "sqrt".</p></td>
   </thead>
   <tbody>
       <tr>
+        <td><code>plot</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Make a diagnostic plot</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
         <td><code>flux_cut_off</code></td>
         <td><code>float</code></td>
         <td><p>the flux in COUNTS at which to stop evaluating the model!</p></td>
@@ -930,6 +1020,12 @@ the design matrix, options are "linear" or "sqrt".</p></td>
         <td><p>The frame index used to build the shape model, if "mean" then use the
 mean value across time</p></td>
         <td><code>&#39;mean&#39;</code></td>
+      </tr>
+      <tr>
+        <td><code>bin_data</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Bin flux data spatially to increase SNR before fitting the shape model</p></td>
+        <td><code>False</code></td>
       </tr>
       <tr>
         <td><code>**kwargs</code></td>
@@ -950,7 +1046,7 @@ mean value across time</p></td>
 
 
 <h2 id="psfmachine.machine.Machine.build_time_model" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">build_time_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">downsample</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">build_time_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">bin_method</span><span class="o">=</span><span class="s1">&#39;bin&#39;</span><span class="p">,</span> <span class="n">poly_order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">segments</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">focus</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">focus_exptime</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">pca_ncomponents</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">pca_smooth_time_scale</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">positions</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">other_vectors</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 
 </h2>
@@ -960,7 +1056,7 @@ mean value across time</p></td>
       <p>Builds a time model that moves the PRF model to account for the scene movement</p>
 <p>due to velocity aberration. It has two methods to choose from using the
 attribute <code>self.time_corrector</code>, if <code>"polynomial"</code> (default) will use a
-polynomial in time, if <code>"pos_corr"</code> will use the pos_corr vectos that can be found
+polynomial in time, if <code>"poscorr"</code> will use the pos_corr vectos that can be found
 in the TPFs. The time polynomial gives a more flexible model vs the pos_corr
 option, but can lead to light curves with "weird" long-term trends. Using
 pos_corr is recomended for Kepler data.</p>
@@ -983,11 +1079,67 @@ pos_corr is recomended for Kepler data.</p>
         <td><code>False</code></td>
       </tr>
       <tr>
-        <td><code>downsample</code></td>
+        <td><code>bin_method</code></td>
+        <td><code>string</code></td>
+        <td><p>Type of bin method, options are "bin" and "downsample".</p></td>
+        <td><code>&#39;bin&#39;</code></td>
+      </tr>
+      <tr>
+        <td><code>poly_order</code></td>
+        <td><code>int</code></td>
+        <td><p>Degree of the time polynomial used for the time model. Default is 3.</p></td>
+        <td><code>3</code></td>
+      </tr>
+      <tr>
+        <td><code>segments</code></td>
         <td><code>boolean</code></td>
-        <td><p>If True the <code>time</code> and <code>pos_corr</code> arrays will be downsampled instead of
-binned.</p></td>
+        <td><p>If <code>True</code> will split the light curve into segments to fit different time
+models with a common pixel normalization. If <code>False</code> will fit the full
+time series as one segment. Segments breaks are infered from time
+discontinuities.</p></td>
         <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>focus</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Add a component that models th focus change at the begining of a segment.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>focus_exptime</code></td>
+        <td><code>int</code></td>
+        <td><p>Characteristic decay for focus component modeled as exponential decay when
+<code>focus</code> is True. In the same units as <code>PerturbationMatrix3D.time</code>.</p></td>
+        <td><code>50</code></td>
+      </tr>
+      <tr>
+        <td><code>pca_ncomponents</code></td>
+        <td><code>int</code></td>
+        <td><p>Number of PCA components used in <code>PerturbationMatrix3D</code>. The components are
+derived from pixel light lighrcurves.</p></td>
+        <td><code>0</code></td>
+      </tr>
+      <tr>
+        <td><code>pca_smooth_time_scale</code></td>
+        <td><code>float</code></td>
+        <td><p>Smooth time sacel for PCA components.</p></td>
+        <td><code>0</code></td>
+      </tr>
+      <tr>
+        <td><code>positions</code></td>
+        <td><code>boolean or string</code></td>
+        <td><p>If one of strings <code>"poscorr", "centroid"</code> then the perturbation matrix will
+add other vectors accounting for position shift.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>other_vectors</code></td>
+        <td><code>list or numpy.ndarray</code></td>
+        <td><p>Set of other components used to include  in the perturbed model.
+See <code>psfmachine.perturbation.PerturbationMatrix</code> object for details.
+Posible use case are using Kepler CBVs or engeneering data. Shape has to be
+(ncomponents, ntimes). Default is <code>None</code>.</p></td>
+        <td><code>None</code></td>
       </tr>
   </tbody>
 </table>
@@ -1145,8 +1297,99 @@ model has to be built previously with <code>build_time_model</code>.</p></td>
 
 
 
+<h2 id="psfmachine.machine.Machine.get_psf_metrics" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">get_psf_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">npoints_per_pixel</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Computes three metrics for the PSF model:</p>
+<p>source_psf_fraction: the amount of PSF in the data. Tells how much of a
+        sources is used to estimate the PSF, values are in between [0, 1].
+    perturbed_ratio_mean: the ratio between the mean model and perturbed model
+        for each source. Usefull to find when the time model affects the
+        mean value of the light curve.
+    perturbed_std: the standard deviation of the perturbed model for each
+        source. USeful to find when the time model introduces variability in the
+        light curve.</p>
+<p>If npoints_per_pixel &gt; 0, it creates high npoints_per_pixel shape models for
+each source by dividing each pixels into a grid of
+[npoints_per_pixel x npoints_per_pixel]. This provides a better estimate of
+<code>source_psf_fraction</code>.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>npoints_per_pixel</code></td>
+        <td><code>int</code></td>
+        <td><p>Value in which each pixel axis is split to increase npoints_per_pixel.
+Default is 0 for no subpixel npoints_per_pixel.</p></td>
+        <td><code>10</code></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.machine.Machine.perturbed_model" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">perturbed_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time_index</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Computes the perturbed model at a given time</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>time_index</code></td>
+        <td><code>int or np.ndarray</code></td>
+        <td><p>Time index where to evaluate the perturbed model.</p></td>
+        <td><em>required</em></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
 <h2 id="psfmachine.machine.Machine.plot_shape_model" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">plot_shape_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">frame_index</span><span class="o">=</span><span class="s1">&#39;mean&#39;</span><span class="p">,</span> <span class="n">bin_data</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">plot_shape_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame_index</span><span class="o">=</span><span class="s1">&#39;mean&#39;</span><span class="p">,</span> <span class="n">bin_data</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
 
 
 </h2>
@@ -1167,17 +1410,17 @@ model has to be built previously with <code>build_time_model</code>.</p></td>
   </thead>
   <tbody>
       <tr>
-        <td><code>radius</code></td>
-        <td><code>float</code></td>
-        <td><p>Radius (in arcseconds) limit to be shown in the figure.</p></td>
-        <td><code>20</code></td>
-      </tr>
-      <tr>
         <td><code>frame_index</code></td>
         <td><code>string or int</code></td>
         <td><p>The frame index used to plot the shape model, if "mean" then use the
 mean value across time</p></td>
         <td><code>&#39;mean&#39;</code></td>
+      </tr>
+      <tr>
+        <td><code>bin_data</code></td>
+        <td><code>bool</code></td>
+        <td><p>Bin or not the pixel data in a 2D historgram, default is False.</p></td>
+        <td><code>False</code></td>
       </tr>
   </tbody>
 </table>

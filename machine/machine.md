@@ -9,7 +9,9 @@
         - build_time_model
         - plot_shape_model
         - plot_time_model
+        - perturbed_model
         - fit_model
+        - get_psf_metrics
         - create_aperture_mask
         - compute_aperture_photometry
     rendering:

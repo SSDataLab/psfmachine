@@ -13,6 +13,7 @@
         - lcs_in_tpf
         - load_shape_model
         - save_shape_model
+        - get_source_centroids
     rendering:
       show_root_heading: false
       show_source: false

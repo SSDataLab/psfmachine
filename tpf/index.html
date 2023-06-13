@@ -305,6 +305,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.__init__" class="md-nav__link">
+    __init__()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.fit_lightcurves" class="md-nav__link">
     fit_lightcurves()
   </a>
@@ -314,6 +321,13 @@
         <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.from_TPFs" class="md-nav__link">
     from_TPFs()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.get_source_centroids" class="md-nav__link">
+    get_source_centroids()
   </a>
   
 </li>
@@ -405,6 +419,48 @@
     <li class="md-nav__item">
       <a href="../superstamp/" class="md-nav__link">
         SSMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix/" class="md-nav__link">
+        PerturbationMatrix
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix3d/" class="md-nav__link">
+        PerturbationMatrix2D
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/" class="md-nav__link">
+        Utils
       </a>
     </li>
   
@@ -554,6 +610,13 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.__init__" class="md-nav__link">
+    __init__()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.fit_lightcurves" class="md-nav__link">
     fit_lightcurves()
   </a>
@@ -563,6 +626,13 @@
         <li class="md-nav__item">
   <a href="#psfmachine.tpf.TPFMachine.from_TPFs" class="md-nav__link">
     from_TPFs()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.tpf.TPFMachine.get_source_centroids" class="md-nav__link">
+    get_source_centroids()
   </a>
   
 </li>
@@ -647,6 +717,92 @@
 
 
 
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.tpf.TPFMachine.__init__" class="doc doc-heading">
+<code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tpfs</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">flux_err</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">limit_radius</span><span class="o">=</span><span class="mf">24.0</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_r_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_phi_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">time_nknots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">time_resolution</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">time_radius</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">rmin</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">rmax</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">cut_r</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">pix2obs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pos_corr1</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pos_corr2</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">focus_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">tpf_meta</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cartesian_knot_spacing</span><span class="o">=</span><span class="s1">&#39;sqrt&#39;</span><span class="p">,</span> <span class="n">bkg_subtracted</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">sparse_dist_lim</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">sources_flux_column</span><span class="o">=</span><span class="s1">&#39;phot_g_mean_flux&#39;</span><span class="p">)</span></code>
+
+  <span class="doc doc-properties">
+      <small class="doc doc-property doc-property-special"><code>special</code></small>
+  </span>
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Parameters are similar to <code>Machine</code>. Additional arguments are:</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>tpfs</code></td>
+        <td><code>lightkurve.TargetPixelFileCollection</code></td>
+        <td><p>Collection of TPFs from the <code>lightkurve</code> package.</p></td>
+        <td><em>required</em></td>
+      </tr>
+      <tr>
+        <td><code>pix2obs</code></td>
+        <td><code>np.ndarray</code></td>
+        <td><p>Array of values indicating the TPF of origin for each pixel.
+Has shape [npixels].</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>pos_corr1</code></td>
+        <td><code>np.ndarray</code></td>
+        <td><p>Array with position corrector vectors for axis 1 from the TPF</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>pos_corr2</code></td>
+        <td><code>np.ndarray</code></td>
+        <td><p>Array with position corrector vectors for axis 2 from the TPF</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>focus_mask</code></td>
+        <td><code>np.ndarray boolean</code></td>
+        <td><p>Array of boolean indicating masked cadences due to focus change. This is
+useful to mask out cadences when building shape or time model.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>tpf_meta</code></td>
+        <td><code>dictionary</code></td>
+        <td><p>Dictionary containing metadata information related to the data.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>cartesian_knot_spacing</code></td>
+        <td><code>string</code></td>
+        <td><p>Type of spacing "linear" or "sqrt" between knots when creating a cartesian
+design matrix.</p></td>
+        <td><code>&#39;sqrt&#39;</code></td>
+      </tr>
+      <tr>
+        <td><code>bkg_subtracted</code></td>
+        <td><code>bool</code></td>
+        <td><p>Data is background subtracted or not.</p></td>
+        <td><code>True</code></td>
+      </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
 
 
 
@@ -758,7 +914,7 @@ then precomputed models will be download from Zenodo repo.</p></td>
 
 
 <h2 id="psfmachine.tpf.TPFMachine.from_TPFs" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">from_TPFs</span><span class="p">(</span><span class="n">tpfs</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">apply_focus_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">renormalize_tpf_bkg</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">query_ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_rad</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">from_TPFs</span><span class="p">(</span><span class="n">tpfs</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">sources</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">time_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">apply_focus_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">renormalize_tpf_bkg</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">query_ra</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_dec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query_rad</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
 
   <span class="doc doc-properties">
       <small class="doc doc-property doc-property-staticmethod"><code>staticmethod</code></small>
@@ -809,8 +965,14 @@ with a 1 pixel tolerance (distance from source gaia pocition and TPF edge)</li>
       <tr>
         <td><code>dr</code></td>
         <td><code>int</code></td>
-        <td><p>Gaia data release to be use, default is 2, options are DR2 and EDR3</p></td>
-        <td><code>2</code></td>
+        <td><p>Gaia data release to be use, default is 3, options are DR2 and EDR3</p></td>
+        <td><code>3</code></td>
+      </tr>
+      <tr>
+        <td><code>sources</code></td>
+        <td><code>pandas.DataFrame</code></td>
+        <td><p>Catalog with sources to be extracted by PSFMachine</p></td>
+        <td><code>None</code></td>
       </tr>
       <tr>
         <td><code>time_mask</code></td>
@@ -823,6 +985,12 @@ with a 1 pixel tolerance (distance from source gaia pocition and TPF edge)</li>
         <td><code>boolean</code></td>
         <td><p>Mask or not cadances near observation gaps to remove focus change.</p></td>
         <td><code>True</code></td>
+      </tr>
+      <tr>
+        <td><code>renormalize_tpf_bkg</code></td>
+        <td><code>boolean</code></td>
+        <td><p>Add or not background to the flux array.</p></td>
+        <td><code>False</code></td>
       </tr>
       <tr>
         <td><code>query_ra</code></td>
@@ -866,6 +1034,60 @@ the coordinate centers of each TPF.</p></td>
       <td><code>Machine object</code></td>
       <td><p>A Machine class object built from TPFs.</p></td>
     </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.tpf.TPFMachine.get_source_centroids" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">get_source_centroids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;poscor&#39;</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Compute centroids for sources in pixel coordinates.</p>
+<p>It implements three different methods to calculate centroids:
+    * "aperture": computes centroids from moments <code>Machine.estimate_source_centroids_aperture()</code>. This needs the aperture
+    masks to becomputed in advance with <code>Machine.compute_aperture_photometry</code>.
+    Note that for sources with partial data (i.e. near TPF edges) the this
+    method is illdefined.
+    * "poscor": uses Gaia RA and Dec coordinates converted to pixel
+    space using the TPFs WCS solution and the apply each TPF 'pos_corr'
+    correction
+    * "scene": uses Gaia coordinates again, but correction is computed from
+    the TPF scene jitter using 'Machine._get_centroids()'.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>method</code></td>
+        <td><code>string</code></td>
+        <td><p>What type of corrected centroid will be computed.
+If "aperture", it creates attributes <code>source_centroids_[column/row]_ap</code>.
+If "poscor" (default), it creates attributes
+<code>source_centroids_[column/row]_poscor</code>.
+If "scene", it creates attributes <code>source_centroids_[column/row]_scene</code>.</p>
+<p>Note: "poscor" and "scene" show consistent results below 10th of a pixel.</p></td>
+        <td><code>&#39;poscor&#39;</code></td>
+      </tr>
   </tbody>
 </table>
     </div>
@@ -1059,7 +1281,7 @@ source the light curve belongs to.</p>
 
 
 <h2 id="psfmachine.tpf.TPFMachine.remove_background_model" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">remove_background_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">data_augment</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">remove_background_model</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">data_augment</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">zero_centered</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 
 </h2>
@@ -1105,6 +1327,13 @@ augment the background pixels. This argument is useful to include Kepler's
 background pixels from the mission. The dictionary has to have the following
 keys; "column", "row", and "flux".</p></td>
         <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td><code>zero_centered</code></td>
+        <td><code>boolean</code></td>
+        <td><p>If True the pixel background level will be zero centered. If False pixels
+will be positive.</p></td>
+        <td><code>True</code></td>
       </tr>
   </tbody>
 </table>

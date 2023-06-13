@@ -347,6 +347,20 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.ffi.FFIMachine.plot_pixel_masks" class="md-nav__link">
+    plot_pixel_masks()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.ffi.FFIMachine.residuals" class="md-nav__link">
+    residuals()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.ffi.FFIMachine.save_flux_values" class="md-nav__link">
     save_flux_values()
   </a>
@@ -391,6 +405,48 @@
     <li class="md-nav__item">
       <a href="../superstamp/" class="md-nav__link">
         SSMachine
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix/" class="md-nav__link">
+        PerturbationMatrix
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perturbationmatrix3d/" class="md-nav__link">
+        PerturbationMatrix2D
+      </a>
+    </li>
+  
+
+            
+          
+            
+              
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/" class="md-nav__link">
+        Utils
       </a>
     </li>
   
@@ -568,6 +624,20 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#psfmachine.ffi.FFIMachine.plot_pixel_masks" class="md-nav__link">
+    plot_pixel_masks()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#psfmachine.ffi.FFIMachine.residuals" class="md-nav__link">
+    residuals()
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#psfmachine.ffi.FFIMachine.save_flux_values" class="md-nav__link">
     save_flux_values()
   </a>
@@ -626,7 +696,7 @@
 
 
 <h2 id="psfmachine.ffi.FFIMachine.__init__" class="doc doc-heading">
-<code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">flux_err</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">wcs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit_radius</span><span class="o">=</span><span class="mf">32.0</span><span class="p">,</span> <span class="n">n_r_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_phi_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">n_time_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_time_points</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">time_radius</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">cut_r</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">rmin</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">rmax</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">meta</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">flux_err</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">wcs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit_radius</span><span class="o">=</span><span class="mf">32.0</span><span class="p">,</span> <span class="n">n_r_knots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_phi_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span> <span class="n">time_nknots</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">time_resolution</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">time_radius</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">cut_r</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">rmin</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">rmax</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">sparse_dist_lim</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">quality_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">meta</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
   <span class="doc doc-properties">
       <small class="doc doc-property doc-property-special"><code>special</code></small>
@@ -636,6 +706,7 @@
 
     <div class="doc doc-contents ">
 
+      <p>Repeated optional parameters are described in <code>Machine</code>.</p>
 
 <p><strong>Parameters:</strong></p>
 <table>
@@ -705,6 +776,12 @@ Has shape [n_times, n_rows, n_columns]</p></td>
         <td><code>None</code></td>
       </tr>
       <tr>
+        <td><code>quality_mask</code></td>
+        <td><code>np.ndarray or booleans</code></td>
+        <td><p>Boolean array of shape time indicating cadences with bad quality.</p></td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
         <td><code>meta</code></td>
         <td><code>dictionary</code></td>
         <td><p>Meta data information related to the FFI</p></td>
@@ -756,7 +833,7 @@ image_height, image_width]</p></td>
 
 
 <h2 id="psfmachine.ffi.FFIMachine.from_file" class="doc doc-heading">
-<code class="highlight language-python"><span class="n">from_file</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cutout_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cutout_origin</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">correct_offsets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">plot_offsets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
+<code class="highlight language-python"><span class="n">from_file</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cutout_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cutout_origin</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">correct_offsets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">plot_offsets</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">magnitude_limit</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span> <span class="n">dr</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">sources</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
 
   <span class="doc doc-properties">
       <small class="doc doc-property doc-property-staticmethod"><code>staticmethod</code></small>
@@ -817,6 +894,24 @@ default.</p></td>
         <td><code>boolean</code></td>
         <td><p>Create diagnostic plot for oordinate offset correction.</p></td>
         <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>magnitude_limit</code></td>
+        <td><code>float</code></td>
+        <td><p>Limiting magnitude to query Gaia catalog.</p></td>
+        <td><code>18</code></td>
+      </tr>
+      <tr>
+        <td><code>dr</code></td>
+        <td><code>int</code></td>
+        <td><p>Gaia data release to be use, default is 3, options are DR2 and EDR3</p></td>
+        <td><code>3</code></td>
+      </tr>
+      <tr>
+        <td><code>sources</code></td>
+        <td><code>pandas.DataFrame</code></td>
+        <td><p>Catalog with sources to be extracted by PSFMachine</p></td>
+        <td><code>None</code></td>
       </tr>
       <tr>
         <td><code>**kwargs</code></td>
@@ -930,6 +1025,12 @@ See <code>psfmachine.Machine</code> for details.</p></td>
         <td><p>Whether to overplot or not the source catalog.</p></td>
         <td><code>False</code></td>
       </tr>
+      <tr>
+        <td><code>frame_index</code></td>
+        <td><code>int</code></td>
+        <td><p>Time index used to plot the image data.</p></td>
+        <td><code>0</code></td>
+      </tr>
   </tbody>
 </table>
 <p><strong>Returns:</strong></p>
@@ -944,6 +1045,130 @@ See <code>psfmachine.Machine</code> for details.</p></td>
     <tr>
       <td><code>matplotlib.axes</code></td>
       <td><p>Matlotlib axis with the figure.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.ffi.FFIMachine.plot_pixel_masks" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">plot_pixel_masks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Function to plot the mask used to reject saturated and bright pixels.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>ax</code></td>
+        <td><code>matplotlib.axes</code></td>
+        <td><p>Matlotlib axis can be provided, if not one will be created and returned.</p></td>
+        <td><code>None</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>matplotlib.axes</code></td>
+      <td><p>Matlotlib axis with the figure.</p></td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+  </div>
+
+
+
+  <div class="doc doc-object doc-method">
+
+
+
+<h2 id="psfmachine.ffi.FFIMachine.residuals" class="doc doc-heading">
+<code class="highlight language-python"><span class="n">residuals</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">zoom</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="s1">&#39;residuals&#39;</span><span class="p">)</span></code>
+
+
+</h2>
+
+    <div class="doc doc-contents ">
+
+      <p>Get the residuals (model - image) and compute statistics. It creates a model</p>
+<p>of the full image using the <code>mean_model</code> and the weights computed when fitting
+the shape model.</p>
+
+<p><strong>Parameters:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Default</th>
+    </tr>
+  </thead>
+  <tbody>
+      <tr>
+        <td><code>plot</code></td>
+        <td><code>bool</code></td>
+        <td><p>Do plotting.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>zoom</code></td>
+        <td><code>bool</code></td>
+        <td><p>If plot is True then zoom into a section of the image for better
+visualization.</p></td>
+        <td><code>False</code></td>
+      </tr>
+      <tr>
+        <td><code>metric</code></td>
+        <td><code>string</code></td>
+        <td><p>Type of metric used to plot. Default is "residuals", "chi2" is also
+available.</p></td>
+        <td><code>&#39;residuals&#39;</code></td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>matplotlib figure</code></td>
+      <td><p>Figure.</p></td>
     </tr>
   </tbody>
 </table>
